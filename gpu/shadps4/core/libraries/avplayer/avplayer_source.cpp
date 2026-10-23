@@ -290,7 +290,8 @@ bool AvPlayerSource::Start() {
         constexpr u8 max_channels = 8;
         constexpr size_t max_sample_size = sizeof(s32);
         const auto size = max_channels * max_sample_size * 1024;
-        for (u64 index = 0; index < (m_max_num_video_framebuffers * 2); ++index) {
+        constexpr u64 num_audio_buffers = 64;
+        for (u64 index = 0; index < num_audio_buffers; ++index) {
             m_audio_buffers.Push(GuestBuffer(m_memory_replacement, 0x10, size, false));
         }
     }

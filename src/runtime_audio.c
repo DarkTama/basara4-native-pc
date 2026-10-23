@@ -347,9 +347,16 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
         }
         if (pace) {
             uint64_t now=now_ns();
+            static __thread uint64_t last_paced_ns;
+            int should_sleep = 1;
+            if (last_paced_ns && now - last_paced_ns < period / 2) {
+                /* Same audio thread submitting multiple ports sequentially in the same grain: don't double sleep */
+                should_sleep = 0;
+            }
             if (!p->next_deadline_ns || now>p->next_deadline_ns+8*period) p->next_deadline_ns=now; /* start or stall: restart cadence */
-            else sleep_until(p->next_deadline_ns);
+            else if (should_sleep) sleep_until(p->next_deadline_ns);
             p->next_deadline_ns+=period;
+            if (should_sleep) last_paced_ns = now_ns();
         }
         if (p->stream) {
             /* The device drains the queue in quanta (21 ms on PipeWire), so the level
