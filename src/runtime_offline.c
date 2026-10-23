@@ -1328,7 +1328,9 @@ static ABI int32_t ngs2_calc_block(const void *format, uint32_t position, uint32
     if (!format) result=NGS2_INVALID_WAVEFORM_DATA;
     else if (f[0]==0x10 || f[0]==0x12 || f[0]==0x13) {
         uint32_t frame_bytes=f[1]*(f[0]==0x13 ? 4u : f[0]==0x12 ? 2u : 1u);
-        out.offset=f[4]+position*frame_bytes; out.size=samples*frame_bytes; out.samples=samples;
+        out.offset=f[4]+position*frame_bytes;
+        out.size=out.offset+samples*frame_bytes; /* Sony Ngs2: end offset so (end - start) == size */
+        out.samples=samples;
     } else if (f[0]==0x40 && f[3]) {
         void *probe=Atrac9GetHandle(); Atrac9CodecInfo ci;
         unsigned char config[4]; memcpy(config,&f[3],4);
@@ -1344,7 +1346,7 @@ static ABI int32_t ngs2_calc_block(const void *format, uint32_t position, uint32
                 uint64_t last=(begin+samples+per_superframe-1)/per_superframe;
                 if (last<=first) last=first+1;
                 out.offset=(uint32_t)(f[4]+first*(uint64_t)ci.superframeSize);
-                out.size=(uint32_t)((last-first)*(uint64_t)ci.superframeSize);
+                out.size=out.offset+(uint32_t)((last-first)*(uint64_t)ci.superframeSize); /* Sony Ngs2: end offset so (end - start) == size */
                 out.skip=(uint32_t)(begin-first*per_superframe);
                 out.samples=samples;
             }
