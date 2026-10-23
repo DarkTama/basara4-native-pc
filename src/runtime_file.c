@@ -309,7 +309,8 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     if (h<0) return -EBADF;
     touch_for_write(buffer,size);
     ssize_t n=host_read(h,buffer,size);
-    if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
+    if (audio_trace()) printf("Audio trace: read(fd %d, %llu, buf=%p) -> %lld\n",fd,(unsigned long long)size,buffer,(long long)n);
+    if (n<0) { return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -318,7 +319,8 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (h<0) return -EBADF;
     touch_for_write(buffer,size);
     ssize_t n=pread(h,buffer,size,offset);
-    if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
+    if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld, buf=%p) -> %lld\n",fd,(unsigned long long)size,(long long)offset,buffer,(long long)n);
+    if (n<0) { return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -346,6 +348,7 @@ static int64_t do_lseek(int fd,int64_t offset,int whence) {
         return -EINVAL;
     }
     int64_t r=host_lseek(f->host,offset,whence);
+    if (audio_trace()) printf("Audio trace: lseek(fd %d, %lld, whence=%d) -> %lld\n",fd,(long long)offset,whence,(long long)r);
     return r<0 ? -errno : r;
 }
 static int64_t do_fstat(int fd,GuestStat *out) {

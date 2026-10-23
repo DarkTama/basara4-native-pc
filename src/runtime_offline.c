@@ -386,6 +386,7 @@ typedef struct Ngs2Voice {
     uint32_t wave_type, wave_channels, wave_rate, wave_config;
     /* ATRAC9 (0x40): decoder, decoded frame, byte cursor in the block, superframe padding */
     void *at9;
+    uint32_t at9_config;
     Atrac9CodecInfo at9_info;
     int16_t at9_pcm[256*NGS2_MAX_CHANNELS];
     int at9_count, at9_pos, at9_frames, at9_primed;
@@ -627,6 +628,7 @@ static void ngs2_pop_block(Ngs2Voice *v) {
 }
 static void ngs2_at9_restart(Ngs2Voice *v) {
     if (v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
+    v->at9_config=0;
     v->at9_count=v->at9_pos=v->at9_frames=v->at9_primed=0; v->at9_emitted=0;
     v->at9_byte=0; v->at9_sf_have=v->at9_sf_pos=0; v->at9_sf_ready=v->at9_starved=v->at9_errors=0; v->at9_phase=0;
     v->at9_decoded=v->at9_retries=0;
@@ -646,12 +648,14 @@ static uint32_t ngs2_at9_config(const Ngs2Voice *v) {
     return 0;
 }
 static int ngs2_at9_open(Ngs2Voice *v) {
-    if (v->at9) return 1;
     uint32_t config=ngs2_at9_config(v);
+    if (v->at9 && v->at9_config==config) return 1;
+    if (v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
+    v->at9_config=0;
     if (ngs2_tracing()) {
         const unsigned char *d=v->wave_data;
         printf("Ngs2 trace: ATRAC9 voice %u config=%#x data=%p head=%02x%02x%02x%02x blocks=%u b0{off=%u size=%u rep=%u skip=%u samples=%u}\n",
-               v->index,config,(const void *)d,d[0],d[1],d[2],d[3],v->block_count,v->blocks[0].offset,v->blocks[0].size,
+               v->index,config,(const void *)d,d ? d[0] : 0,d ? d[1] : 0,d ? d[2] : 0,d ? d[3] : 0,v->block_count,v->blocks[0].offset,v->blocks[0].size,
                v->blocks[0].repeats,v->blocks[0].skip,v->blocks[0].samples);
     }
     if (!config) {
@@ -667,6 +671,7 @@ static int ngs2_at9_open(Ngs2Voice *v) {
         v->at9=NULL; v->wave_type=0; /* undecodable: the voice stays silent */
         return 0;
     }
+    v->at9_config=config;
     Atrac9GetCodecInfo(v->at9,&v->at9_info);
     if (v->at9_info.channels<1 || v->at9_info.channels>NGS2_MAX_CHANNELS || v->at9_info.frameSamples>256 ||
         v->at9_info.superframeSize<=0 || v->at9_info.superframeSize>8192 || (!v->at9_sf && !(v->at9_sf=calloc(1,8192+16384)))) { /* zeroed room after a superframe: the bit reader looks ahead */
@@ -722,7 +727,12 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
         if ((decode_rc || used<=0) && v->streaming) {
             /* Streaming ring buffer refill: waiting for game to supply more data or advance buffer. */
             static int reported;
-            if (++v->at9_retries==1 && reported++<40) runtime_audio_log("ngs2.at9_waiting_for_data rack=%#x voice=%u rc=%d",v->rack->id,v->index,decode_rc);
+            if (++v->at9_retries==1 && reported++<40) {
+                const unsigned char *sf=v->at9_sf+v->at9_sf_pos;
+                runtime_audio_log("ngs2.at9_waiting_for_data rack=%#x voice=%u rc=%d sf_pos=%u head=%02x%02x%02x%02x%02x%02x%02x%02x data=%p blk_off=%u blk_sz=%u at9_byte=%u",
+                                  v->rack->id,v->index,decode_rc,v->at9_sf_pos,sf[0],sf[1],sf[2],sf[3],sf[4],sf[5],sf[6],sf[7],
+                                  (const void *)v->block_data[v->block],v->blocks[v->block].offset,v->blocks[v->block].size,v->at9_byte);
+            }
             if (!v->at9_decoded && v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
             v->at9_byte=0; v->at9_sf_have=0; v->at9_sf_ready=0; v->at9_frames=0;
             if (!v->at9_decoded) v->consumed_bytes-=superframe;
@@ -869,6 +879,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
             if (!v->wave_channels || v->wave_channels>NGS2_MAX_CHANNELS) v->wave_channels=1;
             v->channels=v->wave_channels;
             v->block_count=0;
+            ngs2_at9_restart(v);
         }
         break;
     case 0x10000001: /* waveform blocks: data, flags, numBlocks, aBlock */
@@ -1342,10 +1353,11 @@ static ABI int32_t ngs2_calc_block(const void *format, uint32_t position, uint32
             else {
                 uint64_t begin=(uint64_t)position+f[5];                  /* in the decoder's own timeline */
                 uint64_t first=begin/per_superframe;
-                if (position && first) --first;                          /* lead-in for the overlap */
                 uint64_t last=(begin+samples+per_superframe-1)/per_superframe;
                 if (last<=first) last=first+1;
-                out.offset=(uint32_t)(f[4]+first*(uint64_t)ci.superframeSize);
+                /* Capcom MT Framework adds data chunk base offset to out.offset when seeking file.
+                 * out.offset must be purely superframe-aligned stream byte offset, without f[4] added again. */
+                out.offset=(uint32_t)(first*(uint64_t)ci.superframeSize);
                 out.size=out.offset+(uint32_t)((last-first)*(uint64_t)ci.superframeSize); /* Sony Ngs2: end offset so (end - start) == size */
                 out.skip=(uint32_t)(begin-first*per_superframe);
                 out.samples=samples;
