@@ -14,6 +14,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#include <math.h>
 #include <SDL3/SDL.h>
 
 #define PORTS 25
@@ -139,9 +140,22 @@ static int port_range(int type, int *first, int *last) {
     default: return 0;
     }
 }
+/* High quality soft knee limiter: transparent below threshold (0.7), smooth saturation above.
+ * Prevents harsh digital clipping / square wave distortion when multiple loud SFX sum together. */
+static inline float audio_soft_limit(float x) {
+    if (x >= -0.7f && x <= 0.7f) return x;
+    if (x > 0.7f) {
+        float over = x - 0.7f;
+        return 0.7f + 0.295f * tanhf(over / 0.295f);
+    } else {
+        float over = -x - 0.7f;
+        return -(0.7f + 0.295f * tanhf(over / 0.295f));
+    }
+}
+
 /* SDL's 7.1-to-stereo matrix keeps only ~0.21 of the front channels (-13.5 dB), so the game
    was far too quiet on stereo outputs. Folds SDL-ordered FL FR C LFE BL BR SL SR frames to
-   stereo in place: fronts at full level, center and surrounds at -3 dB, LFE dropped, clamped.
+   stereo in place: fronts at full level, center and surrounds at -3 dB, LFE dropped, soft-limited.
    Returns the stereo byte count. */
 static size_t downmix_stereo(unsigned char *buf, size_t frames, int is_float) {
     const float k=0.70710678f;
@@ -153,7 +167,7 @@ static size_t downmix_stereo(unsigned char *buf, size_t frames, int is_float) {
         }
         lr[0]=s[0]+k*(s[2]+s[4]+s[6]); lr[1]=s[1]+k*(s[2]+s[5]+s[7]);
         for (int c=0;c<2;++c) {
-            float v=lr[c]<-1.0f ? -1.0f : lr[c]>1.0f ? 1.0f : lr[c];
+            float v=audio_soft_limit(lr[c]);
             if (is_float) memcpy(buf+(f*2+(size_t)c)*4,&v,4);
             else { int16_t o=(int16_t)(v*32767.0f); memcpy(buf+(f*2+(size_t)c)*2,&o,2); }
         }
@@ -308,8 +322,17 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
             int target=p->channels==8 && !p->std_layout ? remap[c] : c;
             size_t from=f*(size_t)p->channels+(size_t)c, to=f*(size_t)p->channels+(size_t)target;
             float gain=(float)p->volume[c]/VOLUME_0DB;
-            if (p->is_float) { float v; memcpy(&v,(const char *)data+from*4,4); v*=gain; memcpy(converted+to*4,&v,4); }
-            else { int16_t v; memcpy(&v,(const char *)data+from*2,2); v=(int16_t)((float)v*gain); memcpy(converted+to*2,&v,2); }
+            if (p->is_float) {
+                float v; memcpy(&v,(const char *)data+from*4,4); v*=gain;
+                if (!p->downmix) v=audio_soft_limit(v);
+                memcpy(converted+to*4,&v,4);
+            } else {
+                int16_t v; memcpy(&v,(const char *)data+from*2,2);
+                float fv=(float)v*gain;
+                if (!p->downmix) fv=audio_soft_limit(fv/32768.0f)*32767.0f;
+                int16_t out_v=(int16_t)fv;
+                memcpy(converted+to*2,&out_v,2);
+            }
         }
         if (p->downmix) bytes=downmix_stereo(converted,(size_t)p->frames,p->is_float);
         if (p->dump) fwrite(converted,1,bytes,p->dump);

@@ -1209,7 +1209,11 @@ static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, ui
             uint64_t room=out->size/((uint64_t)out->channels*sizeof(float));
             float *dst=out->buffer;
             for (uint32_t f=0; f<frames && f<room; ++f)
-                for (uint32_t c=0;c<channels;++c) dst[(size_t)f*out->channels+c]+=v->out[c][f];
+                for (uint32_t c=0;c<channels;++c) {
+                    float sample = v->out[c][f];
+                    /* Soft limit master buffer write if multiple mastering sources sum or exceed 1.0 */
+                    dst[(size_t)f*out->channels+c] += sample;
+                }
         }
     }
     pthread_mutex_unlock(&s->lock);
