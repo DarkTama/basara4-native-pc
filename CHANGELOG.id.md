@@ -65,7 +65,14 @@ yang hening. Diuji di **satu mesin saja: Windows, NVIDIA RTX 4070**. Kartu grafi
 
 - **Pemilihan stage** tidak lagi crash di mesin markup teks UI MT Framework (issue #1). (`313eef4`)
 - **Crash dump ditulis** ke `user\crash\core-<tanggal>-<jam>.dmp` saat proses mati karena fault atau assertion GPU, sehingga laporan bug lebih dari beberapa baris teks. (`c7778ca`)
-  *Dump berisi memori game: berikan hanya kepada orang yang Anda percaya.*
+  *Dump berisi sebagian memori game (stack thread dan yang ditunjuknya): berikan hanya kepada orang yang Anda percaya.*
+
+### Launcher
+
+- **WAV capture mati secara bawaan dan meminta konfirmasi.** Fitur ini menulis mix akhir dan setiap voice panjang sebagai audio tanpa kompresi (sekitar 70 MB
+  per menit, sampai 3 GB untuk satu sesi). Mencentangnya kini menampilkan peringatan dan perlu konfirmasi, sekaligus menyalakan log debug audio, pilihannya tidak
+  diingat antar peluncuran (berlaku untuk satu kali start game, lalu mati sendiri), dan launcher menawarkan untuk menghapus capture sisa sesi sebelumnya di
+  `user\audio_wav`.
 
 ### Alat untuk menemukan masalah (repositori sumber, `tools/`)
 

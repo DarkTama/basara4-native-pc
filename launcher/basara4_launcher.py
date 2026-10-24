@@ -36,9 +36,29 @@ MAPPING = USER / "gamepad_mapping.txt"
 AUDIO_LOG = USER / "audio_debug.log"
 AUDIO_WAV = USER / "audio_wav"  # SPARTAN_AUDIO_WAV_DIR: float WAV capture of the mix and of long voices
 STAMP = OUT / "prepared.json"
+WAV_WARNING = ("WAV capture saves the final mix and every long voice as uncompressed audio in user\\audio_wav: about 70 MB per "
+               "minute, up to 3 GB for one session.\n\nUse it only to find an audio problem, and delete the files afterwards.\n\n"
+               "It applies to the next game start only and switches itself off after that. It also turns on the audio debug "
+               "log. Turn it on?")
 PIPELINE = [("prepare.py", []), ("link_libc.py", []), ("link_modules.py", []),
             ("content_profile.py", ["--sku", "full"])]
 NO_WINDOW = 0x08000000
+
+
+def wav_captures():
+    """The audio captures an earlier session left in user\\audio_wav: (files, total bytes)."""
+    files = sorted(AUDIO_WAV.glob("*.wav")) if AUDIO_WAV.is_dir() else []
+    total = 0
+    for f in files:
+        try:
+            total += f.stat().st_size
+        except OSError:
+            pass
+    return files, total
+
+
+def format_size(n):
+    return f"{n / 2**30:.1f} GB" if n >= 2**30 else f"{n / 2**20:.0f} MB"
 
 
 def run_script_mode():
@@ -203,6 +223,8 @@ class Launcher(tk.Tk):
         if play_now:
             self.iconify()
             self.after(300, self.on_play)
+        else:
+            self.after(700, self._check_wav_leftovers)
 
     # ---- look ----
     def _style(self):
@@ -327,13 +349,13 @@ class Launcher(tk.Tk):
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
-        self.wav_var = tk.BooleanVar(value=self.cfg.get("audio_wav", False))
+        self.wav_var = tk.BooleanVar(value=False)  # never remembered: a forgotten tick would write 3 GB every session
         ttk.Checkbutton(opts, text="VSync", variable=self.vsync_var).grid(row=1, column=0, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="Sharpening (RCAS)", variable=self.rcas_var).grid(
             row=1, column=1, columnspan=2, sticky="w", pady=8)
-        ttk.Checkbutton(opts, text="Audio debug log", variable=self.audio_var).grid(
+        ttk.Checkbutton(opts, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).grid(
             row=1, column=3, sticky="w", pady=8)
-        ttk.Checkbutton(opts, text="+ WAV capture (large)", variable=self.wav_var).grid(
+        ttk.Checkbutton(opts, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).grid(
             row=1, column=4, sticky="w", pady=8, padx=(8, 0))
         ttk.Label(opts, text="Above 60 turns off the game's own frame limiter (experimental). "
                   "VSync caps the rate at your monitor's refresh.",
@@ -401,6 +423,31 @@ class Launcher(tk.Tk):
         self.fps_var.set(next((n for n, v in FPS_LIMITS if v == fps), FPS_LIMITS[0][0]))
         an = int(ini["anisotropy"]) if ini.get("anisotropy", "").isdigit() else self.cfg["anisotropy"]
         self.aniso_var.set(next((n for n, v in ANISO if v == an), "Off"))
+
+    def _audio_toggled(self):
+        if not self.audio_var.get():
+            self.wav_var.set(False)  # the capture belongs to the log
+
+    def _wav_toggled(self):
+        if not self.wav_var.get():
+            return
+        if messagebox.askyesno("WAV capture", WAV_WARNING, icon="warning", default="no", parent=self):
+            self.audio_var.set(True)
+        else:
+            self.wav_var.set(False)
+
+    def _check_wav_leftovers(self):
+        files, total = wav_captures()
+        if not files or total < 50 * 2**20:
+            return
+        if messagebox.askyesno("Audio captures", f"user\\audio_wav holds {format_size(total)} of audio captures "
+                               f"({len(files)} files) from an earlier session.\n\nDelete them to free the space?",
+                               default="no", parent=self):
+            for f in files:
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
 
     def _pad_text(self):
         self.pad_label.config(text="Custom gamepad mapping in use." if MAPPING.exists()
@@ -515,6 +562,10 @@ class Launcher(tk.Tk):
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
              "--app0", str(game), "--user", str(USER), "--no-game-hooks"] + patch_args,
             env=self._env(), cwd=str(USER), stdout=log, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
+        if self.cfg.get("audio_wav"):  # a one-session option: the next start has it off again
+            self.cfg["audio_wav"] = False
+            save_config(self.cfg)
+            self.wav_var.set(False)
         self.stop.config(state="normal")
         self.status.config(text=notice + ("Running, writing user\\audio_debug.log…" if self.cfg.get("audio_log")
                                           else "Running…  (Insert opens the in-game menu)"))

@@ -67,7 +67,14 @@ no silent music voice. Tested on **one machine only: Windows, NVIDIA RTX 4070**.
 
 - **Stage select** no longer crashes in the MT Framework UI text markup engine (issue #1). (`313eef4`)
 - **A crash dump is written** to `user\crash\core-<date>-<time>.dmp` when the process dies from a fault or a GPU assertion, so a bug report is
-  more than a few lines of text. (`c7778ca`) *A dump contains the memory of the game: only give it to people you trust.*
+  more than a few lines of text. (`c7778ca`) *A dump contains parts of the game's memory (thread stacks and what they point to): only give it to people you trust.*
+
+### Launcher
+
+- **WAV capture is off by default and asks first.** It writes the final mix and every long voice as uncompressed audio (about 70 MB per minute, up to
+  3 GB for one session). Ticking it now shows a warning and needs a confirmation, it also turns on the audio debug log, it is never remembered
+  between launches (it applies to one game start, then switches itself off), and the launcher offers to delete captures left in `user\audio_wav`
+  by an earlier session.
 
 ### Tools for finding problems (source repository, `tools/`)
 
