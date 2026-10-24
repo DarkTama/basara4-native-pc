@@ -2431,9 +2431,9 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 return;
             }
             LOG_WARNING(Render_Vulkan,
-                        "texture {} {}x{} levels {} at {:#x} (stage {:#x}) resolved to the depth image {:#x} {} {}x{} "
+                        "[{}] texture {} {}x{} levels {} at {:#x} (stage {:#x}) resolved to the depth image {:#x} {} {}x{} "
                         "levels {}; FindImage returned {:#x} {} {}x{}; {}",
-                        vk::to_string(wanted.view_info.format), wanted.info.size.width, wanted.info.size.height,
+                        GpuCheckpoint::WallClock(), vk::to_string(wanted.view_info.format), wanted.info.size.width, wanted.info.size.height,
                         wanted.info.resources.levels, wanted.info.guest_address, stage.pgm_hash,
                         used.info.guest_address, vk::to_string(used.info.pixel_format), used.info.size.width,
                         used.info.size.height, used.info.resources.levels, found.info.guest_address,

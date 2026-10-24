@@ -7,6 +7,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/texture_cache/image.h"
 #include "video_core/texture_cache/image_view.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 
 #include <magic_enum/magic_enum.hpp>
 
@@ -111,9 +112,9 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
             static u32 logged = 0;
             if (logged++ < 8) {
                 LOG_WARNING(Render_Vulkan,
-                            "image view range (levels {}+{}, layers {}+{}) exceeds its image {:#x} "
+                            "[{}] image view range (levels {}+{}, layers {}+{}) exceeds its image {:#x} "
                             "{}x{}x{} ({} levels, {} layers, fmt {}); clamped to levels {}+{}, layers {}+{}",
-                            before.base.level, before.extent.levels, before.base.layer,
+                            Vulkan::GpuCheckpoint::WallClock(), before.base.level, before.extent.levels, before.base.layer,
                             before.extent.layers, image.info.guest_address, image.info.size.width,
                             image.info.size.height, image.info.size.depth, image_levels, image_layers,
                             vk::to_string(image.info.pixel_format), info.range.base.level,
@@ -157,8 +158,8 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         static u32 logged = 0;
         if (logged++ < 8) {
             LOG_WARNING(Render_Vulkan,
-                        "view of depth/stencil image {:#x} {} asked for format {} aspect {}: using the image's format, one aspect",
-                        image.info.guest_address, vk::to_string(image.info.pixel_format),
+                        "[{}] view of depth/stencil image {:#x} {} asked for format {} aspect {}: using the image's format, one aspect",
+                        Vulkan::GpuCheckpoint::WallClock(), image.info.guest_address, vk::to_string(image.info.pixel_format),
                         vk::to_string(format), vk::to_string(aspect));
         }
         format = image.info.pixel_format;

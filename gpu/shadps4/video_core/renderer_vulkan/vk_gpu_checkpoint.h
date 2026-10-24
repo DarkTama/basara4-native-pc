@@ -10,6 +10,9 @@
 #pragma once
 
 #include <array>
+#include <chrono>
+#include <ctime>
+#include <string>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -53,6 +56,17 @@ inline std::atomic<u64>& Counter() {
 
 [[nodiscard]] inline bool Enabled() {
     return EnabledFlag().load(std::memory_order_relaxed);
+}
+
+/// Wall-clock time of day, so a GPU warning can be matched to what the audio log says was playing.
+inline std::string WallClock() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    std::tm local{};
+    localtime_s(&local, &seconds);
+    char text[16];
+    std::strftime(text, sizeof(text), "%H:%M:%S", &local);
+    return text;
 }
 
 /// Records a description and returns the marker for it (0 when checkpoints are unavailable).

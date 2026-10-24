@@ -17,6 +17,7 @@
 #include "video_core/page_manager.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_wait_diagnostics.h"
@@ -1187,9 +1188,9 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
         static u32 logged = 0;
         if (logged++ < 16) {
             LOG_WARNING(Render_Vulkan,
-                        "FindImage: wanted {} {}x{} levels {} layers {} size {:#x} at {:#x} binding {} exact {}: got the depth image "
+                        "[{}] FindImage: wanted {} {}x{} levels {} layers {} size {:#x} at {:#x} binding {} exact {}: got the depth image "
                         "{:#x} {} {}x{} levels {} size {:#x} (view mip {} slice {}, {} cached at this address)",
-                        vk::to_string(info.pixel_format), info.size.width, info.size.height, info.resources.levels,
+                        Vulkan::GpuCheckpoint::WallClock(), vk::to_string(info.pixel_format), info.size.width, info.size.height, info.resources.levels,
                         info.resources.layers, info.guest_size, info.guest_address, static_cast<int>(desc.type),
                         exact_fmt, image.info.guest_address, vk::to_string(image.info.pixel_format),
                         image.info.size.width, image.info.size.height, image.info.resources.levels,
