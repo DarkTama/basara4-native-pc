@@ -7,7 +7,7 @@ reproduced from a save made just before it.
   python tools/save_snapshot.py list
   python tools/save_snapshot.py save <name>      copy the current save data into a snapshot
   python tools/save_snapshot.py load <name>      put a snapshot back (the current save is backed up first)
-  python tools/save_snapshot.py --user D:\\path\\to\\user ...     (default: G:\\basara4-windows\\user, or ./user)
+  python tools/save_snapshot.py --user D:\\path\\to\\user ...     (default: ./user, else the user\\ folder next to tools\\)
 
 Only the game's save data is touched (user/savedata).  Close the game first; it refuses to run while the game is open.
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 def default_user():
-    for candidate in (Path(r"G:\basara4-windows\user"), Path("user")):
+    for candidate in (Path("user"), Path(__file__).resolve().parent.parent / "user"):
         if candidate.is_dir():
             return candidate
     return Path("user")

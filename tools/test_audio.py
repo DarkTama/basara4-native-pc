@@ -11,7 +11,7 @@ import sys
 import wave
 from pathlib import Path
 
-ROOT = Path(r"G:\basara4-windows")
+ROOT = Path(os.environ.get("BASARA4_ROOT") or Path(__file__).resolve().parent.parent)  # an install folder: bin\, user\
 BIN = ROOT / "bin"
 USER = ROOT / "user"
 OUT = ROOT / "out"
@@ -134,7 +134,7 @@ def run_audio_test(timeout_sec=15):
         
     if log_path.exists():
         print("\n=== Audio Log Summary ===")
-        summary_tool = Path(r"G:\basara4-pc\tools\audio_log_summary.py")
+        summary_tool = Path(__file__).resolve().with_name("audio_log_summary.py")
         if summary_tool.exists():
             subprocess.run(["python", str(summary_tool), str(log_path)])
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-folder = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"G:\basara4-windows\user\framedump")
+folder = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "user" / "framedump"
 pattern = re.compile(r"(.+)_(\d+)_(\d+)x(\d+)\.raw$")
 done = 0
 for raw in sorted(folder.glob("*.raw")):

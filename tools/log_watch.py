@@ -17,7 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-user = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"G:\basara4-windows\user")
+user = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "user"
 out = user / "timeline.log"
 
 GPU_KEEP = re.compile(r"DEVICE LOST|checkpoint|stage |  #\d|image view range|depth/stencil|resolved to the depth|FindImage:|  cached|"

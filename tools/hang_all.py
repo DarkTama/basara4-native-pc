@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import hang_sample as hs  # noqa: E402
 
 SYM = r"C:\msys64\clang64\bin\llvm-symbolizer.exe"
-EXE = r"G:\basara4-pc\out\gpu\basara4-core.exe"
+EXE = str(Path(__file__).resolve().parent.parent / "out" / "gpu" / "basara4-core.exe")  # symbols for the host addresses
 
 
 def thread_name(tid):

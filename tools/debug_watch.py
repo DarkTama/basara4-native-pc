@@ -26,7 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-user = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(r"G:\basara4-windows\user")
+user = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "user"
 timeline = user / "timeline.log"
 capture_trigger = user / "capture.trigger"
 dump_trigger = user / "framedump.trigger"
