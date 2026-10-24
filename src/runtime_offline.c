@@ -409,6 +409,7 @@ typedef struct Ngs2Voice {
     float pitch;
     uint32_t state_calls; /* GetState calls since creation (a streaming game polls it) */
     int log_starved;      /* last logged starved/refilled state of a streaming voice */
+    int fresh;            /* a new waveform was submitted since the last honoured Play (event 0) */
     Ngs2Wav wav;          /* capture of this long voice's output */
     int log_pending, log_major; /* SPARTAN_AUDIO_DEBUG */
     /* per-render state */
@@ -943,9 +944,27 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
 #define NGS2_EVENT_KILL 3
 #define NGS2_EVENT_RESUME_A 4
 #define NGS2_EVENT_RESUME_B 5
+/* SPARTAN_NGS2_AUTOPLAY_BLOCKS=1 brings back the old behaviour (replacing the blocks starts the voice), for A/B listening. */
+static int ngs2_autoplay_blocks(void) { static int on=-1; if (on<0) on=getenv("SPARTAN_NGS2_AUTOPLAY_BLOCKS")!=NULL; return on; }
+/* SPARTAN_NGS2_PLAY_RESTARTS=1 brings back the old behaviour (every Play restarts), for A/B listening. */
+static int ngs2_play_restarts(void) { static int on=-1; if (on<0) on=getenv("SPARTAN_NGS2_PLAY_RESTARTS")!=NULL; return on; }
 static void ngs2_event(Ngs2Voice *v, uint32_t event) {
+    if (v->rack->id==NGS2_RACK_SAMPLER && (v->streaming || v->block_count>1 || ngs2_total_bytes(v)>=24576u)) { /* every event on a long voice, as the game sent it */
+        static int seen;
+        if (seen++<1500) runtime_audio_log("ngs2.event id=%u rack=%#x/%u voice=%u before: playing=%d paused=%d fresh=%d played_ms=%.0f queued=%u streaming=%d",
+                                           event,v->rack->id,v->rack->serial,v->index,v->playing,v->paused,v->fresh,ngs2_played_ms(v),v->block_count,v->streaming);
+    }
+    if (event==NGS2_EVENT_RESET && v->rack->id==NGS2_RACK_SAMPLER && v->playing && !v->paused && !v->fresh && !ngs2_play_restarts()) {
+        /* The game sends Play again while the voice is already playing its stream (seen right after a Resume, and
+           600 ms into a dialogue line). Restarting the decoder at byte 0 of a ring that has been refilled since
+           produced garbage or a repeated word. A Play after new blocks (fresh) is honoured. */
+        static int reported;
+        if (reported++<400) runtime_audio_log("ngs2.play_ignored rack=%#x/%u voice=%u played_ms=%.0f queued=%u streaming=%d",
+                                              v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v),v->block_count,v->streaming);
+        return;
+    }
     switch (event) {
-    case NGS2_EVENT_RESET: v->playing=1; v->paused=0; v->log_pending=1; v->block=0; v->repeats_done=0; v->position=0; v->consumed=0; v->consumed_bytes=0; ngs2_at9_restart(v); break;
+    case NGS2_EVENT_RESET: v->fresh=0; v->playing=1; v->paused=0; v->log_pending=1; v->block=0; v->repeats_done=0; v->position=0; v->consumed=0; v->consumed_bytes=0; ngs2_at9_restart(v); break;
     case NGS2_EVENT_STOP: case NGS2_EVENT_KILL: v->playing=0; v->paused=0; break;
     case NGS2_EVENT_PAUSE: v->paused=1; break;
     case NGS2_EVENT_RESUME_A: case NGS2_EVENT_RESUME_B: v->paused=0; v->playing=1; break;
@@ -1040,9 +1059,12 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                 v->position=0;
                 v->consumed=0;
                 v->consumed_bytes=0;
-                v->paused=0;
-                v->playing=1;
+                /* New blocks do not start the voice. The game submits them, keeps refilling for about two seconds, and
+                   starts the stream itself with events 5 and 0 in one call (seen in the event log). Starting here played
+                   that preload, the refills overwrote the start of the ring, and the real Play then restarted on garbage. */
+                if (ngs2_autoplay_blocks()) { v->paused=0; v->playing=1; }
                 v->log_pending=1;
+                v->fresh=1;
                 ngs2_at9_restart(v);
             }
             for (uint32_t k=0;k<take;++k) {
