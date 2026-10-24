@@ -131,6 +131,33 @@ static void describe_address(char *out, size_t size, uintptr_t address) {
     }
     snprintf(out,size,"%p",(void *)address);
 }
+
+/* Basara 4 PC: a minidump (threads, stacks, modules) next to the logs when the process dies, so a crash report is not just
+ * the text above.  user/crash/core-YYYYMMDD-HHMMSS.dmp; SPARTAN_GPU_USER_DIR is the launcher's user folder. */
+typedef BOOL (WINAPI *minidump_write_fn)(HANDLE, DWORD, HANDLE, int, PVOID, PVOID, PVOID);
+typedef struct { DWORD thread; EXCEPTION_POINTERS *pointers; BOOL client_pointers; } minidump_exception;
+void spartanport_write_minidump(void *exception_pointers) {
+    static volatile LONG once;
+    if (InterlockedExchange(&once,1)) return;
+    HMODULE dbghelp=LoadLibraryA("dbghelp.dll");
+    minidump_write_fn write=dbghelp ? (minidump_write_fn)(void *)GetProcAddress(dbghelp,"MiniDumpWriteDump") : NULL;
+    if (!write) return;
+    const char *user=getenv("SPARTAN_GPU_USER_DIR");
+    char dir[MAX_PATH],path[MAX_PATH];
+    snprintf(dir,sizeof(dir),"%s\\crash",user && *user ? user : "user");
+    CreateDirectoryA(dir,NULL);
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    snprintf(path,sizeof(path),"%s\\core-%04d%02d%02d-%02d%02d%02d.dmp",dir,now.wYear,now.wMonth,now.wDay,now.wHour,now.wMinute,now.wSecond);
+    HANDLE file=CreateFileA(path,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+    if (file==INVALID_HANDLE_VALUE) return;
+    minidump_exception ex={GetCurrentThreadId(),(EXCEPTION_POINTERS *)exception_pointers,FALSE};
+    /* thread info, process/thread data, indirectly referenced memory, unloaded modules */
+    BOOL ok=write(GetCurrentProcess(),GetCurrentProcessId(),file,0x1000|0x100|0x40|0x20,exception_pointers ? &ex : NULL,NULL,NULL);
+    CloseHandle(file);
+    fprintf(stderr,ok ? "Crash dump written: %s\n" : "Crash dump failed: %s\n",path);
+    fflush(stderr);
+}
 static int fatal_reported;
 static LONG fatal_exception(EXCEPTION_POINTERS *info) {
     if (__atomic_exchange_n(&fatal_reported,1,__ATOMIC_ACQ_REL)) { Sleep(INFINITE); }
@@ -159,6 +186,7 @@ static LONG fatal_exception(EXCEPTION_POINTERS *info) {
     }
     if (isa_table) isa_rewrite_report(isa_table,stderr);
     fflush(NULL);
+    spartanport_write_minidump(info);
     TerminateProcess(GetCurrentProcess(),3);
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -946,6 +974,7 @@ int main(int argc, char **argv) {
     SYSTEM_INFO system_info; GetSystemInfo(&system_info); page_size = system_info.dwPageSize;
     AddVectoredExceptionHandler(1, vectored_fault);
     SetUnhandledExceptionFilter(unhandled_fault);
+    if (getenv("SPARTAN_TEST_MINIDUMP")) spartanport_write_minidump(NULL); /* checks the dump path without a crash */
     if (getenv("SPARTAN_STRICT_HANDLES")) {
         PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY strict={0};
         strict.RaiseExceptionOnInvalidHandleReference=1;

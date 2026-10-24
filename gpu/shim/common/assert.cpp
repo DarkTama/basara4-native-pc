@@ -5,9 +5,14 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 
+extern "C" void spartanport_write_minidump(void* exception_pointers);
+
 void assert_fail_impl() {
     std::fflush(stdout);
     std::fputs("STOP: GPU library assertion failed (see GPU log above)\n", stderr);
+#ifdef _WIN32
+    spartanport_write_minidump(nullptr);
+#endif
     std::_Exit(23);
 }
 
