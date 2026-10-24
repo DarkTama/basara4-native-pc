@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "spartanport_toggles.h"
+#include <algorithm>
 #include <ranges>
 #include "common/assert.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
@@ -251,33 +252,51 @@ void Image::GetBarriers(Barriers& barriers, vk::ImageLayout dst_layout, vk::Acce
     const bool partially_transited = !subresource_states.empty();
 
     if (needs_partial_transition || partially_transited) {
-        if (!partially_transited) {
-            subresource_states.resize(info.resources.levels * info.resources.layers);
-            std::fill(subresource_states.begin(), subresource_states.end(), last_state);
+        const size_t subresource_count = size_t(info.resources.levels) * info.resources.layers;
+        if (!partially_transited || subresource_states.size() != subresource_count) {
+            // Basara 4 PC: the table must match the image. A leftover table of another size made
+            // `mip * layers + layer` run past its end (GetBarriers assertion).
+            subresource_states.assign(subresource_count, last_state);
         }
 
         // In case of partial transition, we need to change the specified subresources only.
         // Otherwise all subresources need to be set to the same state so we can use a full
         // resource transition for the next time.
-        const auto mips =
+        const u32 level_limit = info.resources.levels;
+        const u32 layer_limit = info.resources.layers;
+        const u32 mip_begin = needs_partial_transition ? std::min(subres_range->base.level, level_limit) : 0u;
+        const u32 mip_end =
             needs_partial_transition
-                ? std::ranges::views::iota(subres_range->base.level,
-                                           subres_range->base.level + subres_range->extent.levels)
-                : std::views::iota(0u, info.resources.levels);
-        const auto layers =
+                ? std::min(subres_range->base.level + subres_range->extent.levels, level_limit)
+                : level_limit;
+        const u32 layer_begin =
+            needs_partial_transition ? std::min(subres_range->base.layer, layer_limit) : 0u;
+        const u32 layer_end =
             needs_partial_transition
-                ? std::ranges::views::iota(subres_range->base.layer,
-                                           subres_range->base.layer + subres_range->extent.layers)
-                : std::views::iota(0u, info.resources.layers);
+                ? std::min(subres_range->base.layer + subres_range->extent.layers, layer_limit)
+                : layer_limit;
+        if (needs_partial_transition &&
+            (subres_range->base.level + subres_range->extent.levels > level_limit ||
+             subres_range->base.layer + subres_range->extent.layers > layer_limit)) {
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                LOG_WARNING(Render_Vulkan,
+                            "Barrier range (levels {}+{}, layers {}+{}) exceeds the image ({} levels, {} layers); limited to the image",
+                            subres_range->base.level, subres_range->extent.levels,
+                            subres_range->base.layer, subres_range->extent.layers, level_limit,
+                            layer_limit);
+            }
+        }
+        const auto mips = std::views::iota(mip_begin, mip_end);
+        const auto layers = std::views::iota(layer_begin, layer_end);
 
         for (u32 mip : mips) {
             for (u32 layer : layers) {
                 // NOTE: these loops may produce a lot of small barriers.
                 // If this becomes a problem, we can optimize it by merging adjacent barriers.
                 const auto subres_idx = mip * info.resources.layers + layer;
-                if (subres_idx >= subresource_states.size()) {
-                    continue;
-                }
+                ASSERT(subres_idx < subresource_states.size());
                 auto& state = subresource_states[subres_idx];
 
                 constexpr auto write_flags = vk::AccessFlagBits2::eTransferWrite |
