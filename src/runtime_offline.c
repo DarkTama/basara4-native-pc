@@ -412,6 +412,8 @@ typedef struct Ngs2Voice {
     float peak_seen; /* trace: largest output since the last graph report */
     float in[NGS2_MAX_CHANNELS][NGS2_MAX_GRAIN];
     float out[NGS2_MAX_CHANNELS][NGS2_MAX_GRAIN];
+    uint32_t last_start_ms;
+    int spatial_pan_mode; /* 0=normal center, 1=pan left (dual stereo pair 1), 2=pan right (dual stereo pair 2) */
 } Ngs2Voice;
 typedef struct Ngs2Rack {
     uint32_t magic, id, voice_count;
@@ -474,6 +476,32 @@ static void ngs2_log_start(Ngs2Voice *v) {
     v->log_pending=0;
     v->log_major=ngs2_is_major(v);
     ++ngs2_starts; if (v->log_major) ++ngs2_major_starts; else ++ngs2_minor_starts;
+
+    /* Global Dual-Voice Stereo Panning / Deduplication:
+       Capcom MT Framework generates pseudo-stereo voices by spawning twin mono voices
+       with identical audio data pointers at the exact same millisecond. In HLE, route
+       pair 1 to Left-biased and pair 2 to Right-biased, or mute identical clone to prevent flanging / echo. */
+    v->spatial_pan_mode = 0;
+    struct timespec now_ts; clock_gettime(CLOCK_MONOTONIC, &now_ts);
+    uint32_t now_ms = (uint32_t)((uint64_t)now_ts.tv_sec * 1000u + (uint64_t)now_ts.tv_nsec / 1000000u);
+    v->last_start_ms = now_ms;
+
+    if (v->channels == 1 && v->rack && v->rack->id == NGS2_RACK_SAMPLER) {
+        for (uint32_t other_i = 0; other_i < v->rack->voice_count; ++other_i) {
+            Ngs2Voice *other = &v->rack->voices[other_i];
+            if (other != v && other->playing && other->channels == 1 &&
+                other->wave_data == v->wave_data && other->wave_data != NULL &&
+                (now_ms - other->last_start_ms) <= 50u) {
+                /* Found active twin mono voice launched simultaneously */
+                if (other->spatial_pan_mode == 0 || other->spatial_pan_mode == 1) {
+                    other->spatial_pan_mode = 1; /* Pan Left */
+                    v->spatial_pan_mode = 2;     /* Pan Right */
+                }
+                break;
+            }
+        }
+    }
+
     if (!runtime_audio_log_enabled() || v->rack->id!=NGS2_RACK_SAMPLER) return;
     if (!v->log_major && ngs2_starts>300) return; /* the first effects show what is used; the rest is counted */
     char what[400]; ngs2_describe(v,what,sizeof what);
@@ -777,7 +805,7 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
     if (!ngs2_at9_open(v)) return;
     while (v->at9_primed<2) { /* the resampler needs the frame before and the frame after */
         if (!ngs2_at9_next(v,v->at9_primed ? v->at9_cur : v->at9_prev)) {
-            if (v->at9_starved) return; /* waiting for the game to refill its ring: silence meanwhile */
+            if (v->at9_starved || v->streaming) return; /* waiting for the game to refill its ring: silence meanwhile */
             if (ngs2_tracing()) printf("Ngs2 trace: ATRAC9 voice %u produced no audio\n",v->index);
             runtime_audio_log("ngs2.at9_no_audio rack=%#x voice=%u played_ms=%.0f",v->rack->id,v->index,ngs2_played_ms(v));
             v->playing=0; return;
@@ -789,7 +817,7 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
             memcpy(v->at9_prev,v->at9_cur,sizeof v->at9_prev);
             v->at9_phase-=1.0;
             if (!ngs2_at9_next(v,v->at9_cur)) {
-                if (v->at9_starved) { v->at9_primed=1; return; }
+                if (v->at9_starved || v->streaming) { v->at9_primed=1; return; }
                 v->playing=0; return;
             }
         }
@@ -1153,11 +1181,22 @@ static void ngs2_send(Ngs2Voice *v, uint32_t frames) {
             }
         } else {
             uint32_t channels=v->channels<d->channels ? v->channels : d->channels;
-            for (uint32_t c=0;c<channels;++c)
-                for (uint32_t f=0;f<frames;++f) d->in[c][f]+=v->out[c][f]*level;
-            /* A mono source feeds both front channels of a wider destination. */
-            if (v->channels==1 && d->channels>=2)
-                for (uint32_t f=0;f<frames;++f) d->in[1][f]+=v->out[0][f]*level;
+            if (v->channels==1 && d->channels>=2) {
+                /* A mono source feeding stereo/surround destination:
+                   Apply spatial pan bias if this is a twin stereo voice pair */
+                float gl = 1.0f, gr = 1.0f;
+                if (v->spatial_pan_mode == 1) { gl = 1.0f; gr = 0.05f; } /* Left bias */
+                else if (v->spatial_pan_mode == 2) { gl = 0.05f; gr = 1.0f; } /* Right bias */
+
+                for (uint32_t f=0;f<frames;++f) {
+                    float s = v->out[0][f] * level;
+                    d->in[0][f] += s * gl;
+                    d->in[1][f] += s * gr;
+                }
+            } else {
+                for (uint32_t c=0;c<channels;++c)
+                    for (uint32_t f=0;f<frames;++f) d->in[c][f]+=v->out[c][f]*level;
+            }
         }
     }
 }
