@@ -890,6 +890,16 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
                                   v->rack->id,v->rack->serial,v->index,decode_rc,v->at9_sf_pos,sf[0],sf[1],sf[2],sf[3],sf[4],sf[5],sf[6],sf[7],
                                   (const void *)v->block_data[v->block],v->blocks[v->block].offset,v->blocks[v->block].size,v->at9_byte);
             }
+            if (v->at9_retries>240 && v->block_count>1) {
+                /* About a second of failures with more chunks queued behind: the head chunk holds no ATRAC9 (the game reused that
+                   part of its ring). Leave it, and tell the game it is consumed, instead of starving for ever. */
+                static int skipped;
+                if (skipped++<40) runtime_audio_log("ngs2.bad_chunk_skipped rack=%#x/%u voice=%u size=%u queued=%u",v->rack->id,v->rack->serial,v->index,
+                                                    v->blocks[0].size,v->block_count);
+                v->consumed_bytes+=v->blocks[0].size;
+                ngs2_pop_block(v);
+                v->at9_retries=0; v->at9_decoded=1; /* the decoder handle stays */
+            }
             if (!v->at9_decoded && v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
             v->at9_byte=0; v->at9_sf_have=0; v->at9_sf_ready=0; v->at9_frames=0;
             if (!v->at9_decoded) v->consumed_bytes-=superframe;
@@ -1133,12 +1143,23 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                 v->fresh=1;
                 ngs2_at9_restart(v);
             }
+            const int was_empty=v->block_count==0;
             for (uint32_t k=0;k<take;++k) {
                 v->blocks[v->block_count]=blocks[k]; v->block_data[v->block_count]=data;
                 v->block_starts[v->block_count]=(flags&2)==0; ++v->block_count;
             }
             if (take && v->streaming) v->stream_final=(flags&1)==0;
             if (!append) ngs2_stream_begin(v);
+            else if (was_empty && take && v->wave_type==0x40 && !v->stream_track && !v->stream_wait) {
+                /* Play came before the first chunk (the voice is playing and streaming from its previous track): this chunk
+                   begins the stream. Without tracking the decoder ran past the end of the block into the game's reused ring
+                   (ATRAC9 'decode' of file text), starved for good and the music stayed silent. */
+                ngs2_stream_begin(v);
+                if (v->stream_track && !v->at9_decoded) v->at9_skip=v->blocks[0].skip;
+                static int reported;
+                if (reported++<40) runtime_audio_log("ngs2.stream_begin_late rack=%#x/%u voice=%u samples=%u skip=%u",v->rack->id,v->rack->serial,v->index,
+                                                     v->blocks[0].samples,v->blocks[0].skip);
+            }
             if (v->streaming || ngs2_is_major(v)) { /* how a streaming game feeds its ring */
                 static int reported;
                 if (reported++<500) {
