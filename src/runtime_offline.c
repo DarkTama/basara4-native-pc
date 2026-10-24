@@ -890,15 +890,18 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
                                   v->rack->id,v->rack->serial,v->index,decode_rc,v->at9_sf_pos,sf[0],sf[1],sf[2],sf[3],sf[4],sf[5],sf[6],sf[7],
                                   (const void *)v->block_data[v->block],v->blocks[v->block].offset,v->blocks[v->block].size,v->at9_byte);
             }
-            if (v->at9_retries>240 && v->block_count>1) {
-                /* About a second of failures with more chunks queued behind: the head chunk holds no ATRAC9 (the game reused that
-                   part of its ring). Leave it, and tell the game it is consumed, instead of starving for ever. */
-                static int skipped;
-                if (skipped++<40) runtime_audio_log("ngs2.bad_chunk_skipped rack=%#x/%u voice=%u size=%u queued=%u",v->rack->id,v->rack->serial,v->index,
-                                                    v->blocks[0].size,v->block_count);
-                v->consumed_bytes+=v->blocks[0].size;
-                ngs2_pop_block(v);
-                v->at9_retries=0; v->at9_decoded=1; /* the decoder handle stays */
+            if (v->at9_retries>60 && v->block_count) {
+                /* A third of a second without a decodable superframe. Only the first chunk of a waveform block is known to start
+                   on a superframe boundary: leave the chunks in front of the next block start (they count as consumed, the game
+                   refills its ring from that), reset the decoder and begin again there. */
+                static int resynced;
+                uint32_t dropped=0;
+                while (v->block_count && !v->block_starts[0]) { v->consumed_bytes+=v->blocks[0].size; ngs2_pop_block(v); ++dropped; }
+                if (resynced++<40) runtime_audio_log("ngs2.resync rack=%#x/%u voice=%u dropped_chunks=%u queued=%u",v->rack->id,v->rack->serial,v->index,dropped,v->block_count);
+                ngs2_at9_restart(v);
+                if (!v->block_count) { v->stream_wait=1; v->stream_track=1; }
+                v->at9_starved=1;
+                return 0;
             }
             if (!v->at9_decoded && v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
             v->at9_byte=0; v->at9_sf_have=0; v->at9_sf_ready=0; v->at9_frames=0;
@@ -1021,7 +1024,8 @@ static void ngs2_event(Ngs2Voice *v, uint32_t event) {
         if (seen++<1500) runtime_audio_log("ngs2.event id=%u rack=%#x/%u voice=%u before: playing=%d paused=%d fresh=%d played_ms=%.0f queued=%u streaming=%d",
                                            event,v->rack->id,v->rack->serial,v->index,v->playing,v->paused,v->fresh,ngs2_played_ms(v),v->block_count,v->streaming);
     }
-    if (event==NGS2_EVENT_RESET && v->rack->id==NGS2_RACK_SAMPLER && v->playing && !v->paused && !v->fresh && !ngs2_play_restarts()) {
+    if (event==NGS2_EVENT_RESET && v->rack->id==NGS2_RACK_SAMPLER && v->playing && !v->paused && !v->fresh && v->block_count>0 &&
+        !ngs2_play_restarts()) {
         /* The game sends Play again while the voice is already playing its stream (seen right after a Resume, and
            600 ms into a dialogue line). Restarting the decoder at byte 0 of a ring that has been refilled since
            produced garbage or a repeated word. A Play after new blocks (fresh) is honoured. */
@@ -1144,21 +1148,23 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                 ngs2_at9_restart(v);
             }
             const int was_empty=v->block_count==0;
+            const int was_final=v->stream_final;
             for (uint32_t k=0;k<take;++k) {
                 v->blocks[v->block_count]=blocks[k]; v->block_data[v->block_count]=data;
                 v->block_starts[v->block_count]=(flags&2)==0; ++v->block_count;
             }
             if (take && v->streaming) v->stream_final=(flags&1)==0;
             if (!append) ngs2_stream_begin(v);
-            else if (was_empty && take && v->wave_type==0x40 && !v->stream_track && !v->stream_wait) {
-                /* Play came before the first chunk (the voice is playing and streaming from its previous track): this chunk
-                   begins the stream. Without tracking the decoder ran past the end of the block into the game's reused ring
-                   (ATRAC9 'decode' of file text), starved for good and the music stayed silent. */
-                ngs2_stream_begin(v);
-                if (v->stream_track && !v->at9_decoded) v->at9_skip=v->blocks[0].skip;
+            else if (was_empty && take && v->wave_type==0x40 && v->block_starts[0] && (!v->stream_wait || was_final)) {
+                /* The voice is playing and streaming from its previous track (Play came first, or was ignored) and a chunk that
+                   begins a waveform block arrives with nothing queued: that is a new stream, not the next block of the old one
+                   (that case is stream_wait without a final chunk). The decoder still holds the old stream's half superframe and
+                   position; every later chunk then decoded shifted by 384 bytes ('ATRAC9' of random bytes), the music stayed
+                   silent and the chunks were thrown away one by one. Start clean at this chunk. */
+                ngs2_at9_restart(v);
                 static int reported;
-                if (reported++<40) runtime_audio_log("ngs2.stream_begin_late rack=%#x/%u voice=%u samples=%u skip=%u",v->rack->id,v->rack->serial,v->index,
-                                                     v->blocks[0].samples,v->blocks[0].skip);
+                if (reported++<40) runtime_audio_log("ngs2.stream_begin_late rack=%#x/%u voice=%u samples=%u skip=%u was_final=%d wait=%d",v->rack->id,v->rack->serial,v->index,
+                                                     v->blocks[0].samples,v->blocks[0].skip,was_final,v->stream_wait);
             }
             if (v->streaming || ngs2_is_major(v)) { /* how a streaming game feeds its ring */
                 static int reported;
