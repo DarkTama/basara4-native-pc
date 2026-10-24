@@ -348,6 +348,8 @@ private:
     boost::container::static_vector<vk::DescriptorImageInfo, Shader::NUM_IMAGES> image_infos;
     boost::container::static_vector<vk::DescriptorBufferInfo, Shader::NUM_BUFFERS> buffer_infos;
     boost::container::static_vector<VideoCore::ImageId, Shader::NUM_IMAGES> bound_images;
+    /// Basara 4 PC: lists the images of the current draw in its GPU checkpoint (vk_gpu_checkpoint.h).
+    void AttachBoundImagesToCheckpoint(u64 checkpoint);
     /// spartanport diagnostics (SPARTAN_DIAG_IMAGES=1, draw pipe off): while a frame capture records, the
     /// color targets of a pass are written to files when the next pass or dispatch begins.
     void DiagPassBoundary(bool force);

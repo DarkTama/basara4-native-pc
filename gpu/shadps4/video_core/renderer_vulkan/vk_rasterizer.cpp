@@ -1164,6 +1164,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const auto* checkpoint_ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
     const u64 checkpoint = GpuCheckpoint::Note("draw", vs_info.pgm_hash, checkpoint_ps ? checkpoint_ps->pgm_hash : 0,
                                                num_indices, num_instances);
+    if (checkpoint) {
+        AttachBoundImagesToCheckpoint(checkpoint);
+    }
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
         GpuCheckpoint::Mark(cmdbuf, checkpoint);
         const auto draw = [&] {
@@ -1198,6 +1201,20 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
 
     ResetBindings(false);
     scheduler.KickRecording();
+}
+
+void Rasterizer::AttachBoundImagesToCheckpoint(u64 checkpoint) {
+    for (const auto image_id : bound_images) {
+        if (!image_id) {
+            continue;
+        }
+        const auto& image = texture_cache.GetImage(image_id);
+        GpuCheckpoint::AttachImage(checkpoint, image.info.guest_address, static_cast<u32>(image.info.pixel_format),
+                                   image.info.size.width, image.info.size.height, image.info.resources.levels,
+                                   image.info.resources.layers,
+                                   (image.info.props.is_depth ? 1u : 0u) | (image.binding.is_target ? 2u : 0u) |
+                                       (image.binding.force_general ? 4u : 0u));
+    }
 }
 
 void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u32 stride,
@@ -1302,6 +1319,9 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const auto* checkpoint_ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
     const u64 checkpoint = GpuCheckpoint::Note("draw-indir", pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
                                                checkpoint_ps ? checkpoint_ps->pgm_hash : 0, max_count, is_indexed);
+    if (checkpoint) {
+        AttachBoundImagesToCheckpoint(checkpoint);
+    }
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
         GpuCheckpoint::Mark(cmdbuf, checkpoint);
         for (const vk::Pipeline bound : {handle, square}) {
@@ -1392,6 +1412,9 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
         FrameCapture::Dispatch(cs.pgm_hash, dim_x, dim_y, dim_z);
     }
     const u64 checkpoint = GpuCheckpoint::Note("dispatch", cs.pgm_hash, dim_x, dim_y, dim_z);
+    if (checkpoint) {
+        AttachBoundImagesToCheckpoint(checkpoint);
+    }
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
         GpuCheckpoint::Mark(cmdbuf, checkpoint);
         if (Scheduler::FullBarriers()) {

@@ -20,10 +20,19 @@
 
 namespace Vulkan::GpuCheckpoint {
 
+struct Img {
+    u64 addr{};
+    u32 fmt{};
+    u16 width{}, height{};
+    u8 levels{}, layers{}, flags{}; ///< flags: 1 depth, 2 render target, 4 forced general
+};
+
 struct Entry {
     std::atomic<u64> id{0};
     char kind[12]{};
     u64 a{}, b{}, c{}, d{};
+    Img imgs[6]{};
+    u8 num_imgs{};
 };
 
 inline constexpr u32 RingSize = 1 << 14;
@@ -59,8 +68,31 @@ inline u64 Note(const char* kind, u64 a = 0, u64 b = 0, u64 c = 0, u64 d = 0) {
     e.b = b;
     e.c = c;
     e.d = d;
+    e.num_imgs = 0;
     e.id.store(id, std::memory_order_release);
     return id;
+}
+
+/// The images (textures, storage images, render targets) the draw with this marker binds.
+inline void AttachImage(u64 id, u64 addr, u32 fmt, u32 width, u32 height, u32 levels, u32 layers, u32 flags) {
+    if (!id) {
+        return;
+    }
+    auto& e = Ring()[id % RingSize];
+    if (e.id.load(std::memory_order_relaxed) != id || e.num_imgs >= 6) {
+        return;
+    }
+    e.imgs[e.num_imgs++] = Img{addr, fmt, static_cast<u16>(width), static_cast<u16>(height), static_cast<u8>(levels),
+                               static_cast<u8>(layers), static_cast<u8>(flags)};
+}
+
+inline void PrintImages(const Entry& e) {
+    for (u32 i = 0; i < e.num_imgs; ++i) {
+        const auto& m = e.imgs[i];
+        std::printf("        image %#llx %s %ux%u levels %u layers %u%s%s%s\n", static_cast<unsigned long long>(m.addr),
+                    vk::to_string(static_cast<vk::Format>(m.fmt)).c_str(), m.width, m.height, m.levels, m.layers,
+                    (m.flags & 1) ? " depth" : "", (m.flags & 2) ? " target" : "", (m.flags & 4) ? " general" : "");
+    }
 }
 
 inline void Mark(vk::CommandBuffer cmdbuf, u64 id) {
@@ -93,6 +125,7 @@ inline void ReportLost(vk::Queue queue, const char* where) {
                         static_cast<unsigned long long>(id), e.kind, static_cast<unsigned long long>(e.a),
                         static_cast<unsigned long long>(e.b), static_cast<unsigned long long>(e.c),
                         static_cast<unsigned long long>(e.d));
+            PrintImages(e);
         } else {
             std::printf("  stage %s: #%llu (description already overwritten)\n", vk::to_string(cp.stage).c_str(),
                         static_cast<unsigned long long>(id));
@@ -106,6 +139,7 @@ inline void ReportLost(vk::Queue queue, const char* where) {
             std::printf("  #%llu %s a=%#llx b=%#llx c=%llu d=%llu\n", static_cast<unsigned long long>(id), e.kind,
                         static_cast<unsigned long long>(e.a), static_cast<unsigned long long>(e.b),
                         static_cast<unsigned long long>(e.c), static_cast<unsigned long long>(e.d));
+            PrintImages(e);
         }
     }
     std::fflush(stdout);
