@@ -21,6 +21,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "spartanport_threads.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -1160,7 +1161,11 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const u32 num_instances = regs.num_instances.NumInstances();
     const u32 first_vertex = vertex_offset;
     const u32 first_instance = instance_offset;
+    const auto* checkpoint_ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const u64 checkpoint = GpuCheckpoint::Note("draw", vs_info.pgm_hash, checkpoint_ps ? checkpoint_ps->pgm_hash : 0,
+                                               num_indices, num_instances);
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+        GpuCheckpoint::Mark(cmdbuf, checkpoint);
         const auto draw = [&] {
             if (is_indexed) {
                 cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex),
@@ -1294,7 +1299,11 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const u64 args_offset = base;
     const vk::Buffer counts = count_address != 0 ? count_buffer->Handle() : vk::Buffer{};
     const u64 counts_offset = count_address != 0 ? count_offset : 0;
+    const auto* checkpoint_ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const u64 checkpoint = GpuCheckpoint::Note("draw-indir", pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
+                                               checkpoint_ps ? checkpoint_ps->pgm_hash : 0, max_count, is_indexed);
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+        GpuCheckpoint::Mark(cmdbuf, checkpoint);
         for (const vk::Pipeline bound : {handle, square}) {
             if (!bound) {
                 break;
@@ -1382,7 +1391,9 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     if (FrameCapture::Active()) {
         FrameCapture::Dispatch(cs.pgm_hash, dim_x, dim_y, dim_z);
     }
+    const u64 checkpoint = GpuCheckpoint::Note("dispatch", cs.pgm_hash, dim_x, dim_y, dim_z);
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+        GpuCheckpoint::Mark(cmdbuf, checkpoint);
         if (Scheduler::FullBarriers()) {
             Scheduler::RecordFullBarrier(cmdbuf);
         }

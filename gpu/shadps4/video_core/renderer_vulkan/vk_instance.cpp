@@ -18,6 +18,7 @@
 #include "video_core/renderer_vulkan/vk_amd_paths.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
 #include <vk_mem_alloc.h>
@@ -345,6 +346,12 @@ bool Instance::CreateDevice() {
         }
     }
     depth_range_unrestricted = add_extension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+    // Basara 4 PC: lets a lost device report the draw it was executing (vk_gpu_checkpoint.h).
+    {
+        const bool checkpoints = add_extension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+        GpuCheckpoint::EnabledFlag().store(checkpoints);
+        std::printf("GPU: device diagnostic checkpoints %s\n", checkpoints ? "on" : "unavailable");
+    }
     dynamic_state_3 = add_extension(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
     if (dynamic_state_3) {
         dynamic_state_3_features =

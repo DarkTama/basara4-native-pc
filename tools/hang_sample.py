@@ -91,6 +91,41 @@ def read_u64(proc, address):
     return struct.unpack("<Q", data.raw)[0]
 
 
+psapi = ctypes.WinDLL("psapi", use_last_error=True)
+psapi.EnumProcessModulesEx.argtypes = [wt.HANDLE, ctypes.POINTER(wt.HMODULE), wt.DWORD, ctypes.POINTER(wt.DWORD), wt.DWORD]
+psapi.GetModuleInformation.argtypes = [wt.HANDLE, wt.HMODULE, ctypes.c_void_p, wt.DWORD]
+psapi.GetModuleBaseNameW.argtypes = [wt.HANDLE, wt.HMODULE, wt.LPWSTR, wt.DWORD]
+
+
+class MODULEINFO(ctypes.Structure):
+    _fields_ = [("base", ctypes.c_void_p), ("size", wt.DWORD), ("entry", ctypes.c_void_p)]
+
+
+def load_modules(proc):
+    arr = (wt.HMODULE * 2048)()
+    need = wt.DWORD()
+    mods = []
+    if psapi.EnumProcessModulesEx(proc, arr, ctypes.sizeof(arr), ctypes.byref(need), 3):
+        for i in range(min(2048, need.value // ctypes.sizeof(wt.HMODULE))):
+            info = MODULEINFO()
+            name = ctypes.create_unicode_buffer(260)
+            if psapi.GetModuleInformation(proc, arr[i], ctypes.byref(info), ctypes.sizeof(info)):
+                psapi.GetModuleBaseNameW(proc, arr[i], name, 260)
+                mods.append((info.base or 0, info.size, name.value))
+    return mods
+
+
+MODULES = []
+
+
+def where(a):
+    if is_guest(a):
+        return f"guest 0x{a:x}"
+    for base, size, name in MODULES:
+        if base <= a < base + size:
+            return f"{name}+0x{a - base:x}"
+    return f"0x{a:x}"
+
 def is_guest(a):
     return 0x800000000 <= a < 0x80f000000
 
@@ -118,8 +153,24 @@ def chain(proc, rip, rsp, rbp, depth=8):
     return frames
 
 
+def stack_scan(proc, rsp, words=1024):
+    """Return addresses found on the stack that point into the game exe or the driver (host call chain, best effort)."""
+    data = ctypes.create_string_buffer(words * 8)
+    n = ctypes.c_size_t()
+    if not k32.ReadProcessMemory(proc, ctypes.c_void_p(rsp), data, words * 8, ctypes.byref(n)):
+        return []
+    out = []
+    for i in range(n.value // 8):
+        v = struct.unpack_from("<Q", data.raw, i * 8)[0]
+        for base, size, name in MODULES:
+            if base <= v < base + size and name.lower() in ("basara4-core.exe",):
+                out.append((i * 8, name, v - base))
+                break
+    return out
+
+
 def fmt(f):
-    return f"0x{f:x}" if isinstance(f, int) else f"{f[0]}:0x{f[1]:x}"
+    return where(f) if isinstance(f, int) else f"{f[0]}:{where(f[1])}"
 
 
 def main():
@@ -132,6 +183,7 @@ def main():
     proc = k32.OpenProcess(PROCESS_VM_READ, False, pid)
     if not proc:
         sys.exit("cannot open the process (run from the same user / elevated shell)")
+    MODULES.extend(load_modules(proc))
     handles = {}
     for tid in thread_ids(pid):
         h = k32.OpenThread(THREAD_ALL, False, tid)
@@ -163,7 +215,15 @@ def main():
         print(f"\n=== thread {t}  ({c:.2f} cores)  top instruction pointers of {sum(hist.values())} samples")
         for rip, n in hist.most_common(8):
             kind = "game" if is_guest(rip) else "host"
-            print(f"   {n:4}  0x{rip:x}  [{kind}]")
+            print(f"   {n:4}  {where(rip)}")
+        if not any(is_guest(r) for r in hist):
+            ctx = snapshot_context(h, buf)
+            if ctx:
+                seen = []
+                for off, name, rva in stack_scan(proc, ctx[1]):
+                    if rva not in seen:
+                        seen.append(rva)
+                print("   game-exe return addresses on the stack (rva, innermost first): " + " ".join(f"0x{r:x}" for r in seen[:16]))
         print("   call chains (innermost first):")
         for ch, n in chains.most_common(4):
             print(f"   {n:3}x  " + " <- ".join(ch))

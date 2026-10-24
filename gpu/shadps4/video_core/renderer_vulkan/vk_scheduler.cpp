@@ -21,6 +21,7 @@
 #include "imgui/renderer/texture_manager.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 #include "spartanport_threads.h"
 
 namespace Vulkan {
@@ -499,7 +500,10 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
 
     ImGui::Core::TextureManager::Submit();
     auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
-    ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
+    if (submit_result != vk::Result::eSuccess) {
+        GpuCheckpoint::ReportLost(instance.GetGraphicsQueue(), "queue submit");
+    }
+    ASSERT_MSG(submit_result == vk::Result::eSuccess, "Queue submit failed: {}", vk::to_string(submit_result));
 
     work_semaphore.Refresh();
     AllocateWorkerCommandBuffers();

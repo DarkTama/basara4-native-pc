@@ -4,6 +4,7 @@
 #include <limits>
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_semaphore.h"
+#include "video_core/renderer_vulkan/vk_gpu_checkpoint.h"
 
 #include "common/assert.h"
 
@@ -62,7 +63,18 @@ void Semaphore::Wait(u64 tick) {
         .pValues = &tick,
     };
 
-    while (instance.GetDevice().waitSemaphores(&wait_info, WAIT_TIMEOUT) != vk::Result::eSuccess) {
+    // Basara 4 PC: this used to retry every non-success result forever.  After a lost device that was a
+    // 100% CPU spin inside the driver and a black screen with nothing in the log.
+    for (;;) {
+        const auto result = instance.GetDevice().waitSemaphores(&wait_info, WAIT_TIMEOUT);
+        if (result == vk::Result::eSuccess) {
+            break;
+        }
+        if (result == vk::Result::eTimeout) {
+            continue;
+        }
+        GpuCheckpoint::ReportLost(instance.GetGraphicsQueue(), "Semaphore::Wait");
+        UNREACHABLE_MSG("Vulkan semaphore wait failed: {} (tick {})", vk::to_string(result), tick);
     }
     Refresh();
 }
