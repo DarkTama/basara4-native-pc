@@ -409,6 +409,7 @@ typedef struct Ngs2Voice {
     float pitch;
     uint32_t state_calls; /* GetState calls since creation (a streaming game polls it) */
     int log_starved;      /* last logged starved/refilled state of a streaming voice */
+    uint32_t flag_calls;  /* GetStateFlags calls: a voice the game waits on is polled hundreds of times a second */
     int fresh;            /* a new waveform was submitted since the last honoured Play (event 0) */
     uint32_t stream_total; /* ATRAC9 streams: the sample count of the whole waveform, carried by every block of it */
     Ngs2Wav wav;          /* capture of this long voice's output */
@@ -643,8 +644,8 @@ static void ngs2_log_summary(Ngs2System *s) {
                 int routed=ngs2_routed(v,0);
                 if (!v->log_major && routed) continue;
                 ++lines;
-                runtime_audio_log("ngs2.voice rack=%#x/%u voice=%u routed=%d paused=%d type=%s peak=%.4f played_ms=%.0f state_calls=%u streaming=%d queued=%u",
-                                  r->id,r->serial,v->index,routed,v->paused,ngs2_wave_name(v->wave_type),v->peak_seen,ngs2_played_ms(v),v->state_calls,v->streaming,v->block_count);
+                runtime_audio_log("ngs2.voice rack=%#x/%u voice=%u routed=%d paused=%d type=%s peak=%.4f played_ms=%.0f state_calls=%u streaming=%d queued=%u flag_calls=%u",
+                                  r->id,r->serial,v->index,routed,v->paused,ngs2_wave_name(v->wave_type),v->peak_seen,ngs2_played_ms(v),v->state_calls,v->streaming,v->block_count,v->flag_calls);
             }
     }
     last_playing=playing;
@@ -945,6 +946,7 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
 #define NGS2_EVENT_KILL 3
 #define NGS2_EVENT_RESUME_A 4
 #define NGS2_EVENT_RESUME_B 5
+static int ngs2_event1_pauses(void) { static int on=-1; if (on<0) on=getenv("SPARTAN_NGS2_EVENT1_PAUSES")!=NULL; return on; }
 /* SPARTAN_NGS2_AUTOPLAY_BLOCKS=1 brings back the old behaviour (replacing the blocks starts the voice), for A/B listening. */
 static int ngs2_autoplay_blocks(void) { static int on=-1; if (on<0) on=getenv("SPARTAN_NGS2_AUTOPLAY_BLOCKS")!=NULL; return on; }
 /* SPARTAN_NGS2_PLAY_RESTARTS=1 brings back the old behaviour (every Play restarts), for A/B listening. */
@@ -967,13 +969,20 @@ static void ngs2_event(Ngs2Voice *v, uint32_t event) {
     switch (event) {
     case NGS2_EVENT_RESET: v->fresh=0; v->playing=1; v->paused=0; v->log_pending=1; v->block=0; v->repeats_done=0; v->position=0; v->consumed=0; v->consumed_bytes=0; ngs2_at9_restart(v); break;
     case NGS2_EVENT_STOP: case NGS2_EVENT_KILL: v->playing=0; v->paused=0; break;
-    case NGS2_EVENT_PAUSE: v->paused=1; break;
+    case NGS2_EVENT_PAUSE:
+        /* Event 1 on a sampler voice: the game sends it twice to a voice it is finished with or interrupts (a dialogue line when an
+           event cutscene starts). Treated as a pause the voice stayed playing=1, GetStateFlags kept answering 1, and the game waited
+           for it forever (black screen, 590 flag polls a second). It now stops the voice; a later Resume still continues from the
+           same position. SPARTAN_NGS2_EVENT1_PAUSES=1 brings the old pause back. */
+        if (v->rack->id==NGS2_RACK_SAMPLER && !ngs2_event1_pauses()) { v->playing=0; v->paused=0; }
+        else v->paused=1;
+        break;
     case NGS2_EVENT_RESUME_A: case NGS2_EVENT_RESUME_B: v->paused=0; v->playing=1; break;
     default: break;
     }
     if ((event==NGS2_EVENT_STOP || event==NGS2_EVENT_KILL) && v->wav.f) ngs2_wav_close(&v->wav);
     if (event!=NGS2_EVENT_RESET && v->log_major) {
-        static const char *const names[]={"reset","pause","stop","kill","resume","resume"};
+        static const char *const names[]={"reset","event1","stop","kill","resume","resume"};
         runtime_audio_log("ngs2.%s rack=%#x/%u voice=%u played_ms=%.0f",event<6 ? names[event] : "event",v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v));
     }
 }
@@ -1210,6 +1219,7 @@ static ABI int32_t ngs2_voice_flags(uintptr_t handle, uint32_t *flags) {
     if (!v) return NGS2_INVALID_VOICE_HANDLE;
     if (!flags) return NGS2_INVALID_OUT_ADDRESS;
     *flags=ngs2_state_flags(v) & 0xffu;
+    ++v->flag_calls;
     ngs2_note_callsite("GetStateFlags",*flags,__builtin_return_address(0));
     return ORBIS_OK;
 }
