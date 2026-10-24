@@ -43,8 +43,15 @@ In-game menu
 Controller
   XInput and SDL-supported pads work directly. Any other pad: "Map controller" in the launcher.
 
+What's new in 1.0.1: battle music loops, no more black / red screens in event cutscenes, fixes for voices, doubled sound and clipping,
+  no crash in the stage select. Details: CHANGELOG.md. Tested on NVIDIA graphics only.
+
 Problems
   Attach user\last_run.log (and user\prepare.log if the preparation failed) to your report.
+
+Crash dumps
+  If the game dies from a fault or a GPU assertion, user\crash\core-<date>-<time>.dmp is written. It contains the memory of the game:
+  only give it to people you trust. A GPU that stops answering is named in user\last_run.log (DEVICE LOST).
 
 Audio problems (missing music or voices)
   Tick "Audio debug log" in the launcher and play until the problem happens. user\audio_debug.log has one line

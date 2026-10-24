@@ -100,7 +100,7 @@ def main():
         shutil.copy2(LAUNCHER / name, target / "launcher" / name)
 
     # documents
-    for doc in ("NOTICE.md", "LICENSE"):
+    for doc in ("NOTICE.md", "LICENSE", "CHANGELOG.md", "CHANGELOG.id.md"):
         shutil.copy2(REPO / doc, target / doc)
     for doc in ("README.txt", "README.id.txt", "Play Sengoku Basara 4.cmd"):
         shutil.copy2(HERE / doc, target / doc)

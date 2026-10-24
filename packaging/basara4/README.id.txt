@@ -15,4 +15,8 @@ Menu in-game: Insert, atau R3 + L2. Screenshot: F12.
 FPS di atas 60 bersifat eksperimental. Kalau gerakan terasa lebih cepat atau ada glitch,
 kembali ke 60. Matikan VSync agar tidak dibatasi refresh rate monitor.
 
+Baru di 1.0.1: musik battle loop, tidak ada lagi black / red screen di cutscene event, perbaikan suara, suara dobel dan clipping,
+tidak crash di pemilihan stage. Detail: CHANGELOG.id.md. Baru diuji di grafis NVIDIA.
+
 Masalah: kirim user\last_run.log (dan user\prepare.log kalau persiapan gagal).
+Kalau game mati, user\crash\core-*.dmp ditulis; isinya memori game, jadi berikan hanya ke orang yang dipercaya.

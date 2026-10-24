@@ -27,6 +27,7 @@ Kode x86-64 asli game berjalan langsung di prosesor PC Anda tanpa emulator (tanp
 ## Daftar Isi
 
 - [Fitur Utama](#fitur-utama)
+- [Yang Baru di 1.0.1](#yang-baru-di-101)
 - [Spesifikasi Sistem](#spesifikasi-sistem)
 - [Cara Download & Menjalankan](#cara-download--menjalankan)
 - [Pengaturan Launcher](#pengaturan-launcher)
@@ -35,6 +36,7 @@ Kode x86-64 asli game berjalan langsung di prosesor PC Anda tanpa emulator (tanp
 - [Arsitektur Teknis (Cara Kerja)](#arsitektur-teknis-cara-kerja)
 - [Build dari Source Code](#build-dari-source-code)
 - [Troubleshooting & Log](#troubleshooting--log)
+- [Keterbatasan yang Diketahui](#keterbatasan-yang-diketahui)
 - [Kredit & Kontributor](#kredit--kontributor)
 - [Lisensi](#lisensi)
 
@@ -51,6 +53,23 @@ Kode x86-64 asli game berjalan langsung di prosesor PC Anda tanpa emulator (tanp
 - **Anisotropic Filtering (hingga 16x)**: Mempertajam tekstur lantai, tanah, dan arena pertempuran dari sudut kamera miring.
 - **Pipeline Relokasi & Binding Otomatis**: Skrip otomatis (`prepare.py`, `link_libc.py`, `link_modules.py`, `content_profile.py`) yang menyiapkan executable dari dump tanpa merusak file asli.
 - **Universal Gamepad Mapper**: Tool pemetaan berbasis SDL3 (`basara4-pad-mapper.exe`) untuk stik DirectInput, USB generik, maupun layout Xbox/PlayStation.
+- **Musik Loop**: Trek membawa titik loop; mesin audio melaporkan intro dan loop sebagai blok terpisah, sehingga musik battle berulang seperti di konsol.
+- **Diagnostik Crash dan GPU**: Crash dump di `user\crash\`, dan GPU device loss dilaporkan beserta draw dan image penyebabnya.
+
+---
+
+## Yang Baru di 1.0.1
+
+Pembaruan pertama. Musik yang berhenti, suara dobel atau pecah, black screen dan gambar yang salah di cutscene event, serta crash di pemilihan stage diperbaiki.
+Daftar lengkap beserta alasan tiap perbaikan: **[CHANGELOG.id.md](CHANGELOG.id.md)**.
+
+- **Musik battle sekarang loop** seperti aslinya (dulu diputar sekali lalu hening). Trek yang *Play*-nya datang dengan urutan tidak biasa tidak lagi mati.
+- **Cutscene event tidak lagi black screen atau menampilkan gambar merah / dobel** (GPU device loss di NVIDIA karena depth image dipakai sebagai tekstur warna).
+- **Suara dialog dan cutscene, suara dobel, clipping kasar, dan pasangan stereo yang salah** di mesin audio software Ngs2.
+- **Pemilihan stage tidak lagi crash** (issue #1).
+- **Crash dump** ditulis ke `user\crash\`, dan GPU yang berhenti merespons dilaporkan beserta draw penyebabnya.
+
+Diuji di satu mesin saja (Windows, NVIDIA RTX 4070); lihat [Keterbatasan yang Diketahui](#keterbatasan-yang-diketahui).
 
 ---
 
@@ -173,6 +192,30 @@ Menganalisis log audio lewat terminal:
 ```bash
 python tools/audio_log_summary.py user/audio_debug.log
 ```
+
+Agar skrip mencari masalah audio di seluruh sesi tanpa diberi tahu kapan terjadinya (musik hening, voice yang tidak pernah selesai, kesalahan decoder, clipping),
+centang **Audio debug log** di launcher, bermain, tutup game, lalu jalankan (dari repositori sumber):
+```bash
+python tools/audio_session_report.py user
+```
+
+**Crash dump.** Bila game mati karena fault atau assertion GPU, `user\crash\core-<tanggal>-<jam>.dmp` ditulis di samping log. Dump berisi memori game:
+lampirkan ke laporan hanya bila Anda percaya orang yang akan membacanya. GPU device loss juga dicatat di `user\last_run.log` (`DEVICE LOST`, beserta draw dan image yang dipakainya).
+
+**Alat debugging pengembang** (`tools/`, hanya di repositori sumber, tidak perlu untuk bermain): `debug_watch.py` menulis linimasa berjam dinding, menangkap frame di cutscene event
+dan lewat **F9**, merekam layar dengan `ffmpeg`, dan menulis `user\report.txt`. *Rekaman menangkap seluruh layar utama.* Set `DEBUG_NO_VIDEO=1` untuk mematikan rekaman.
+Alat lain (`hang_all.py`, `save_snapshot.py`) ada di [CHANGELOG.id.md](CHANGELOG.id.md).
+
+---
+
+## Keterbatasan yang Diketahui
+
+- Hanya grafis **NVIDIA** yang diuji. Perbaikan GPU mengikuti aturan Vulkan dan tidak seharusnya merugikan kartu AMD atau Intel, tetapi belum terbukti.
+  Spesifikasi minimum dan rekomendasi di atas adalah perkiraan.
+- Loop musik bisa punya jeda singkat di sambungan (terukur 10 sampai 80 ms) bila game menyerahkan blok berikutnya terlambat. Hanya memengaruhi sebagian trek.
+- Frame rate di atas 60 bersifat eksperimental.
+- Bila perubahan musik bermasalah di mesin Anda, `SPARTAN_NGS2_NO_LOOP_BLOCKS=1` (variabel lingkungan) mengembalikan musik sekali-putar yang lama
+  dan `SPARTAN_NGS2_EVENT1_PAUSES=1` penanganan lama untuk event 1 cutscene. Mohon laporkan bersama `user\audio_debug.log`.
 
 ---
 
