@@ -146,6 +146,26 @@ ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info
         aspect = vk::ImageAspectFlagBits::eStencil;
     }
 
+    // Basara 4 PC: a view of a depth/stencil image must use the image's own format and, to be sampled,
+    // exactly one aspect (VUID-VkImageViewCreateInfo-image-01761, VUID-VkDescriptorImageInfo-imageView-
+    // 01976).  A guest texture that re-uses the memory of a depth buffer with another format (here a
+    // 3-level texture on a 1920x1080 D32S8 image) used to get a view in the T#'s format with both
+    // aspects: invalid, and the NVIDIA driver lost the device in the first draw that sampled it
+    // (Windows event nvlddmkm 153, draw checkpoint: vs 0xd5df186b / ps 0x3c869134).
+    if ((image.aspect_mask & (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) &&
+        format != image.info.pixel_format) {
+        static u32 logged = 0;
+        if (logged++ < 8) {
+            LOG_WARNING(Render_Vulkan,
+                        "view of depth/stencil image {:#x} {} asked for format {} aspect {}: using the image's format, one aspect",
+                        image.info.guest_address, vk::to_string(image.info.pixel_format),
+                        vk::to_string(format), vk::to_string(aspect));
+        }
+        format = image.info.pixel_format;
+        aspect = (image.aspect_mask & vk::ImageAspectFlagBits::eDepth) ? vk::ImageAspectFlagBits::eDepth
+                                                                       : vk::ImageAspectFlagBits::eStencil;
+    }
+
     // spartanport: storage writes never convert to sRGB and sRGB formats cannot be storage images
     // (AMD's driver loses the device on such a view; NVIDIA tolerates it): write through the
     // UNORM format, which stores the same bytes.
