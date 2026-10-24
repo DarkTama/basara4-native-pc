@@ -16,7 +16,7 @@ Every fix below was found from logs of real play sessions (the audio debug log, 
 WAV files of every voice and of the final mix, frame captures, and Windows' own GPU driver events), not from guesses.
 Where a fix could be measured it was measured: for example the music loop was compared sample by sample against the first pass.
 
-The last test was a complete play session after the final commit. It ended with no crash, no GPU device loss, no crash dump and
+The last test was a complete play session (17 minutes, several music tracks, event cutscenes) after the last code change. It ended with no crash, no GPU device loss, no crash dump and
 no silent music voice. Tested on **one machine only: Windows, NVIDIA RTX 4070**. AMD and Intel graphics cards have not been tried.
 
 ### Music and sound (the software Ngs2 engine, `src/runtime_offline.c`)
@@ -24,7 +24,7 @@ no silent music voice. Tested on **one machine only: Windows, NVIDIA RTX 4070**.
 - **Battle music loops like the original.** Before, a track played once and then fell silent. Tracks carry a loop point
   (`smpl` chunk of the sound file). The engine now reports the intro and the loop as two blocks, the loop block repeating
   for ever, and the ATRAC9 stream honours the block boundaries. Measured on a track whose next block arrived in time: the second and third pass are identical to the first pass
-  sample by sample, and there is no click at the seam. The other tracks loop with the right content. (`a923b5d`)
+  sample by sample, and there is no click at the seam (only the first 40 ms or so after a seam differ slightly, where the decoder restarts). The other tracks loop with the right content. (`a923b5d`)
 - **Music no longer dies when a track starts in an unusual order.** Three cases that left a music voice silent for tens of seconds
   or for ever were fixed: (`c7ba3a0`, `3e63e72`)
   - the game sends *Play* before the first chunk of the new track;

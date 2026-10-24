@@ -16,7 +16,7 @@ Semua perbaikan di bawah ditemukan dari log sesi main yang nyata (log debug audi
 dan hasil mix akhir, tangkapan frame, dan event driver GPU Windows sendiri), bukan dari dugaan. Kalau bisa diukur, diukur: misalnya loop musik
 dibandingkan sampel demi sampel dengan putaran pertama.
 
-Tes terakhir adalah satu sesi bermain penuh setelah commit terakhir. Hasilnya tanpa crash, tanpa GPU device loss, tanpa crash dump, dan tanpa voice musik
+Tes terakhir adalah satu sesi bermain penuh (17 menit, beberapa trek musik, cutscene event) setelah perubahan kode terakhir. Hasilnya tanpa crash, tanpa GPU device loss, tanpa crash dump, dan tanpa voice musik
 yang hening. Diuji di **satu mesin saja: Windows, NVIDIA RTX 4070**. Kartu grafis AMD dan Intel belum dicoba.
 
 ### Musik dan suara (mesin software Ngs2, `src/runtime_offline.c`)
@@ -24,7 +24,7 @@ yang hening. Diuji di **satu mesin saja: Windows, NVIDIA RTX 4070**. Kartu grafi
 - **Musik battle loop seperti aslinya.** Dulu satu trek hanya diputar sekali lalu hening. Trek membawa titik loop (chunk `smpl` pada file suara).
   Mesin sekarang melaporkan intro dan loop sebagai dua blok, blok loop berulang tanpa henti, dan aliran ATRAC9 mengikuti batas blok.
   Terukur pada trek yang blok berikutnya datang tepat waktu: putaran kedua dan ketiga identik dengan putaran pertama sampel demi sampel, dan tidak ada klik
-  di sambungan. Trek lain juga loop dengan isi yang benar. (`a923b5d`)
+  di sambungan (hanya sekitar 40 ms pertama setelah sambungan sedikit berbeda, tempat decoder dimulai ulang). Trek lain juga loop dengan isi yang benar. (`a923b5d`)
 - **Musik tidak lagi mati saat trek dimulai dengan urutan yang tidak biasa.** Tiga kasus yang membuat voice musik hening puluhan detik atau selamanya
   diperbaiki: (`c7ba3a0`, `3e63e72`)
   - game mengirim *Play* sebelum chunk pertama trek baru;
