@@ -73,12 +73,12 @@ beberapa GB, rekaman, dump) dan `game\` (isi game). Folder `dist\basara4-windows
 ```powershell
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $z = [IO.Compression.ZipFile]::OpenRead("$PWD\dist\basara4-windows.zip")
-$z.Entries | Where-Object { $_.FullName -match '^basara4-windows/(user|out|game)/' -and $_.Length -gt 0 } | Select-Object FullName, Length
+$z.Entries | Where-Object { $_.FullName -match '^basara4-windows[\\/](user|out|game)[\\/]' -and $_.Length -gt 0 } | Select-Object FullName, Length
 "{0} berkas, {1:N0} MB tidak terkompresi" -f $z.Entries.Count, (($z.Entries | Measure-Object Length -Sum).Sum / 1MB)
 $z.Dispose()
 ```
 
-Baris `Select-Object` hanya boleh menampilkan `game/PUT_YOUR_GAME_DUMP_HERE.txt`. Kalau ada berkas lain di `user/`, `out/`, atau `game/`, hentikan dan cari sebabnya.
+Baris `Select-Object` hanya boleh menampilkan `game\PUT_YOUR_GAME_DUMP_HERE.txt` (PowerShell 5.1 menyimpan pemisah folder zip sebagai `\`; versi lain memakai `/`). Kalau ada berkas lain di `user/`, `out/`, atau `game/`, hentikan dan cari sebabnya.
 Ukuran tidak terkompresi seharusnya puluhan MB, bukan GB.
 
 ## 4. Uji paket di folder bersih (jangan dilewati)
