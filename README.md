@@ -6,7 +6,8 @@
 ![Python](https://img.shields.io/badge/Launcher-Python%203.11-3776AB?logo=python)
 ![Vulkan](https://img.shields.io/badge/Graphics-Vulkan%201.3-E10019?logo=vulkan)
 ![License](https://img.shields.io/badge/License-GPL%20v2.0%2B-blue.svg)
-![Author](https://img.shields.io/badge/Author-Razz-e0526a.svg)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/UBZc57bBMa)
+[![TikTok](https://img.shields.io/badge/TikTok-@razzconnect-000000?logo=tiktok&logoColor=white)](https://www.tiktok.com/@razzconnect)
 
 </div>
 
@@ -36,6 +37,7 @@ The game's original x86-64 code executes directly on your PC's CPU without emula
 - [Building from Source](#building-from-source)
 - [Troubleshooting & Logs](#troubleshooting--logs)
 - [Credits & Acknowledgments](#credits--acknowledgments)
+- [Community & Socials](#community--socials)
 - [License](#license)
 
 ---
@@ -220,6 +222,15 @@ This project is built upon open-source foundations and prior reverse-engineering
 | **Libraries** | Various Authors | SDL3, Dear ImGui, Vulkan Memory Allocator, sirit, xbyak, miniz | Respective licenses |
 
 Full upstream notices, legal attributions, and copyright declarations are documented in [NOTICE.md](NOTICE.md).
+
+---
+
+## Community & Socials
+
+Join our community for discussions, troubleshooting, updates, and more:
+
+- **Discord Community**: [https://discord.gg/UBZc57bBMa](https://discord.gg/UBZc57bBMa) (general community & gaming)
+- **TikTok**: [@razzconnect](https://www.tiktok.com/@razzconnect) ([https://www.tiktok.com/@razzconnect](https://www.tiktok.com/@razzconnect)) — development progress & updates
 
 ---
 

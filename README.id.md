@@ -6,7 +6,8 @@
 ![Python](https://img.shields.io/badge/Launcher-Python%203.11-3776AB?logo=python)
 ![Vulkan](https://img.shields.io/badge/Graphics-Vulkan%201.3-E10019?logo=vulkan)
 ![License](https://img.shields.io/badge/License-GPL%20v2.0%2B-blue.svg)
-![Author](https://img.shields.io/badge/Author-Razz-e0526a.svg)
+[![Discord](https://img.shields.io/badge/Discord-Gabung%20Komunitas-5865F2?logo=discord&logoColor=white)](https://discord.gg/UBZc57bBMa)
+[![TikTok](https://img.shields.io/badge/TikTok-@razzconnect-000000?logo=tiktok&logoColor=white)](https://www.tiktok.com/@razzconnect)
 
 </div>
 
@@ -36,6 +37,7 @@ Kode x86-64 asli game berjalan langsung di prosesor PC Anda tanpa emulator (tanp
 - [Build dari Source Code](#build-dari-source-code)
 - [Troubleshooting & Log](#troubleshooting--log)
 - [Kredit & Kontributor](#kredit--kontributor)
+- [Komunitas & Media Sosial](#komunitas--media-sosial)
 - [Lisensi](#lisensi)
 
 ---
@@ -190,6 +192,15 @@ python tools/audio_log_summary.py user/audio_debug.log
 | **Third-Party Libraries** | Berbagai Pengembang | SDL3, Dear ImGui, Vulkan Memory Allocator, sirit, xbyak, miniz | Lisensi masing-masing |
 
 Daftar pemberitahuan hak cipta lengkap tersedia di file [NOTICE.md](NOTICE.md).
+
+---
+
+## Komunitas & Media Sosial
+
+Bergabung dengan komunitas kami untuk diskusi, tanya jawab, pembaruan rilis, dan lainnya:
+
+- **Komunitas Discord**: [https://discord.gg/UBZc57bBMa](https://discord.gg/UBZc57bBMa) (komunitas umum & gaming)
+- **TikTok**: [@razzconnect](https://www.tiktok.com/@razzconnect) ([https://www.tiktok.com/@razzconnect](https://www.tiktok.com/@razzconnect)) — update progres porting & devlog
 
 ---
 
