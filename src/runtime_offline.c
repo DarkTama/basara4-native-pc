@@ -401,6 +401,7 @@ typedef struct Ngs2Voice {
     const unsigned char *wave_data;
     Ngs2Block blocks[NGS2_MAX_BLOCKS];
     const unsigned char *block_data[NGS2_MAX_BLOCKS]; /* each queued block has the data pointer it was submitted with */
+    uint8_t block_starts[NGS2_MAX_BLOCKS]; /* streaming: the queued chunk begins a waveform block (flags bit 1 clear) */
     uint32_t block_count, block, repeats_done;
     double position; /* frames into the current block */
     int streaming;   /* waveform blocks flag 1: a ring the game refills; it wraps instead of ending */
@@ -411,7 +412,11 @@ typedef struct Ngs2Voice {
     int log_starved;      /* last logged starved/refilled state of a streaming voice */
     uint32_t flag_calls;  /* GetStateFlags calls: a voice the game waits on is polled hundreds of times a second */
     int fresh;            /* a new waveform was submitted since the last honoured Play (event 0) */
-    uint32_t stream_total; /* ATRAC9 streams: the sample count of the whole waveform, carried by every block of it */
+    uint32_t stream_total; /* ATRAC9 streams: the sample count of the first waveform block (logging) */
+    int stream_final;      /* streaming: the last chunk submitted had flags bit 0 clear - nothing follows it */
+    int stream_track;      /* ATRAC9 stream: stream_left is valid */
+    uint64_t stream_left;  /* samples the current waveform block still has to play */
+    int stream_wait;       /* the current waveform block is done; the next one has not been submitted yet */
     Ngs2Wav wav;          /* capture of this long voice's output */
     int log_pending, log_major; /* SPARTAN_AUDIO_DEBUG */
     /* per-render state */
@@ -764,7 +769,18 @@ static void ngs2_pop_block(Ngs2Voice *v) {
     if (!v->block_count) return;
     memmove(&v->blocks[0],&v->blocks[1],(v->block_count-1)*sizeof(Ngs2Block));
     memmove(&v->block_data[0],&v->block_data[1],(v->block_count-1)*sizeof(v->block_data[0]));
+    memmove(&v->block_starts[0],&v->block_starts[1],(v->block_count-1)*sizeof(v->block_starts[0]));
     --v->block_count; v->block=0;
+}
+/* A streaming ATRAC9 voice plays its waveform in blocks. The game cuts a block into chunks for its ring: the first chunk of
+ * a block has flags bit 1 clear, the others set; bit 0 says whether anything follows. A waveform with a loop point is a
+ * block up to the end of the loop followed by the loop body with an infinite repeat count, which the game submits again and
+ * again - each pass starts a superframe early and drops the lead-in with its skip. The decoder therefore has to stop a block
+ * after exactly its sample count, leave the rest of its chunks, and start the next block with a fresh decoder. */
+static void ngs2_stream_begin(Ngs2Voice *v) {
+    v->stream_wait=0;
+    v->stream_track=(v->streaming && v->wave_type==0x40 && v->block_count && v->blocks[0].samples) ? 1 : 0;
+    v->stream_left=v->stream_track ? v->blocks[0].samples : 0;
 }
 static void ngs2_at9_restart(Ngs2Voice *v) {
     if (v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
@@ -773,6 +789,7 @@ static void ngs2_at9_restart(Ngs2Voice *v) {
     v->at9_byte=0; v->at9_sf_have=v->at9_sf_pos=0; v->at9_sf_ready=v->at9_starved=v->at9_errors=0; v->at9_phase=0;
     v->at9_decoded=v->at9_retries=0;
     v->at9_skip=v->block_count ? v->blocks[0].skip : 0;
+    ngs2_stream_begin(v);
 }
 /* The ATRAC9 configuration: the setup's configData, else the RIFF "fmt " the data begins with. */
 static uint32_t ngs2_at9_config(const Ngs2Voice *v) {
@@ -900,8 +917,44 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
     }
     return 0;
 }
+static int ngs2_at9_open(Ngs2Voice *v);
+/* The next waveform block of a stream, once the game has submitted its first chunk. */
+static int ngs2_stream_resume(Ngs2Voice *v) {
+    if (!v->stream_wait) return 1;
+    if (!v->block_count) { v->at9_starved=1; return 0; }
+    v->stream_left=v->blocks[0].samples; v->at9_skip=v->blocks[0].skip; v->stream_wait=0;
+    if (!v->stream_left) v->stream_track=0;
+    return 1;
+}
+/* The current block has played its samples: drop what is left of its chunks (they count as consumed, the game refills its
+ * ring from that), reset the decoder, and begin the next block. */
+static void ngs2_stream_advance(Ngs2Voice *v) {
+    static int reported;
+    uint32_t dropped=0;
+    if (v->block_count) {
+        const Ngs2Block *head=&v->blocks[0];
+        if (v->at9_byte<head->size) v->consumed_bytes+=head->size-v->at9_byte;
+        ngs2_pop_block(v);
+    }
+    while (v->block_count && !v->block_starts[0]) { v->consumed_bytes+=v->blocks[0].size; ngs2_pop_block(v); ++dropped; }
+    if (v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
+    v->at9_config=0;
+    v->at9_byte=0; v->at9_sf_have=v->at9_sf_pos=0; v->at9_sf_ready=0; v->at9_frames=0; v->at9_count=v->at9_pos=0;
+    v->at9_decoded=v->at9_retries=v->at9_errors=0; v->at9_skip=0;
+    v->stream_wait=1;
+    ngs2_stream_resume(v);
+    if (reported++<60)
+        runtime_audio_log("ngs2.block_end rack=%#x/%u voice=%u played_ms=%.0f dropped_chunks=%u queued=%u next_samples=%u next_skip=%u final=%d",
+                          v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v),dropped,v->block_count,
+                          v->block_count ? v->blocks[0].samples : 0,v->block_count ? v->blocks[0].skip : 0,v->stream_final);
+}
 /* The next decoded sample frame into frame[]; 0 when the waveform ends or the stream is dry. */
 static int ngs2_at9_next(Ngs2Voice *v, float *frame) {
+    if (v->streaming && v->stream_track) {
+        if (v->stream_wait && !ngs2_stream_resume(v)) return 0;
+        if (!v->stream_wait && v->stream_left==0) { ngs2_stream_advance(v); if (v->stream_wait) return 0; }
+        if (!v->at9 && !ngs2_at9_open(v)) return 0;
+    }
     if (!v->streaming && v->block<v->block_count) {
         const Ngs2Block *limit=&v->blocks[v->block];
         if (limit->samples && v->at9_emitted>=limit->samples) v->at9_pos=v->at9_count; /* drop the rest of the last superframe */
@@ -910,6 +963,7 @@ static int ngs2_at9_next(Ngs2Voice *v, float *frame) {
     for (uint32_t c=0;c<v->wave_channels;++c)
         frame[c]=(float)v->at9_pcm[(size_t)v->at9_pos*v->wave_channels+c]/32768.0f;
     ++v->at9_pos; ++v->at9_emitted;
+    if (v->streaming && v->stream_track && v->stream_left) --v->stream_left;
     v->consumed+=1.0;
     return 1;
 }
@@ -1063,6 +1117,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
             if (!append) {
                 v->wave_data=data;
                 v->block_count=0;
+                v->stream_final=0;
                 v->streaming=(flags&3)!=0;
                 v->block=0;
                 v->repeats_done=0;
@@ -1079,8 +1134,11 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                 ngs2_at9_restart(v);
             }
             for (uint32_t k=0;k<take;++k) {
-                v->blocks[v->block_count]=blocks[k]; v->block_data[v->block_count]=data; ++v->block_count;
+                v->blocks[v->block_count]=blocks[k]; v->block_data[v->block_count]=data;
+                v->block_starts[v->block_count]=(flags&2)==0; ++v->block_count;
             }
+            if (take && v->streaming) v->stream_final=(flags&1)==0;
+            if (!append) ngs2_stream_begin(v);
             if (v->streaming || ngs2_is_major(v)) { /* how a streaming game feeds its ring */
                 static int reported;
                 if (reported++<500) {
@@ -1400,9 +1458,11 @@ static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, ui
                 }
                 ngs2_send(v,frames);
                 if (was_playing && !v->playing && v->log_major) ngs2_log_end(v);
-                if (v->playing && v->stream_total && v->block_count==0 && v->consumed>=(double)v->stream_total) {
-                    /* The whole waveform has been decoded and the game has nothing more to add: the voice is finished. A voice that
-                       stays 'playing' here is waited on forever (black screen, a thread spinning on the state flags). */
+                if (v->playing && v->streaming && v->wave_type==0x40 && v->stream_final && v->block_count==0 &&
+                    (v->stream_wait || (v->at9_starved && v->at9_pos>=v->at9_count && !v->at9_sf_ready))) {
+                    /* The last chunk the game submitted (flags bit 0 clear) has been played out and nothing follows: the voice is
+                       finished. A voice that stays 'playing' here is waited on forever (black screen, a thread spinning on the
+                       state flags). A looping waveform never gets here: the game keeps submitting its loop block. */
                     v->playing=0; v->paused=0;
                     runtime_audio_log("ngs2.end rack=%#x/%u voice=%u reason=stream_complete played_ms=%.0f total_samples=%u",
                                       v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v),v->stream_total);
@@ -1523,6 +1583,42 @@ static int32_t ngs2_parse(const unsigned char *data, uint64_t size, Ngs2Waveform
     info->block[0].size=info->data_size;
     info->block[0].samples=info->samples;
     info->block[0].skip=fact_delay;
+    /* Loop point (RIFF "smpl", positions in the decoder's timeline, which starts fact_delay samples before the first sample
+       played): block 0 plays up to the end of the loop, block 1 is the loop body with an infinite repeat count. The game keeps
+       submitting block 1 for as long as the voice plays - the stage music loops that way; without it the music ended after
+       one pass and stayed silent until something started another track. */
+    if (has_loop && loop_stop>loop_start && !getenv("SPARTAN_NGS2_NO_LOOP_BLOCKS")) {
+        const uint64_t end=(uint64_t)loop_stop+1;
+        if (info->type==0x40 && info->frame_samples && info->frame_size) {
+            const uint64_t per=info->frame_samples, sf=info->frame_size;
+            uint64_t last0=(end+per-1)/per, first=loop_start/per, last1=last0;
+            uint64_t size0=last0*sf, off1=first*sf, size1=(last1-first)*sf;
+            if (size0>info->data_size) size0=info->data_size;
+            if (off1<info->data_size) {
+                if (off1+size1>info->data_size) size1=info->data_size-off1;
+                info->block[0].size=(uint32_t)size0;
+                info->block[0].samples=end>fact_delay ? (uint32_t)(end-fact_delay) : (uint32_t)end;
+                info->block[1].offset=(uint32_t)(info->data_offset+off1);
+                info->block[1].size=(uint32_t)size1;
+                info->block[1].repeats=0xffffffffu;
+                info->block[1].skip=(uint32_t)(loop_start-first*per);
+                info->block[1].samples=(uint32_t)(end-loop_start);
+                info->blocks=2;
+            }
+        } else if (info->type==0x12 || info->type==0x10) {
+            const uint64_t fb=(uint64_t)info->channels*(info->type==0x12 ? 2u : 1u);
+            if (end*fb<=info->data_size && fb) {
+                info->block[0].size=(uint32_t)(end*fb);
+                info->block[0].samples=(uint32_t)end;
+                info->block[1].offset=(uint32_t)(info->data_offset+(uint64_t)loop_start*fb);
+                info->block[1].size=(uint32_t)((end-loop_start)*fb);
+                info->block[1].repeats=0xffffffffu;
+                info->block[1].skip=0;
+                info->block[1].samples=(uint32_t)(end-loop_start);
+                info->blocks=2;
+            }
+        }
+    }
     return ORBIS_OK;
 }
 static ABI int32_t ngs2_parse_data(const unsigned char *data, uint64_t size, Ngs2WaveformInfo *info) {
@@ -1541,8 +1637,10 @@ static ABI int32_t ngs2_parse_file(const char *path, uint64_t offset, Ngs2Wavefo
     runtime_file_close(fd);
     int32_t rc=got>0 ? ngs2_parse(header,(uint64_t)got,info) : NGS2_INVALID_WAVEFORM_DATA;
     static int reported;
-    if (reported++<200) runtime_audio_log("ngs2.parse_file path=%s offset=%llu rc=%#x type=%#x channels=%u rate=%u samples=%u data_size=%u",path,
-                                          (unsigned long long)offset,(unsigned)rc,info->type,info->channels,info->rate,info->samples,info->data_size);
+    if (reported++<200) runtime_audio_log("ngs2.parse_file path=%s offset=%llu rc=%#x type=%#x channels=%u rate=%u samples=%u data_size=%u loop=%u..%u blocks=%u b0{off=%u size=%u skip=%u samples=%u} b1{off=%u size=%u rep=%u skip=%u samples=%u}",path,
+                                          (unsigned long long)offset,(unsigned)rc,info->type,info->channels,info->rate,info->samples,info->data_size,
+                                          info->loop_begin,info->loop_end,info->blocks,info->block[0].offset,info->block[0].size,info->block[0].skip,info->block[0].samples,
+                                          info->block[1].offset,info->block[1].size,info->block[1].repeats,info->block[1].skip,info->block[1].samples);
     return rc;
 }
 /* The bytes of a waveform that hold `samples` samples from sample `position`, as a block a sampler voice can play.
