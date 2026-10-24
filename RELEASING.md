@@ -25,9 +25,8 @@ git status --short
 git log --oneline origin/main..main
 ```
 
-- File yang **sudah dilacak** harus bersih (tidak ada baris ` M`). Baris `??` boleh ada.
-- Jangan pernah `git add .` atau `git add -A`: masih ada folder yang sengaja tidak dilacak (misalnya `.agents/` dan beberapa skrip lama di `tools/`).
-  Tambahkan file dengan nama yang jelas saja.
+- `git status --short` harus kosong. File lokal yang sengaja tidak di-push (`.agents/`, sisa upstream di `tools/`) disembunyikan lewat `.git/info/exclude`.
+- Tetap biasakan `git add` dengan nama file yang jelas, bukan `git add .`.
 - `git log` menampilkan commit yang belum ada di GitHub. Itu yang akan terkirim saat push.
 
 ## 2. Build runtime
@@ -94,7 +93,51 @@ Kalau launcher tidak naik atau ada DLL yang hilang di mesin lain, jangan lanjut 
 
 ## 5. Commit, tag, dan push
 
-Pastikan semua perubahan yang ingin dirilis sudah di-commit (`git status --short` tidak menampilkan ` M`).
+### Isi repositori yang akan terkirim (sudah diperiksa)
+
+Yang di-push hanya berkas yang dilacak git (**2.230 berkas, sekitar 59 MB**; pustaka pihak ketiga ikut di dalam pohon, bukan submodule yang harus diunduh terpisah).
+Satu clone baru dari repositori ini sudah diuji: `cmake` configure berhasil tanpa menyalin apa pun dari luar.
+
+| Folder / berkas | Isi | Ikut push |
+|---|---|---|
+| `src/` | runtime C: kontrak sistem PS4, mesin audio Ngs2, loader | ya |
+| `gpu/` | inti grafis Vulkan (turunan shadPS4) dan pustaka bawaannya di `gpu/third_party/` | ya |
+| `third_party/` | LibAtrac9 | ya |
+| `launcher/` | launcher (`basara4_launcher.py`, `basara4_patches.py`, ikon) | ya |
+| `scripts/` | skrip persiapan image game | ya |
+| `packaging/basara4/` | pembuat paket (`make_package.py`), daftar DLL, README paket | ya |
+| `packaging/windows/` | berkas resource/manifest Windows yang dipakai CMake | ya |
+| `tools/` | alat bantu pengembang (laporan audio, debug_watch, hang_all, save_snapshot, dll.) | ya |
+| `tests/` | rangkaian tes bawaan upstream; CMake merujuk berkas di sini | ya |
+| `.github/` | templat isu dan dua workflow upstream yang hanya jalan manual | ya |
+| `README.md`, `README.id.md`, `CHANGELOG.md`, `CHANGELOG.id.md`, `NOTICE.md`, `LICENSE` | dokumen | ya |
+| `RELEASING.md`, `RELEASE_NOTES_1.0.1.md` | panduan ini dan teks rilis | ya |
+| `build.sh`, `msys2-env.sh`, `.gitignore`, `.gitattributes`, `.gitmodules` | build dan konfigurasi git | ya |
+
+**Tidak ikut push (sengaja):**
+
+- Diabaikan oleh `.gitignore`: `game/` (isi game), `user/` (save, log, rekaman, dump), `out/` (hasil build), `dist/` (paket), `*.pkg`, `eboot.bin`, `*.mp4`, `*.png` di luar `docs/images/`, dan sejenisnya.
+- Disembunyikan hanya di mesin ini lewat `.git/info/exclude` (tidak ada di repositori): `.agents/`, `tools/tools/` (salinan kembar `tools/`),
+  dan sisa upstream di `tools/` yang bukan bagian rilis Basara 4 (skrip FSR4, `wad_textures.py`, `zip_mod.py`, `make_ultrawide_patch.py`, dan sejenisnya).
+  Isinya tidak dihapus, hanya tidak dilacak. Karena itu `git status` seharusnya kosong.
+
+Catatan: `.github/workflows/windows-zip.yml` dan `linux-appimage.yml` berasal dari upstream dan hanya bisa dijalankan manual (`workflow_dispatch`).
+Push dan tag **tidak** memicunya, dan keduanya tidak dipakai untuk rilis ini.
+
+### Periksa sebelum push (semua keluaran harus kosong)
+
+```powershell
+git status --short
+git ls-files | Select-String -Pattern '(^|/)(game|user|out|dist|checkpoints)/'
+git ls-files | Select-String -Pattern 'eboot\.bin|\.(pkg|dmp|wav|mp4|exe|dll|elf|dump)$'
+git grep -n -I -E 'C:\\Users|G:\\|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{12}|BEGIN (RSA|OPENSSH) PRIVATE' -- src launcher scripts packaging tools .github '*.md' build.sh
+```
+
+Pemeriksaan ini sudah dijalankan pada commit terakhir dan hasilnya kosong semua.
+
+### Commit, tag, push
+
+Pastikan semua perubahan yang ingin dirilis sudah di-commit (`git status --short` kosong).
 
 ```powershell
 git push origin main
