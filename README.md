@@ -27,7 +27,6 @@ The game's original x86-64 code executes directly on your PC's CPU without emula
 ## Contents
 
 - [Features & Highlights](#features--highlights)
-- [What's New in 1.0.1](#whats-new-in-101)
 - [System Requirements](#system-requirements)
 - [Download and Play](#download-and-play)
 - [Launcher Settings](#launcher-settings)
@@ -36,7 +35,6 @@ The game's original x86-64 code executes directly on your PC's CPU without emula
 - [How It Works (Technical Architecture)](#how-it-works-technical-architecture)
 - [Building from Source](#building-from-source)
 - [Troubleshooting & Logs](#troubleshooting--logs)
-- [Known Limitations](#known-limitations)
 - [Credits & Acknowledgments](#credits--acknowledgments)
 - [License](#license)
 
@@ -53,23 +51,6 @@ The game's original x86-64 code executes directly on your PC's CPU without emula
 - **Anisotropic Filtering (up to 16x)**: Greatly enhances floor and terrain texture clarity across battlefields.
 - **Dynamic Asset & Import Preparation**: Automatic game image preparation pipeline (`prepare.py`, `link_libc.py`, `link_modules.py`, `content_profile.py`) that adapts to official patches without touching your original dump.
 - **Universal Gamepad Mapper**: Bundled SDL3 mapper tool (`basara4-pad-mapper.exe`) for DirectInput, generic USB gamepads, and Xbox/PlayStation controllers.
-- **Looping Music**: Tracks carry a loop point; the audio engine reports the intro and the loop as separate blocks, so battle music repeats like on the console.
-- **Crash and GPU Diagnostics**: Crash dumps in `user\crash\`, and a GPU device loss is reported with the draw and the images that caused it.
-
----
-
-## What's New in 1.0.1
-
-The first update. Music that stopped, doubled or clipped sound, black screens and wrong pictures in event cutscenes, and a crash in the stage select are fixed.
-Full list with the reason for each fix: **[CHANGELOG.md](CHANGELOG.md)**.
-
-- **Battle music now loops** like the original (it used to play once and go silent). A track whose Play arrives in an unusual order no longer dies.
-- **Event cutscenes no longer go black or show a red / doubled picture** (a GPU device loss on NVIDIA caused by a depth image used as a colour texture).
-- **Dialogue and cutscene voices, doubled sound, harsh clipping and wrong stereo pairs** in the software Ngs2 audio engine.
-- **Stage select no longer crashes** (issue #1).
-- **Crash dumps** are written to `user\crash\` and a GPU that stops answering is reported with the draw that caused it.
-
-Tested on one machine only (Windows, NVIDIA RTX 4070); see [Known Limitations](#known-limitations).
 
 ---
 
@@ -220,31 +201,6 @@ To summarize audio logs from command line:
 ```bash
 python tools/audio_log_summary.py user/audio_debug.log
 ```
-
-To let a script look for audio problems in a whole session without telling it when they happened (silent music, voices that never finish,
-decoder faults, clipping), tick **Audio debug log** in the launcher, play, close the game, then run (from the source repository):
-```bash
-python tools/audio_session_report.py user
-```
-
-**Crash dumps.** If the game dies from a fault or a GPU assertion, `user\crash\core-<date>-<time>.dmp` is written next to the logs. A dump contains
-the memory of the game: attach it to a report only if you trust the person who will read it. A GPU device loss is also named in `user\last_run.log`
-(`DEVICE LOST`, with the draw and the images it used).
-
-**Developer debugging tools** (`tools/`, source repository only, not needed to play): `debug_watch.py` writes a time-stamped timeline, captures frames
-in event cutscenes and on **F9**, records the screen with `ffmpeg` and writes `user\report.txt`. *The recording captures the whole primary screen.*
-Set `DEBUG_NO_VIDEO=1` to switch the recording off. See [CHANGELOG.md](CHANGELOG.md) for the others (`hang_all.py`, `save_snapshot.py`).
-
----
-
-## Known Limitations
-
-- Only **NVIDIA** graphics have been tested. The GPU fixes follow the Vulkan rules and should not hurt AMD or Intel cards, but this is not proven.
-  The minimum and recommended hardware above are estimates.
-- The music loop can have a short gap at the seam (10 to 80 ms were measured) when the game hands over the next block late. It affects only some tracks.
-- Frame rates above 60 are experimental.
-- If a music change misbehaves on your machine, `SPARTAN_NGS2_NO_LOOP_BLOCKS=1` (environment variable) brings back the old single-pass music
-  and `SPARTAN_NGS2_EVENT1_PAUSES=1` the old handling of cutscene event 1. Please report it together with `user\audio_debug.log`.
 
 ---
 
