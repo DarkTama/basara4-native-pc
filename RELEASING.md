@@ -66,6 +66,21 @@ Get-FileHash dist\basara4-windows.zip -Algorithm SHA256
 
 Simpan nilai SHA-256 untuk catatan rilis.
 
+**Yang dizip harus `dist\basara4-windows`, jangan folder game yang Anda mainkan sehari-hari.** Folder game Anda berisi `user\` (save, log, `audio_wav` yang bisa
+beberapa GB, rekaman, dump) dan `game\` (isi game). Folder `dist\basara4-windows` dari `make_package.py` hanya berisi program dan dokumen; `game\`, `user\`, dan
+`out\` di dalamnya kosong. Periksa isi zip sebelum diunggah:
+
+```powershell
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$z = [IO.Compression.ZipFile]::OpenRead("$PWD\dist\basara4-windows.zip")
+$z.Entries | Where-Object { $_.FullName -match '^basara4-windows/(user|out|game)/' -and $_.Length -gt 0 } | Select-Object FullName, Length
+"{0} berkas, {1:N0} MB tidak terkompresi" -f $z.Entries.Count, (($z.Entries | Measure-Object Length -Sum).Sum / 1MB)
+$z.Dispose()
+```
+
+Baris `Select-Object` hanya boleh menampilkan `game/PUT_YOUR_GAME_DUMP_HERE.txt`. Kalau ada berkas lain di `user/`, `out/`, atau `game/`, hentikan dan cari sebabnya.
+Ukuran tidak terkompresi seharusnya puluhan MB, bukan GB.
+
 ## 4. Uji paket di folder bersih (jangan dilewati)
 
 1. Ekstrak `dist/basara4-windows.zip` ke folder kosong yang baru, misalnya `C:\Temp\b4test` (bukan folder game Anda yang sehari-hari).
