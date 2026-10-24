@@ -198,6 +198,18 @@ static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
             c->Rip=(DWORD64)(uintptr_t)spartanport_longjmp;
             return EXCEPTION_CONTINUE_EXECUTION;
         }
+        /* MT Framework UI text markup engine safe crash guard (e.g. Issue #1):
+         * Stage briefing / dialogue text parser (0xc32400-0xc36c00) popping from corrupted free list
+         * at 0xc33d55. Safely unwind frame via epilogue at 0xc33d9f (pop rbx; pop r14; pop rbp; ret). */
+        if (image) {
+            uintptr_t rip = (uintptr_t)info->ContextRecord->Rip;
+            uintptr_t offset = rip - (uintptr_t)image;
+            if (offset == 0xc33d55 || offset == 0xc33cf0) {
+                CONTEXT *c = info->ContextRecord;
+                c->Rip = (DWORD64)((uintptr_t)image + 0xc33d9f);
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+        }
     }
     if (code==EXCEPTION_ACCESS_VIOLATION || code==EXCEPTION_ILLEGAL_INSTRUCTION || code==EXCEPTION_PRIV_INSTRUCTION ||
         code==EXCEPTION_STACK_OVERFLOW || code==EXCEPTION_INT_DIVIDE_BY_ZERO || code==EXCEPTION_DATATYPE_MISALIGNMENT) {
