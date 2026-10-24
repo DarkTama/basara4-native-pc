@@ -130,7 +130,7 @@ Push dan tag **tidak** memicunya, dan keduanya tidak dipakai untuk rilis ini.
 git status --short
 git ls-files | Select-String -Pattern '(^|/)(game|user|out|dist|checkpoints)/'
 git ls-files | Select-String -Pattern 'eboot\.bin|\.(pkg|dmp|wav|mp4|exe|dll|elf|dump)$'
-git grep -n -I -E 'C:\\Users|G:\\|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{12}|BEGIN (RSA|OPENSSH) PRIVATE' -- src launcher scripts packaging tools .github '*.md' build.sh
+git grep -n -I -E 'C:\\Users|G:\\|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{12}|BEGIN (RSA|OPENSSH) PRIVATE' -- src launcher scripts packaging tools .github '*.md' ':!RELEASING.md' build.sh
 ```
 
 Pemeriksaan ini sudah dijalankan pada commit terakhir dan hasilnya kosong semua.
