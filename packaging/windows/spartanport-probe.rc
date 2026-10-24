@@ -1,0 +1,31 @@
+#include <winuser.h>
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "spartanport-probe.manifest"
+// The first icon is the one Explorer and the game window show.
+1 ICON "../../launcher/basara4.ico"
+
+#include <winver.h>
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Razz"
+      VALUE "FileDescription", "Basara 4 PC core"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "InternalName", "basara4-core"
+      VALUE "OriginalFilename", "basara4-core.exe"
+      VALUE "ProductName", "Basara 4 PC"
+      VALUE "ProductVersion", "1.0.0"
+      VALUE "LegalCopyright", "GPL-2.0-or-later. Based on SpartanPort / shadPS4; see NOTICE.md"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 0x04B0
+  END
+END
