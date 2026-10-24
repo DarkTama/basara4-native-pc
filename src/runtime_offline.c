@@ -362,7 +362,7 @@ static ABI int32_t shareplay_info(void *info) { if (info) memset(info,0,56); ret
 #define NGS2_MAX_PORTS 4
 #define NGS2_MAX_MATRICES 8
 #define NGS2_MAX_MATRIX_LEVELS 64
-#define NGS2_MAX_BLOCKS 16
+#define NGS2_MAX_BLOCKS 64
 #define NGS2_RACK_SAMPLER 0x1000
 #define NGS2_RACK_MASTERING 0x3000
 struct Ngs2Rack;
@@ -887,15 +887,16 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
             const unsigned char *data; const Ngs2Block *blocks; uint32_t count, flags;
             memcpy(&data,b,8); memcpy(&flags,b+8,4); memcpy(&count,b+12,4); memcpy(&blocks,b+16,8);
             /* A streaming voice continues what is playing if it is actively playing and not paused.
-               If paused, stopped, non-streaming, or switching streams, blocks replace the waveform and unpause. */
-            int append=(flags&1) && v->streaming && v->playing && !v->paused && blocks;
+               flags: bit 0 = streaming buffer active, bit 1 = stream segment end / continuation block.
+               If switching streams, paused or stopped, blocks replace the waveform and unpause. */
+            int append=((flags&3)!=0) && v->streaming && v->playing && !v->paused && blocks;
             uint32_t room=NGS2_MAX_BLOCKS-(append ? v->block_count : 0);
             uint32_t take=blocks ? (count<room ? count : room) : 0;
             if (take<count) runtime_audio_log("ngs2.blocks_truncated rack=%#x voice=%u count=%u kept=%u append=%d",v->rack->id,v->index,count,take,append);
             if (!append) {
                 v->wave_data=data;
                 v->block_count=0;
-                v->streaming=(flags&1)!=0;
+                v->streaming=(flags&3)!=0;
                 v->block=0;
                 v->repeats_done=0;
                 v->position=0;
@@ -1120,6 +1121,13 @@ static void ngs2_send(Ngs2Voice *v, uint32_t frames) {
     for (int p=0;p<NGS2_MAX_PORTS;++p) {
         Ngs2Voice *d=v->patch[p];
         if (!d || !d->playing) continue;
+
+        /* Port 1 on sampler voices (rack 0x1000) targets the wet/reverb send rack (0x2001).
+           In clean-room HLE without dedicated DSP reverb, passing dry signal at full gain (1.0)
+           into 0x2001 sums duplicate phase-aligned dialogue back into master, causing harsh echo/flanging.
+           Mute or heavily attenuate wet send to keep dialogue clean and single-voiced. */
+        if (v->rack && v->rack->id==NGS2_RACK_SAMPLER && d->rack && d->rack->id==0x2001) continue;
+
         float level=v->port_volume[p];
         if (fabsf(level) < 1e-6f) continue;
 
