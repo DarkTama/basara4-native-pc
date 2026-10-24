@@ -35,5 +35,8 @@ patches.json
 !scripts/controller_diagrams/nintendo.png
 !launcher/logo.png
 !packaging/icon/monogram.png
-/.vscode
+# Local release notes and changelogs kept on dev disk only
+CHANGELOG*.md
+RELEASE_NOTES*.md
+RELEASING.md
 
