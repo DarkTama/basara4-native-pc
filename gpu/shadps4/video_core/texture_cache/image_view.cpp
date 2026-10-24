@@ -92,6 +92,35 @@ ImageViewInfo::ImageViewInfo(const AmdGpu::DepthBuffer& depth_buffer, AmdGpu::De
 ImageView::ImageView(const Vulkan::Instance& instance, const ImageViewInfo& info_,
                      const Image& image)
     : info{info_} {
+    {
+        // Basara 4 PC: a view may not reach past the image it looks at (VUID-VkImageViewCreateInfo-
+        // subresourceRange-01718/-01720). The guest descriptor (T#) of a cutscene texture asked for 3 mip
+        // levels of an image that has 1; the driver was handed an invalid view and the frame never
+        // finished (black screen, the game spinning on a GPU label). Clamp to what the image has.
+        const u32 image_levels = std::max<u32>(1u, image.info.resources.levels);
+        const u32 image_layers = std::max<u32>(1u, image.info.resources.layers);
+        const auto before = info.range;
+        info.range.base.level = std::min<u32>(info.range.base.level, image_levels - 1);
+        info.range.extent.levels = std::max<u32>(
+            1u, std::min<u32>(info.range.extent.levels, image_levels - info.range.base.level));
+        info.range.base.layer = std::min<u32>(info.range.base.layer, image_layers - 1);
+        info.range.extent.layers = std::max<u32>(
+            1u, std::min<u32>(info.range.extent.layers, image_layers - info.range.base.layer));
+        if (before.base.level != info.range.base.level || before.extent.levels != info.range.extent.levels ||
+            before.base.layer != info.range.base.layer || before.extent.layers != info.range.extent.layers) {
+            static u32 logged = 0;
+            if (logged++ < 8) {
+                LOG_WARNING(Render_Vulkan,
+                            "image view range (levels {}+{}, layers {}+{}) exceeds its image {:#x} "
+                            "{}x{}x{} ({} levels, {} layers, fmt {}); clamped to levels {}+{}, layers {}+{}",
+                            before.base.level, before.extent.levels, before.base.layer,
+                            before.extent.layers, image.info.guest_address, image.info.size.width,
+                            image.info.size.height, image.info.size.depth, image_levels, image_layers,
+                            vk::to_string(image.info.pixel_format), info.range.base.level,
+                            info.range.extent.levels, info.range.base.layer, info.range.extent.layers);
+            }
+        }
+    }
     vk::ImageViewUsageCreateInfo usage_ci{.usage = image.usage_flags};
     if (!info.is_storage) {
         usage_ci.usage &= ~vk::ImageUsageFlagBits::eStorage;
