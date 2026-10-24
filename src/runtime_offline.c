@@ -410,6 +410,7 @@ typedef struct Ngs2Voice {
     uint32_t state_calls; /* GetState calls since creation (a streaming game polls it) */
     int log_starved;      /* last logged starved/refilled state of a streaming voice */
     int fresh;            /* a new waveform was submitted since the last honoured Play (event 0) */
+    uint32_t stream_total; /* ATRAC9 streams: the sample count of the whole waveform, carried by every block of it */
     Ngs2Wav wav;          /* capture of this long voice's output */
     int log_pending, log_major; /* SPARTAN_AUDIO_DEBUG */
     /* per-render state */
@@ -1063,6 +1064,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                    starts the stream itself with events 5 and 0 in one call (seen in the event log). Starting here played
                    that preload, the refills overwrote the start of the ring, and the real Play then restarted on garbage. */
                 if (ngs2_autoplay_blocks()) { v->paused=0; v->playing=1; }
+                v->stream_total=(v->streaming && v->wave_type==0x40 && take && blocks[0].samples) ? blocks[0].samples : 0;
                 v->log_pending=1;
                 v->fresh=1;
                 ngs2_at9_restart(v);
@@ -1388,6 +1390,15 @@ static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, ui
                 }
                 ngs2_send(v,frames);
                 if (was_playing && !v->playing && v->log_major) ngs2_log_end(v);
+                if (v->playing && v->stream_total && v->block_count==0 && v->consumed>=(double)v->stream_total) {
+                    /* The whole waveform has been decoded and the game has nothing more to add: the voice is finished. A voice that
+                       stays 'playing' here is waited on forever (black screen, a thread spinning on the state flags). */
+                    v->playing=0; v->paused=0;
+                    runtime_audio_log("ngs2.end rack=%#x/%u voice=%u reason=stream_complete played_ms=%.0f total_samples=%u",
+                                      v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v),v->stream_total);
+                    ngs2_wav_close(&v->wav);
+                    v->log_major=0; v->stream_total=0;
+                }
             }
     /* Mastering voices write their render buffer: 32-bit float, interleaved. */
     for (uint32_t b=0; buffers && b<count; ++b)
