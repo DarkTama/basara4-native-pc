@@ -34,6 +34,7 @@ LOG = USER / "last_run.log"
 PREPARE_LOG = USER / "prepare.log"
 MAPPING = USER / "gamepad_mapping.txt"
 AUDIO_LOG = USER / "audio_debug.log"
+AUDIO_WAV = USER / "audio_wav"  # SPARTAN_AUDIO_WAV_DIR: float WAV capture of the mix and of long voices
 STAMP = OUT / "prepared.json"
 PIPELINE = [("prepare.py", []), ("link_libc.py", []), ("link_modules.py", []),
             ("content_profile.py", ["--sku", "full"])]
@@ -68,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
 
 DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
-            "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False}
+            "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False}
 DISPLAY_MODES = [("Windowed", "windowed"), ("Borderless fullscreen", "borderless"),
                  ("Exclusive fullscreen", "fullscreen")]
 FPS_LIMITS = [("60 (game default)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
@@ -326,11 +327,14 @@ class Launcher(tk.Tk):
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
+        self.wav_var = tk.BooleanVar(value=self.cfg.get("audio_wav", False))
         ttk.Checkbutton(opts, text="VSync", variable=self.vsync_var).grid(row=1, column=0, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="Sharpening (RCAS)", variable=self.rcas_var).grid(
             row=1, column=1, columnspan=2, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="Audio debug log", variable=self.audio_var).grid(
             row=1, column=3, sticky="w", pady=8)
+        ttk.Checkbutton(opts, text="+ WAV capture (large)", variable=self.wav_var).grid(
+            row=1, column=4, sticky="w", pady=8, padx=(8, 0))
         ttk.Label(opts, text="Above 60 turns off the game's own frame limiter (experimental). "
                   "VSync caps the rate at your monitor's refresh.",
                   style="Muted.TLabel", wraplength=560).grid(row=2, column=0, columnspan=4, sticky="w")
@@ -407,7 +411,8 @@ class Launcher(tk.Tk):
             game=self.game_var.get().strip(), display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
             rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
             resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
-            anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get())
+            anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
+            audio_wav=self.audio_var.get() and self.wav_var.get())
         save_config(self.cfg)
         write_ini(self._ini(), {
             "display_mode": self.cfg["display_mode"], "vsync": int(self.cfg["vsync"]),
@@ -427,6 +432,8 @@ class Launcher(tk.Tk):
             env["SDL_GAMECONTROLLERCONFIG_FILE"] = str(MAPPING)
         if self.cfg.get("audio_log"):  # one timestamped line per audio event, for bug reports
             env["SPARTAN_AUDIO_DEBUG"] = str(AUDIO_LOG)
+        if self.cfg.get("audio_log") and self.cfg.get("audio_wav"):  # needs about 70 MB per minute
+            env["SPARTAN_AUDIO_WAV_DIR"] = str(AUDIO_WAV)
         if self.cfg["fps_limit"] != 60:  # uncapped: 480 Hz vblank, the present thread paces to the limit
             env["SPARTAN_VBLANK_HZ"] = "0"
             env["SPARTAN_FPS_LIMIT"] = str(self.cfg["fps_limit"])
@@ -496,6 +503,13 @@ class Launcher(tk.Tk):
                 os.replace(AUDIO_LOG, AUDIO_LOG.with_name("audio_debug.previous.log"))
             except OSError:
                 pass
+        if self.cfg.get("audio_log") and self.cfg.get("audio_wav"):  # only this run's captures stay
+            AUDIO_WAV.mkdir(parents=True, exist_ok=True)
+            for old in AUDIO_WAV.glob("*.wav"):
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),

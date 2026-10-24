@@ -99,6 +99,7 @@ void runtime_audio_log(const char *fmt, ...) {
     }
     pthread_mutex_unlock(&alog_lock);
 }
+uint64_t runtime_audio_log_ms(void) { return alog_start_ns ? (now_ns()-alog_start_ns)/1000000u : 0; }
 static const char *port_type_name(int type) {
     switch (type) {
     case 0: return "main"; case 1: return "bgm"; case 2: return "voice"; case 3: return "personal";

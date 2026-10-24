@@ -61,6 +61,7 @@ uintptr_t runtime_offline_resolve(const char *name);
 /* SPARTAN_AUDIO_DEBUG=<file>: a timestamped key=value line per audio event (runtime_audio.c). Cheap when off. */
 int runtime_audio_log_enabled(void);
 void runtime_audio_log(const char *fmt, ...) __attribute__((format(printf,1,2)));
+uint64_t runtime_audio_log_ms(void); /* milliseconds on the audio log's clock */
 void runtime_file_report(void);
 void runtime_file_configure(const char *app0, const char *user);
 int runtime_file_mount(const char *guest, const char *host);

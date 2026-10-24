@@ -367,6 +367,8 @@ static ABI int32_t shareplay_info(void *info) { if (info) memset(info,0,56); ret
 #define NGS2_RACK_MASTERING 0x3000
 struct Ngs2Rack;
 typedef struct Ngs2Block { uint32_t offset, size, repeats, skip, samples, reserved; uint64_t user; } Ngs2Block;
+typedef struct Ngs2Wav { FILE *f; uint32_t channels, rate; uint64_t frames; } Ngs2Wav; /* SPARTAN_AUDIO_WAV_DIR capture */
+typedef struct { void *buffer; uint64_t size; uint32_t waveform, channels; } Ngs2RenderBuffer;
 typedef struct Ngs2Voice {
     uint32_t magic;
     struct Ngs2Rack *rack;
@@ -406,6 +408,8 @@ typedef struct Ngs2Voice {
     uint64_t consumed_bytes; /* GetState decodedDataSize */
     float pitch;
     uint32_t state_calls; /* GetState calls since creation (a streaming game polls it) */
+    int log_starved;      /* last logged starved/refilled state of a streaming voice */
+    Ngs2Wav wav;          /* capture of this long voice's output */
     int log_pending, log_major; /* SPARTAN_AUDIO_DEBUG */
     /* per-render state */
     int level, done;
@@ -417,6 +421,7 @@ typedef struct Ngs2Voice {
 } Ngs2Voice;
 typedef struct Ngs2Rack {
     uint32_t magic, id, voice_count;
+    uint32_t serial; /* creation order: the three sampler racks all have id 0x1000 */
     struct Ngs2System *system;
     struct Ngs2Rack *next;
     Ngs2Voice *voices;
@@ -472,9 +477,106 @@ static int ngs2_routed(const Ngs2Voice *v, int depth) {
     return 0;
 }
 static double ngs2_played_ms(const Ngs2Voice *v) { return v->consumed*1000.0/(v->wave_rate ? (double)v->wave_rate : 48000.0); }
+
+/* ---- SPARTAN_AUDIO_WAV_DIR=<existing dir>: float WAV capture, capped at 3 GiB in total ----
+ * master_b<N>.wav   what the game hands to AudioOut for render buffer N (first SPARTAN_AUDIO_WAV_CH channels, default 2)
+ * voice_r<R>_v<V>_<ms>.wav   one file per long sampler voice (R = rack serial), after decoding and pitch */
+static uint64_t ngs2_wav_budget=3ull<<30;
+static const char *ngs2_wav_dir(void) {
+    static int init; static const char *dir;
+    if (!init) { init=1; dir=getenv("SPARTAN_AUDIO_WAV_DIR"); if (dir && !dir[0]) dir=NULL; }
+    return dir;
+}
+static void ngs2_wav_put32(unsigned char *p, uint32_t v) { p[0]=(unsigned char)v; p[1]=(unsigned char)(v>>8); p[2]=(unsigned char)(v>>16); p[3]=(unsigned char)(v>>24); }
+static void ngs2_wav_header(Ngs2Wav *w) {
+    unsigned char h[44]; uint64_t bytes=w->frames*w->channels*4u; uint32_t data=bytes>0xffffffffu ? 0xffffffffu : (uint32_t)bytes;
+    memcpy(h,"RIFF",4); ngs2_wav_put32(h+4,36u+data); memcpy(h+8,"WAVEfmt ",8); ngs2_wav_put32(h+16,16);
+    h[20]=3; h[21]=0; h[22]=(unsigned char)w->channels; h[23]=0; ngs2_wav_put32(h+24,w->rate);
+    ngs2_wav_put32(h+28,w->rate*w->channels*4u); h[32]=(unsigned char)(w->channels*4u); h[33]=0; h[34]=32; h[35]=0;
+    memcpy(h+36,"data",4); ngs2_wav_put32(h+40,data);
+    fseek(w->f,0,SEEK_SET); fwrite(h,1,sizeof h,w->f); fseek(w->f,0,SEEK_END);
+}
+static void ngs2_wav_open(Ngs2Wav *w, const char *name, uint32_t channels, uint32_t rate) {
+    const char *dir=ngs2_wav_dir();
+    if (!dir || w->f || ngs2_wav_budget<(1u<<20) || !channels || channels>8) return;
+    char path[1024]; snprintf(path,sizeof path,"%s/%s",dir,name);
+    w->f=fopen(path,"wb");
+    if (!w->f) { static int reported; if (reported++<3) runtime_audio_log("wav.open_failed path=%s",path); return; }
+    w->channels=channels; w->rate=rate; w->frames=0; ngs2_wav_header(w);
+    runtime_audio_log("wav.open file=%s channels=%u rate=%u",name,channels,rate);
+}
+static void ngs2_wav_write(Ngs2Wav *w, const float *interleaved, uint32_t frames) {
+    if (!w->f) return;
+    uint64_t bytes=(uint64_t)frames*w->channels*4u;
+    if (bytes>ngs2_wav_budget) { ngs2_wav_header(w); fclose(w->f); w->f=NULL; runtime_audio_log("wav.budget_reached"); ngs2_wav_budget=0; return; }
+    fwrite(interleaved,1,(size_t)bytes,w->f); ngs2_wav_budget-=bytes; w->frames+=frames;
+}
+static void ngs2_wav_close(Ngs2Wav *w) { if (w->f) { ngs2_wav_header(w); fclose(w->f); w->f=NULL; } }
+static void ngs2_wav_write_planar(Ngs2Wav *w, float (*planes)[NGS2_MAX_GRAIN], uint32_t frames) {
+    float mix[NGS2_MAX_GRAIN*NGS2_MAX_CHANNELS];
+    if (!w->f || frames>NGS2_MAX_GRAIN) return;
+    for (uint32_t f=0;f<frames;++f) for (uint32_t c=0;c<w->channels;++c) mix[f*w->channels+c]=planes[c][f];
+    ngs2_wav_write(w,mix,frames);
+}
+static Ngs2Wav ngs2_master_wav[8];
+static void ngs2_wav_masters(const Ngs2RenderBuffer *buffers, uint32_t count, uint32_t frames) {
+    if (!ngs2_wav_dir()) return;
+    static uint32_t keep; if (!keep) { const char *e=getenv("SPARTAN_AUDIO_WAV_CH"); keep=e ? (uint32_t)atoi(e) : 2; if (keep<1 || keep>8) keep=2; }
+    for (uint32_t b=0; b<count && b<8; ++b) {
+        const Ngs2RenderBuffer *out=&buffers[b];
+        if (!out->buffer || !out->channels) continue;
+        uint32_t channels=out->channels<keep ? out->channels : keep;
+        Ngs2Wav *w=&ngs2_master_wav[b];
+        if (!w->f) { char name[48]; snprintf(name,sizeof name,"master_b%u.wav",b); ngs2_wav_open(w,name,channels,48000); }
+        if (!w->f) continue;
+        uint64_t room=out->size/((uint64_t)out->channels*sizeof(float));
+        uint32_t n=frames<room ? frames : (uint32_t)room;
+        float mix[NGS2_MAX_GRAIN*8]; const float *src=out->buffer;
+        for (uint32_t f=0;f<n && f<NGS2_MAX_GRAIN;++f) for (uint32_t c=0;c<channels;++c) mix[f*channels+c]=src[(size_t)f*out->channels+c];
+        ngs2_wav_write(w,mix,n<NGS2_MAX_GRAIN ? n : NGS2_MAX_GRAIN);
+    }
+}
+static void ngs2_wav_begin(Ngs2Voice *v) {
+    if (!ngs2_wav_dir() || !v->log_major || v->rack->id!=NGS2_RACK_SAMPLER) return;
+    ngs2_wav_close(&v->wav);
+    char name[96]; snprintf(name,sizeof name,"voice_r%u_v%u_%llu.wav",v->rack->serial,v->index,(unsigned long long)runtime_audio_log_ms());
+    ngs2_wav_open(&v->wav,name,v->wave_channels ? v->wave_channels : 2,v->rack->system->rate);
+}
+
+/* ---- who calls the state APIs: guest return addresses, counted per call site ---- */
+typedef struct { const char *api; uint32_t tag; uintptr_t ra; uint64_t count, reported; } Ngs2Callsite;
+static Ngs2Callsite ngs2_callsites[256];
+static pthread_mutex_t ngs2_callsite_lock=PTHREAD_MUTEX_INITIALIZER;
+static void ngs2_note_callsite(const char *api, uint32_t tag, void *ra) {
+    if (!runtime_audio_log_enabled()) return;
+    int fresh=0; uint64_t count=0;
+    pthread_mutex_lock(&ngs2_callsite_lock);
+    Ngs2Callsite *slot=NULL;
+    for (size_t i=0;i<sizeof ngs2_callsites/sizeof *ngs2_callsites;++i) {
+        Ngs2Callsite *c=&ngs2_callsites[i];
+        if (!c->api) { slot=c; fresh=1; break; }
+        if (c->api==api && c->tag==tag && c->ra==(uintptr_t)ra) { slot=c; break; }
+    }
+    if (slot) { if (fresh) { slot->api=api; slot->tag=tag; slot->ra=(uintptr_t)ra; } count=++slot->count; }
+    pthread_mutex_unlock(&ngs2_callsite_lock);
+    if (fresh) runtime_audio_log("ngs2.callsite_new api=%s tag=%#x ra=%#llx",api,tag,(unsigned long long)(uintptr_t)ra);
+    (void)count;
+}
+static void ngs2_report_callsites(void) {
+    pthread_mutex_lock(&ngs2_callsite_lock);
+    for (size_t i=0;i<sizeof ngs2_callsites/sizeof *ngs2_callsites;++i) {
+        Ngs2Callsite *c=&ngs2_callsites[i];
+        if (!c->api || c->count==c->reported) continue;
+        runtime_audio_log("ngs2.callsite api=%s tag=%#x ra=%#llx count=%llu delta=%llu",c->api,c->tag,(unsigned long long)c->ra,
+                          (unsigned long long)c->count,(unsigned long long)(c->count-c->reported));
+        c->reported=c->count;
+    }
+    pthread_mutex_unlock(&ngs2_callsite_lock);
+}
 static void ngs2_log_start(Ngs2Voice *v) {
     v->log_pending=0;
     v->log_major=ngs2_is_major(v);
+    ngs2_wav_begin(v);
     ++ngs2_starts; if (v->log_major) ++ngs2_major_starts; else ++ngs2_minor_starts;
 
     /* Global Dual-Voice Stereo Panning / Deduplication:
@@ -505,10 +607,11 @@ static void ngs2_log_start(Ngs2Voice *v) {
     if (!runtime_audio_log_enabled() || v->rack->id!=NGS2_RACK_SAMPLER) return;
     if (!v->log_major && ngs2_starts>300) return; /* the first effects show what is used; the rest is counted */
     char what[400]; ngs2_describe(v,what,sizeof what);
-    runtime_audio_log("ngs2.start rack=%#x voice=%u major=%d %s",v->rack->id,v->index,v->log_major,what);
+    runtime_audio_log("ngs2.start rack=%#x/%u voice=%u major=%d %s",v->rack->id,v->rack->serial,v->index,v->log_major,what);
 }
 static void ngs2_log_end(Ngs2Voice *v) {
-    runtime_audio_log("ngs2.end rack=%#x voice=%u reason=finished played_ms=%.0f",v->rack->id,v->index,ngs2_played_ms(v));
+    runtime_audio_log("ngs2.end rack=%#x/%u voice=%u reason=finished played_ms=%.0f",v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v));
+    ngs2_wav_close(&v->wav);
     v->log_major=0;
 }
 /* Every ~2 s: what plays, how loud the mix is, which long sounds have no route to the output. */
@@ -538,11 +641,15 @@ static void ngs2_log_summary(Ngs2System *s) {
                 int routed=ngs2_routed(v,0);
                 if (!v->log_major && routed) continue;
                 ++lines;
-                runtime_audio_log("ngs2.voice voice=%u routed=%d paused=%d type=%s peak=%.4f played_ms=%.0f state_calls=%u streaming=%d",
-                                  v->index,routed,v->paused,ngs2_wave_name(v->wave_type),v->peak_seen,ngs2_played_ms(v),v->state_calls,v->streaming);
+                runtime_audio_log("ngs2.voice rack=%#x/%u voice=%u routed=%d paused=%d type=%s peak=%.4f played_ms=%.0f state_calls=%u streaming=%d queued=%u",
+                                  r->id,r->serial,v->index,routed,v->paused,ngs2_wave_name(v->wave_type),v->peak_seen,ngs2_played_ms(v),v->state_calls,v->streaming,v->block_count);
             }
     }
     last_playing=playing;
+    for (Ngs2Rack *r=s->racks; r; r=r->next)  /* keep captured files readable even if the game is killed */
+        for (uint32_t i=0;i<r->voice_count;++i) if (r->voices[i].wav.f) { ngs2_wav_header(&r->voices[i].wav); fflush(r->voices[i].wav.f); }
+    for (int b=0;b<8;++b) if (ngs2_master_wav[b].f) { ngs2_wav_header(&ngs2_master_wav[b]); fflush(ngs2_master_wav[b].f); }
+    { static unsigned tick; if (++tick%5==0) ngs2_report_callsites(); }
     for (Ngs2Rack *r=s->racks; r; r=r->next)
         for (uint32_t i=0;i<r->voice_count;++i) r->voices[i].peak_seen=0.0f;
     pthread_mutex_unlock(&s->lock);
@@ -589,7 +696,8 @@ static ABI int32_t ngs2_rack_create(void *system, uint32_t rack_id, const unsign
     Ngs2Rack *r=calloc(1,sizeof *r);
     Ngs2Voice *v=r ? calloc(voices,sizeof *v) : NULL;
     if (!v) { free(r); return NGS2_INVALID_RACK_HANDLE; }
-    r->magic=NGS2_MAGIC_RACK; r->id=rack_id; r->voice_count=voices; r->system=s; r->voices=v;
+    static uint32_t rack_serial;
+    r->magic=NGS2_MAGIC_RACK; r->id=rack_id; r->voice_count=voices; r->system=s; r->voices=v; r->serial=++rack_serial;
     uint32_t master_index=0;
     if (rack_id==NGS2_RACK_MASTERING) {
         pthread_mutex_lock(&s->lock);
@@ -615,7 +723,7 @@ static ABI int32_t ngs2_rack_create(void *system, uint32_t rack_id, const unsign
     Ngs2Rack **tail=&s->racks; while (*tail) tail=&(*tail)->next; *tail=r; /* creation order */
     pthread_mutex_unlock(&s->lock);
     if (ngs2_tracing()) printf("Ngs2 trace: rack %#x created, %u voices, handle %p\n",rack_id,voices,(void *)r);
-    runtime_audio_log("ngs2.rack id=%#x voices=%u",rack_id,voices);
+    runtime_audio_log("ngs2.rack id=%#x serial=%u voices=%u",rack_id,r->serial,voices);
     *out=r;
     return ORBIS_OK;
 }
@@ -643,6 +751,7 @@ static ABI int32_t ngs2_rack_voice(void *rack, uint32_t index, uintptr_t *out) {
     if (!r) return NGS2_INVALID_RACK_HANDLE;
     if (!out) return NGS2_INVALID_OUT_ADDRESS;
     if (index>=r->voice_count) return NGS2_INVALID_VOICE_HANDLE;
+    ngs2_note_callsite("RackGetVoiceHandle",r->serial,__builtin_return_address(0));
     *out=(uintptr_t)&r->voices[index];
     return ORBIS_OK;
 }
@@ -688,13 +797,13 @@ static int ngs2_at9_open(Ngs2Voice *v) {
     }
     if (!config) {
         static int reported; const unsigned char *d=v->wave_data;
-        if (reported++<30 && d) runtime_audio_log("ngs2.at9_no_config rack=%#x voice=%u data=%p head=%02x%02x%02x%02x",v->rack->id,v->index,(const void *)d,d[0],d[1],d[2],d[3]);
+        if (reported++<30 && d) runtime_audio_log("ngs2.at9_no_config rack=%#x/%u voice=%u data=%p head=%02x%02x%02x%02x",v->rack->id,v->rack->serial,v->index,(const void *)d,d[0],d[1],d[2],d[3]);
         return 0;
     }
     v->at9=Atrac9GetHandle();
     int init_rc=0;
     if (!v->at9 || (init_rc=Atrac9InitDecoder(v->at9,(unsigned char *)&config))) {
-        runtime_audio_log("ngs2.at9_init_failed rack=%#x voice=%u config=%#x rc=%d",v->rack->id,v->index,config,init_rc);
+        runtime_audio_log("ngs2.at9_init_failed rack=%#x/%u voice=%u config=%#x rc=%d",v->rack->id,v->rack->serial,v->index,config,init_rc);
         if (v->at9) Atrac9ReleaseHandle(v->at9);
         v->at9=NULL; v->wave_type=0; /* undecodable: the voice stays silent */
         return 0;
@@ -757,8 +866,8 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
             static int reported;
             if (++v->at9_retries==1 && reported++<40) {
                 const unsigned char *sf=v->at9_sf+v->at9_sf_pos;
-                runtime_audio_log("ngs2.at9_waiting_for_data rack=%#x voice=%u rc=%d sf_pos=%u head=%02x%02x%02x%02x%02x%02x%02x%02x data=%p blk_off=%u blk_sz=%u at9_byte=%u",
-                                  v->rack->id,v->index,decode_rc,v->at9_sf_pos,sf[0],sf[1],sf[2],sf[3],sf[4],sf[5],sf[6],sf[7],
+                runtime_audio_log("ngs2.at9_waiting_for_data rack=%#x/%u voice=%u rc=%d sf_pos=%u head=%02x%02x%02x%02x%02x%02x%02x%02x data=%p blk_off=%u blk_sz=%u at9_byte=%u",
+                                  v->rack->id,v->rack->serial,v->index,decode_rc,v->at9_sf_pos,sf[0],sf[1],sf[2],sf[3],sf[4],sf[5],sf[6],sf[7],
                                   (const void *)v->block_data[v->block],v->blocks[v->block].offset,v->blocks[v->block].size,v->at9_byte);
             }
             if (!v->at9_decoded && v->at9) { Atrac9ReleaseHandle(v->at9); v->at9=NULL; }
@@ -769,8 +878,8 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
         }
         if (decode_rc || used<=0) { /* a damaged superframe is dropped, a run of them ends the voice */
             static int reported;
-            if (reported++<40) runtime_audio_log("ngs2.at9_decode_failed rack=%#x voice=%u rc=%d used=%d sf_pos=%u block=%u/%u",
-                                                 v->rack->id,v->index,decode_rc,used,v->at9_sf_pos,v->block,v->block_count);
+            if (reported++<40) runtime_audio_log("ngs2.at9_decode_failed rack=%#x/%u voice=%u rc=%d used=%d sf_pos=%u block=%u/%u",
+                                                 v->rack->id,v->rack->serial,v->index,decode_rc,used,v->at9_sf_pos,v->block,v->block_count);
             v->at9_sf_ready=0; v->at9_sf_have=0;
             if (++v->at9_errors>=16) return 0;
             continue;
@@ -807,7 +916,7 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
         if (!ngs2_at9_next(v,v->at9_primed ? v->at9_cur : v->at9_prev)) {
             if (v->at9_starved || v->streaming) return; /* waiting for the game to refill its ring: silence meanwhile */
             if (ngs2_tracing()) printf("Ngs2 trace: ATRAC9 voice %u produced no audio\n",v->index);
-            runtime_audio_log("ngs2.at9_no_audio rack=%#x voice=%u played_ms=%.0f",v->rack->id,v->index,ngs2_played_ms(v));
+            runtime_audio_log("ngs2.at9_no_audio rack=%#x/%u voice=%u played_ms=%.0f",v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v));
             v->playing=0; return;
         }
         if (++v->at9_primed==2) v->at9_phase=0;
@@ -842,9 +951,10 @@ static void ngs2_event(Ngs2Voice *v, uint32_t event) {
     case NGS2_EVENT_RESUME_A: case NGS2_EVENT_RESUME_B: v->paused=0; v->playing=1; break;
     default: break;
     }
+    if ((event==NGS2_EVENT_STOP || event==NGS2_EVENT_KILL) && v->wav.f) ngs2_wav_close(&v->wav);
     if (event!=NGS2_EVENT_RESET && v->log_major) {
         static const char *const names[]={"reset","pause","stop","kill","resume","resume"};
-        runtime_audio_log("ngs2.%s rack=%#x voice=%u played_ms=%.0f",event<6 ? names[event] : "event",v->rack->id,v->index,ngs2_played_ms(v));
+        runtime_audio_log("ngs2.%s rack=%#x/%u voice=%u played_ms=%.0f",event<6 ? names[event] : "event",v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v));
     }
 }
 static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16_t size) {
@@ -920,7 +1030,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
             int append=((flags&3)!=0) && v->streaming && v->playing && !v->paused && blocks;
             uint32_t room=NGS2_MAX_BLOCKS-(append ? v->block_count : 0);
             uint32_t take=blocks ? (count<room ? count : room) : 0;
-            if (take<count) runtime_audio_log("ngs2.blocks_truncated rack=%#x voice=%u count=%u kept=%u append=%d",v->rack->id,v->index,count,take,append);
+            if (take<count) runtime_audio_log("ngs2.blocks_truncated rack=%#x/%u voice=%u count=%u kept=%u append=%d",v->rack->id,v->rack->serial,v->index,count,take,append);
             if (!append) {
                 v->wave_data=data;
                 v->block_count=0;
@@ -945,7 +1055,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                     for (uint32_t k=0;k<count && k<4 && blocks && n>=0 && (size_t)n<sizeof list;++k)
                         n+=snprintf(list+n,sizeof list-(size_t)n," b%u{off=%u size=%u rep=%u skip=%u samples=%u user=%#llx}",k,blocks[k].offset,
                                     blocks[k].size,blocks[k].repeats,blocks[k].skip,blocks[k].samples,(unsigned long long)blocks[k].user);
-                    runtime_audio_log("ngs2.blocks rack=%#x voice=%u append=%d playing=%d played_ms=%.0f queued=%u data=%p flags=%#x count=%u%s",v->rack->id,v->index,
+                    runtime_audio_log("ngs2.blocks rack=%#x/%u voice=%u append=%d playing=%d played_ms=%.0f queued=%u data=%p flags=%#x count=%u%s",v->rack->id,v->rack->serial,v->index,
                                       append,v->playing,ngs2_played_ms(v),v->block_count,(const void *)data,flags,count,list);
                 }
             }
@@ -999,7 +1109,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
         for (int k=0;k<seen_count;++k) if (seen[k]==id) known=1;
         if (!known && seen_count<64) {
             seen[seen_count++]=id;
-            runtime_audio_log("ngs2.param_not_applied id=%#x rack=%#x voice=%u size=%u first=%#x second=%#x",id,v->rack->id,v->index,size,u0,u1);
+            runtime_audio_log("ngs2.param_not_applied id=%#x rack=%#x/%u voice=%u size=%u first=%#x second=%#x",id,v->rack->id,v->rack->serial,v->index,size,u0,u1);
         }
         break;
     }
@@ -1009,6 +1119,7 @@ static ABI int32_t ngs2_voice_control(uintptr_t handle, const unsigned char *par
     Ngs2Voice *v=as_voice(handle);
     if (!v) return NGS2_INVALID_VOICE_HANDLE;
     Ngs2System *s=v->rack->system;
+    void *caller=__builtin_return_address(0);
     pthread_mutex_lock(&s->lock);
     static int traced;
     for (const unsigned char *p=params; p;) {
@@ -1017,8 +1128,10 @@ static ABI int32_t ngs2_voice_control(uintptr_t handle, const unsigned char *par
         if (ngs2_tracing() && traced<3000 && id!=2) {
             ++traced;
             uint32_t first=0; if (size>=12) memcpy(&first,p+8,4);
-            printf("Ngs2 trace: rack %#x voice %u param id=%#x size=%u first=%#x\n",v->rack->id,v->index,id,size,first);
+            printf("Ngs2 trace: rack %#x/%u voice %u param id=%#x size=%u first=%#x\n",v->rack->id,v->rack->serial,v->index,id,size,first);
         }
+        { uint32_t first_word=0; if (size>=12) memcpy(&first_word,p+8,4);
+          ngs2_note_callsite("VoiceControl",id==0x06 ? (0x60000000u|first_word) : id,caller); }
         if (size>=8) ngs2_param(v,id,p,size);
         if (next<=0) break;
         p+=next;
@@ -1035,9 +1148,10 @@ static uint32_t ngs2_state_flags(const Ngs2Voice *v) {
 }
 static ABI int32_t ngs2_voice_state(uintptr_t handle, unsigned char *state, uint64_t size) {
     Ngs2Voice *v=as_voice(handle);
-    static int traced_state; if (v && ngs2_tracing() && traced_state<20) { ++traced_state; printf("Ngs2 trace: GetState rack %#x voice %u size=%llu playing=%d\n",v->rack->id,v->index,(unsigned long long)size,v->playing); }
+    static int traced_state; if (v && ngs2_tracing() && traced_state<20) { ++traced_state; printf("Ngs2 trace: GetState rack %#x/%u voice %u size=%llu playing=%d\n",v->rack->id,v->rack->serial,v->index,(unsigned long long)size,v->playing); }
     if (!v) return NGS2_INVALID_VOICE_HANDLE;
     ++v->state_calls;
+    ngs2_note_callsite("GetState",v->playing ? 1u : 0u,__builtin_return_address(0));
     if (v->streaming && (v->state_calls<=3 || v->state_calls%60==0)) {
         static int reported;
         if (reported++<600) runtime_audio_log("ngs2.state voice=%u call=%u playing=%d consumed=%.0f bytes=%llu block=%u/%u",v->index,v->state_calls,v->playing,
@@ -1071,7 +1185,9 @@ static ABI int32_t ngs2_voice_flags(uintptr_t handle, uint32_t *flags) {
     Ngs2Voice *v=as_voice(handle);
     if (!v) return NGS2_INVALID_VOICE_HANDLE;
     if (!flags) return NGS2_INVALID_OUT_ADDRESS;
-    *flags=ngs2_state_flags(v) & 0xffu; return ORBIS_OK;
+    *flags=ngs2_state_flags(v) & 0xffu;
+    ngs2_note_callsite("GetStateFlags",*flags,__builtin_return_address(0));
+    return ORBIS_OK;
 }
 /* One sample of channel c at frame f of a block whose data starts at base (PCM int16 0x12 or float 0x13). */
 static float ngs2_sample(const Ngs2Voice *v, const unsigned char *base, uint32_t frame, uint32_t c) {
@@ -1096,7 +1212,7 @@ static void ngs2_run_sampler(Ngs2Voice *v, uint32_t frames, uint32_t system_rate
             for (int k=0;k<seen_count;++k) if (seen[k]==v->wave_type) known=1;
             if (!known && seen_count<8) {
                 char what[400]; seen[seen_count++]=v->wave_type; ngs2_describe(v,what,sizeof what);
-                runtime_audio_log("ngs2.unsupported_waveform rack=%#x voice=%u %s",v->rack->id,v->index,what);
+                runtime_audio_log("ngs2.unsupported_waveform rack=%#x/%u voice=%u %s",v->rack->id,v->rack->serial,v->index,what);
             }
         }
         note_once(&ngs2_atrac9_seen,"Ngs2: a sampler waveform type is not supported (silent)");
@@ -1200,11 +1316,11 @@ static void ngs2_send(Ngs2Voice *v, uint32_t frames) {
         }
     }
 }
-typedef struct { void *buffer; uint64_t size; uint32_t waveform, channels; } Ngs2RenderBuffer;
 static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, uint32_t count) {
     Ngs2System *s=as_system(system);
     if (!s) return NGS2_INVALID_SYSTEM_HANDLE;
     ngs2_buffer_count=count;
+    ngs2_note_callsite("SystemRender",count,__builtin_return_address(0));
     uint32_t frames=s->grain;
     if (buffers && count && buffers[0].channels)
         frames=(uint32_t)(buffers[0].size/((uint64_t)buffers[0].channels*sizeof(float)));
@@ -1239,6 +1355,15 @@ static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, ui
                 if (v->log_pending) ngs2_log_start(v);
                 int was_playing=v->playing;
                 ngs2_run_voice(v,frames,s->rate);
+                if (v->wav.f) ngs2_wav_write_planar(&v->wav,v->out,frames);
+                if (v->rack->id==NGS2_RACK_SAMPLER && v->log_major) { /* a streaming voice running dry, and recovering */
+                    int starved_now=v->streaming && (v->block_count==0 || v->at9_starved);
+                    if (starved_now!=v->log_starved) {
+                        v->log_starved=starved_now;
+                        runtime_audio_log(starved_now ? "ngs2.starved rack=%#x/%u voice=%u played_ms=%.0f queued=%u" : "ngs2.refilled rack=%#x/%u voice=%u played_ms=%.0f queued=%u",
+                                          v->rack->id,v->rack->serial,v->index,ngs2_played_ms(v),v->block_count);
+                    }
+                }
                 ngs2_send(v,frames);
                 if (was_playing && !v->playing && v->log_major) ngs2_log_end(v);
             }
@@ -1263,6 +1388,7 @@ static ABI int32_t ngs2_render(void *system, const Ngs2RenderBuffer *buffers, ui
                 }
         }
     }
+    ngs2_wav_masters(buffers,count,frames);
     pthread_mutex_unlock(&s->lock);
     if (ngs2_measure && runtime_audio_log_enabled()) ngs2_log_summary(s);
     /* SPARTAN_NGS2_TRACE: every ~4 s, the playing voices, their routes and output peaks. */
