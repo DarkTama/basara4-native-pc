@@ -16,6 +16,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/page_manager.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_wait_diagnostics.h"
@@ -1178,6 +1179,35 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     Image& image = slot_images[image_id];
     image.tick_accessed_last = scheduler.CurrentTick();
     TouchImage(image);
+
+    // Basara 4 PC: a colour texture (RGBA16F, 3 levels) came back as a depth image and was drawn as its depth, red.
+    // List every image cached at this address and what the lookup decided, once per occurrence (16 at most).
+    if (image.info.props.is_depth && !info.props.is_depth && !Vulkan::LiverpoolToVK::IsFormatDepthCompatible(info.pixel_format) &&
+        !Vulkan::LiverpoolToVK::IsFormatStencilCompatible(info.pixel_format)) {
+        static u32 logged = 0;
+        if (logged++ < 16) {
+            LOG_WARNING(Render_Vulkan,
+                        "FindImage: wanted {} {}x{} levels {} layers {} size {:#x} at {:#x} binding {} exact {}: got the depth image "
+                        "{:#x} {} {}x{} levels {} size {:#x} (view mip {} slice {}, {} cached at this address)",
+                        vk::to_string(info.pixel_format), info.size.width, info.size.height, info.resources.levels,
+                        info.resources.layers, info.guest_size, info.guest_address, static_cast<int>(desc.type),
+                        exact_fmt, image.info.guest_address, vk::to_string(image.info.pixel_format),
+                        image.info.size.width, image.info.size.height, image.info.resources.levels,
+                        image.info.guest_size, view_mip, view_slice, image_ids.size());
+            for (const auto& cache_id : image_ids) {
+                const auto& c = slot_images[cache_id];
+                LOG_WARNING(Render_Vulkan,
+                            "  cached {:#x} {} {}x{} levels {} layers {} size {:#x} bits {} depth {} target {} gpu-modified {} "
+                            "registered {} idle {} ticks{}",
+                            c.info.guest_address, vk::to_string(c.info.pixel_format), c.info.size.width,
+                            c.info.size.height, c.info.resources.levels, c.info.resources.layers, c.info.guest_size,
+                            c.info.num_bits, c.info.props.is_depth ? 1 : 0, c.binding.is_target ? 1 : 0,
+                            True(c.flags & ImageFlagBits::GpuModified) ? 1 : 0,
+                            True(c.flags & ImageFlagBits::Registered) ? 1 : 0,
+                            scheduler.CurrentTick() - c.tick_accessed_last, cache_id == image_id ? " (chosen)" : "");
+            }
+        }
+    }
 
     // If the image requested is a subresource of the image from cache record its location.
     if (view_mip > 0) {
