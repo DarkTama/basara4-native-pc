@@ -836,7 +836,12 @@ static void ngs2_run_at9(Ngs2Voice *v, uint32_t frames, double step) {
 #define NGS2_EVENT_RESUME_B 5
 static void ngs2_event(Ngs2Voice *v, uint32_t event) {
     switch (event) {
-    case NGS2_EVENT_RESET: v->playing=1; v->paused=0; v->log_pending=1; v->block=0; v->repeats_done=0; v->position=0; v->consumed=0; v->consumed_bytes=0; ngs2_at9_restart(v); break;
+    case NGS2_EVENT_RESET:
+        /* Do not reset voice if it is actively playing dialogue (<2.5s) to avoid repeating syllables */
+        if (v->playing && !v->paused && v->consumed > 0.0 && ngs2_played_ms(v) < 2500.0) {
+            break;
+        }
+        v->playing=1; v->paused=0; v->log_pending=1; v->block=0; v->repeats_done=0; v->position=0; v->consumed=0; v->consumed_bytes=0; ngs2_at9_restart(v); break;
     case NGS2_EVENT_STOP: case NGS2_EVENT_KILL: v->playing=0; v->paused=0; break;
     case NGS2_EVENT_PAUSE: v->paused=1; break;
     case NGS2_EVENT_RESUME_A: case NGS2_EVENT_RESUME_B: v->paused=0; v->playing=1; break;
@@ -918,6 +923,24 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                flags: bit 0 = streaming buffer active, bit 1 = stream segment end / continuation block.
                If switching streams, paused or stopped, blocks replace the waveform and unpause. */
             int append=((flags&3)!=0) && v->streaming && v->playing && !v->paused && blocks;
+            /* Dialogue re-trigger guard:
+               Capcom MT Framework frequently re-submits the exact same dialogue block queue
+               and triggers reset on the same voice ~400-700ms into playback, causing dialogue
+               to restart from the beginning ("hikeh... hikeh").
+               If this voice is actively playing the same buffer with non-zero progress, ignore the redundant restart. */
+            int same_active_wave = (v->wave_data == data && data != NULL && v->playing && !v->paused && v->consumed > 0.0 && ngs2_played_ms(v) < 2500.0);
+            if (!append && same_active_wave) {
+                /* Preserve current playback position, do not wipe decoder state */
+                v->streaming = (flags & 3) != 0;
+                return;
+            }
+            /* BGM stream protection:
+               Do not allow short one-shot non-streaming SFX ((flags & 3) == 0) to hijack
+               an active long-running streaming voice (e.g. BGM in voice 0/1/2) that is actively playing. */
+            if (!append && ((flags & 3) == 0) && v->streaming && v->playing && v->consumed > 0.0) {
+                /* Game accidentally targeted BGM voice with one-shot SFX; drop or ignore to keep BGM alive */
+                return;
+            }
             uint32_t room=NGS2_MAX_BLOCKS-(append ? v->block_count : 0);
             uint32_t take=blocks ? (count<room ? count : room) : 0;
             if (take<count) runtime_audio_log("ngs2.blocks_truncated rack=%#x voice=%u count=%u kept=%u append=%d",v->rack->id,v->index,count,take,append);
