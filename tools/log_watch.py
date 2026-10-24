@@ -9,6 +9,7 @@ interesting ones to user/timeline.log, so "the red background appeared at 23:05"
 
 Does not touch the game process.
 """
+import ctypes
 import re
 import subprocess
 import sys
@@ -26,11 +27,42 @@ AUDIO_KEEP = re.compile(r"ngs2\.parse_file path=.*(event|bgm)|ngs2\.end .*(strea
                         r"ngs2\.at9_decode_failed|AvPlayer|Fault|Assertion")
 
 
+_k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_k32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+_k32.OpenProcess.restype = ctypes.c_void_p
+_k32.CloseHandle.argtypes = [ctypes.c_void_p]
+
+
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [("dwSize", ctypes.c_uint32), ("cntUsage", ctypes.c_uint32), ("th32ProcessID", ctypes.c_uint32),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", ctypes.c_uint32), ("cntThreads", ctypes.c_uint32),
+                ("th32ParentProcessID", ctypes.c_uint32), ("pcPriClassBase", ctypes.c_long), ("dwFlags", ctypes.c_uint32),
+                ("szExeFile", ctypes.c_wchar * 260)]
+
+
 def running():
-    r = subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "(Get-Process basara4-core -ErrorAction SilentlyContinue | Measure-Object).Count"],
-                       capture_output=True, text=True).stdout.strip()
-    return r not in ("", "0")
+    """Is this install's basara4-core alive?  Plain API calls: no child process, so no console window flashes
+    over the game (a PowerShell per poll did exactly that)."""
+    root = str(user.parent).lower()
+    snap = _k32.CreateToolhelp32Snapshot(0x2, 0)
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        return False
+    entry = _PROCESSENTRY32W()
+    entry.dwSize = ctypes.sizeof(entry)
+    found = False
+    ok = _k32.Process32FirstW(ctypes.c_void_p(snap), ctypes.byref(entry))
+    while ok and not found:
+        if entry.szExeFile.lower() == "basara4-core.exe":
+            handle = _k32.OpenProcess(0x1000, False, entry.th32ProcessID)  # query limited information
+            if handle:
+                buf = ctypes.create_unicode_buffer(1024)
+                size = ctypes.c_uint32(1024)
+                if _k32.QueryFullProcessImageNameW(ctypes.c_void_p(handle), 0, buf, ctypes.byref(size)):
+                    found = buf.value.lower().startswith(root)
+                _k32.CloseHandle(ctypes.c_void_p(handle))
+        ok = _k32.Process32NextW(ctypes.c_void_p(snap), ctypes.byref(entry))
+    _k32.CloseHandle(ctypes.c_void_p(snap))
+    return found
 
 
 def main():
