@@ -41,6 +41,8 @@ def main():
     with open(out, "a", encoding="utf-8", buffering=1) as log:
         log.write(f"==== {datetime.now():%Y-%m-%d %H:%M:%S} watching {user} ====\n")
         idle_after_exit = 0
+        seen_running = False
+        started = time.time()
         while True:
             for key, entry in files.items():
                 path, pos, keep, drop = entry
@@ -63,10 +65,11 @@ def main():
                         pass
             time.sleep(0.5)
             if running():
+                seen_running = True
                 idle_after_exit = 0
             else:
                 idle_after_exit += 1
-                if idle_after_exit > 20:  # 10 s after the game is gone
+                if (seen_running and idle_after_exit > 20) or (not seen_running and time.time() - started > 3600):
                     log.write(f"==== {datetime.now():%H:%M:%S} game closed, watcher stopped ====\n")
                     return
 
