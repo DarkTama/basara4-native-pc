@@ -2416,6 +2416,30 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                         image.info.size.height, int(image_desc.needs_native),
                         int(image_desc.is_written), num_bindings, int(mip_fallback_mode));
         };
+        // Basara 4 PC: a colour texture (here RGBA16F, 3 levels) that ends up on a depth image is shown as the depth
+        // value in the red channel (the red background in the stage-select/cutscene).  Say how it got there.
+        const auto note_depth_substitution = [&](const VideoCore::Image& found, const VideoCore::Image& used,
+                                                 const VideoCore::TextureCache::ImageDesc& wanted,
+                                                 bool redirected) {
+            if (!used.info.props.is_depth || wanted.info.props.is_depth ||
+                Vulkan::LiverpoolToVK::IsFormatDepthCompatible(wanted.view_info.format) ||
+                Vulkan::LiverpoolToVK::IsFormatStencilCompatible(wanted.view_info.format)) {
+                return;
+            }
+            static u32 logged = 0;
+            if (logged++ >= 16) {
+                return;
+            }
+            LOG_WARNING(Render_Vulkan,
+                        "texture {} {}x{} levels {} at {:#x} (stage {:#x}) resolved to the depth image {:#x} {} {}x{} "
+                        "levels {}; FindImage returned {:#x} {} {}x{}; {}",
+                        vk::to_string(wanted.view_info.format), wanted.info.size.width, wanted.info.size.height,
+                        wanted.info.resources.levels, wanted.info.guest_address, stage.pgm_hash,
+                        used.info.guest_address, vk::to_string(used.info.pixel_format), used.info.size.width,
+                        used.info.size.height, used.info.resources.levels, found.info.guest_address,
+                        vk::to_string(found.info.pixel_format), found.info.size.width, found.info.size.height,
+                        redirected ? "redirected through the stencil/depth link" : "no redirect");
+        };
         for (auto i = 0; i < num_bindings; i++) {
             // spartanport: a plain binding (no mip override) of the same T# resolves to the same image
             // while no image was registered or unregistered.
@@ -2429,10 +2453,14 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 binding_proxy_ok.push_back(proxy_candidate);
                 texture_cache.MarkFound(image_id);
                 auto* image = &texture_cache.GetImage(image_id);
+                const auto* found_image = image;
+                bool redirected = false;
                 if (auto depth_image_id = texture_cache.GetAssociatedDepth(*image)) {
                     image_id = depth_image_id;
                     image = &texture_cache.GetImage(image_id);
+                    redirected = true;
                 }
+                note_depth_substitution(*found_image, *image, desc_entry.found_desc, redirected);
                 debug_native(*image);
                 if (image->binding.is_bound) {
                     image->binding.force_general |= image_desc.is_written;
@@ -2465,12 +2493,16 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 desc_entry.view_memo = {};
             }
             auto* image = &texture_cache.GetImage(image_id);
+            const auto* found_image = image;
+            bool redirected = false;
             if (auto depth_image_id = texture_cache.GetAssociatedDepth(*image)) {
                 // If this image has an associated depth image, it's a stencil attachment.
                 // Redirect the access to the actual depth-stencil buffer.
                 image_id = depth_image_id;
                 image = &texture_cache.GetImage(image_id);
+                redirected = true;
             }
+            note_depth_substitution(*found_image, *image, desc, redirected);
             debug_native(*image);
             if (image->binding.is_bound) {
                 // The image is already bound. In case if it is about to be used as storage we
