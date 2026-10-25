@@ -1158,8 +1158,8 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
             else if (was_empty && take && v->wave_type==0x40 && v->block_starts[0] && (!v->stream_wait || was_final)) {
                 /* The voice is playing and streaming from its previous track (Play came first, or was ignored) and a chunk that
                    begins a waveform block arrives with nothing queued: that is a new stream, not the next block of the old one
-                   (that case is stream_wait without a final chunk). The decoder still holds the old stream's half superframe and
-                   position; every later chunk then decoded shifted by 384 bytes ('ATRAC9' of random bytes), the music stayed
+                   (that case is stream_wait without a final chunk). The decoder still holds a piece of the old stream's superframe and
+                   its position; every later superframe then decoded shifted ('ATRAC9' of mixed bytes), the music stayed
                    silent and the chunks were thrown away one by one. Start clean at this chunk. */
                 ngs2_at9_restart(v);
                 static int reported;
