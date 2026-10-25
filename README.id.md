@@ -17,6 +17,10 @@ Port PC native open-source dan launcher untuk **Sengoku Basara 4 Sumeragi** (Pla
 
 Kode x86-64 asli game berjalan langsung di prosesor PC Anda tanpa emulator (tanpa interpreter maupun JIT). Library sistem PlayStation 4 diimplementasikan ulang fungsi demi fungsi ke dalam bahasa C/C++, dan instruksi GPU diterjemahkan langsung ke Vulkan 1.3 secara real-time.
 
+> 💬 **Komunitas Discord**: [https://discord.gg/UBZc57bBMa](https://discord.gg/UBZc57bBMa) — Panduan instalasi, konfigurasi controller & diskusi komunitas  
+> 🎬 **TikTok**: [@razzconnect](https://www.tiktok.com/@razzconnect) ([https://www.tiktok.com/@razzconnect](https://www.tiktok.com/@razzconnect)) — Update progres porting, gameplay & devlog  
+> ☕ **Dukungan Solo Dev**: [https://sociabuzz.com/razzgame/tribe](https://sociabuzz.com/razzgame/tribe)
+
 > **Tidak menyertakan file game berhak cipta.** Anda wajib menyediakan dump game hasil ekstrak legal dari konsol PlayStation 4 milik sendiri (teruji: CUSA01159).
 >
 > Proyek ini adalah riset open-source independen yang dikembangkan dan di-reverse-engineer oleh **Razz**.
