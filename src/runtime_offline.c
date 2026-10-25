@@ -898,6 +898,7 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
                 uint32_t dropped=0;
                 while (v->block_count && !v->block_starts[0]) { v->consumed_bytes+=v->blocks[0].size; ngs2_pop_block(v); ++dropped; }
                 if (resynced++<40) runtime_audio_log("ngs2.resync rack=%#x/%u voice=%u dropped_chunks=%u queued=%u",v->rack->id,v->rack->serial,v->index,dropped,v->block_count);
+                v->at9_sf_have=0; v->at9_sf_pos=0; v->at9_sf_ready=0; v->at9_byte=0;
                 ngs2_at9_restart(v);
                 if (!v->block_count) { v->stream_wait=1; v->stream_track=1; }
                 v->at9_starved=1;
@@ -934,6 +935,11 @@ static int ngs2_at9_open(Ngs2Voice *v);
 /* The next waveform block of a stream, once the game has submitted its first chunk. */
 static int ngs2_stream_resume(Ngs2Voice *v) {
     if (!v->stream_wait) return 1;
+    while (v->block_count && !v->block_starts[0]) {
+        /* Discard leftover continuation chunks from previous stream pass */
+        v->consumed_bytes += v->blocks[0].size;
+        ngs2_pop_block(v);
+    }
     if (!v->block_count) { v->at9_starved=1; return 0; }
     v->stream_left=v->blocks[0].samples; v->at9_skip=v->blocks[0].skip; v->stream_wait=0;
     if (!v->stream_left) v->stream_track=0;
@@ -1698,14 +1704,20 @@ static ABI int32_t ngs2_calc_block(const void *format, uint32_t position, uint32
             else {
                 uint64_t begin=(uint64_t)position+f[5];                  /* in the decoder's own timeline */
                 uint64_t first=begin/per_superframe;
-                uint64_t last=(begin+samples+per_superframe-1)/per_superframe;
+                /* Capcom MT Framework passes `samples` as the loop end point in the file timeline (e.g. 4171836),
+                 * not the remaining duration. When position > 0, calculating (begin + samples) double-counted the
+                 * seek position, producing out.size far larger than data_size and causing the feeder to overread into
+                 * adjacent subfiles (ASCII "ver."). */
+                uint64_t end_sample=(uint64_t)samples+f[5];
+                if (end_sample<begin) end_sample=begin;
+                uint64_t last=(end_sample+per_superframe-1)/per_superframe;
                 if (last<=first) last=first+1;
                 /* Capcom MT Framework adds data chunk base offset to out.offset when seeking file.
                  * out.offset must be purely superframe-aligned stream byte offset, without f[4] added again. */
                 out.offset=(uint32_t)(first*(uint64_t)ci.superframeSize);
-                out.size=out.offset+(uint32_t)((last-first)*(uint64_t)ci.superframeSize); /* Sony Ngs2: end offset so (end - start) == size */
+                out.size=(uint32_t)(last*(uint64_t)ci.superframeSize); /* Sony Ngs2: end offset so (end - start) == size */
                 out.skip=(uint32_t)(begin-first*per_superframe);
-                out.samples=samples;
+                out.samples=(uint32_t)(end_sample-begin);
             }
         }
         if (probe) Atrac9ReleaseHandle(probe);
