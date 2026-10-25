@@ -52,7 +52,7 @@ Aturan emas: **satu sesi, semua bukti.** Bermain 15 sampai 20 menit mahal. Janga
 | **Dasar** | tidak ada, hanya `user\last_run.log` dan catatan Windows | kecil | crash, hang, reset GPU, kegagalan GPU |
 | **Audio log** | launcher: centang **Audio debug log** | maks 64 MB | voice macet, kegagalan dekode, loop musik, event penting |
 | **Audio penuh** | + centang **WAV capture (up to 3 GB)** | sampai **3 GB per sesi** | hening di mix, clipping, loop identik, isi voice |
-| **Pengembang** | jalankan lewat `Debug run.bat` | + ratusan MB (rekaman layar, frame) | tangkapan frame cutscene, rekaman layar, `report.txt` otomatis |
+| **Pengembang** | jalankan lewat `Debug run.bat` (skrip lokal milik pengembang; **tidak ada di repositori maupun paket**, jadi tingkat ini hanya untuk mesin pengembang) | + ratusan MB (rekaman layar, frame) | tangkapan frame cutscene, rekaman layar, `report.txt` otomatis |
 
 > **Ruang dan privasi.** WAV capture memakai 70 sampai 130 MB per menit (3 GB maksimum), berlaku untuk **satu** kali start, lalu mati sendiri.
 > Rekaman layar dari `Debug run.bat` menangkap **seluruh layar utama**: tutup jendela pribadi, atau set `DEBUG_NO_VIDEO=1`.
@@ -276,7 +276,7 @@ Ubah **satu variabel per sesi**, sesi yang sama, lokasi yang sama.
 
 ### Mencari sejak kapan bug ada (bisect dengan checkpoint)
 
-Folder `G:\basara4-windows\checkpoints\` menyimpan binary dari beberapa titik: `basara4-core-checkpoint-stable-gpu-audio-1.exe` (paling lama),
+Folder `checkpoints\` di folder game Anda (bila Anda menyimpannya) memuat binary dari beberapa titik: `basara4-core-checkpoint-stable-gpu-audio-1.exe` (paling lama),
 `...-loop-music-1.exe`, dan `...-loop-music-2.exe` (terbaru). Langkah manual (tidak diotomatisasi dan tidak diuji; tutup game dulu):
 
 1. Salin `bin\basara4-core.exe` ke tempat aman (`basara4-core.exe.simpan`).
