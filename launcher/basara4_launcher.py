@@ -13,10 +13,13 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import runpy
+import ssl
 import subprocess
 import sys
 import threading
+import urllib.request
 from pathlib import Path
 
 FROZEN = getattr(sys, "frozen", False)
@@ -34,6 +37,46 @@ CORE = BIN / "basara4-core.exe"
 VERSION = "1.0.2"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
+GITHUB_REPO = "razzconnect/basara4-native-pc"
+
+
+def parse_version(tag):
+    nums = re.findall(r"\d+", str(tag))
+    return tuple(int(n) for n in nums) if nums else (0,)
+
+
+def check_latest_release(repo=GITHUB_REPO):
+    """Checks the latest GitHub release. Returns dict of asset info or None."""
+    try:
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "Basara4-PC-Launcher"})
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=6, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        tag = data.get("tag_name", "")
+        if parse_version(tag) > parse_version(VERSION):
+            for a in data.get("assets", []):
+                name = a.get("name", "")
+                if name.endswith(".zip") and ("basara4" in name.lower() or "windows" in name.lower()):
+                    return {
+                        "tag": tag,
+                        "url": a.get("browser_download_url"),
+                        "name": name,
+                        "size": a.get("size", 0),
+                        "body": data.get("body", ""),
+                    }
+            for a in data.get("assets", []):
+                if a.get("name", "").endswith(".zip"):
+                    return {
+                        "tag": tag,
+                        "url": a.get("browser_download_url"),
+                        "name": name,
+                        "size": a.get("size", 0),
+                        "body": data.get("body", ""),
+                    }
+    except Exception:
+        pass
+    return None
 LOG = USER / "last_run.log"
 PREPARE_LOG = USER / "prepare.log"
 MAPPING = USER / "gamepad_mapping.txt"
@@ -251,11 +294,14 @@ class Launcher(tk.Tk):
         self._refresh_image_label()
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.after(500, self._poll)
+        self.update_info = None
+        self.update_btn = None
         if play_now:
             self.iconify()
             self.after(300, self.on_play)
         else:
             self.after(700, self._check_wav_leftovers)
+            self.after(1200, lambda: threading.Thread(target=self._check_update_thread, daemon=True).start())
 
     # ---- look ----
     def _style(self):
@@ -326,8 +372,14 @@ class Launcher(tk.Tk):
         mark.pack(side="bottom", pady=(18, 0))
         tk.Label(mark, text=BRAND.upper(), bg=PANEL, fg=GOLD, font=("Georgia", 11, "bold")).pack()
         tk.Label(mark, text=f"by {AUTHOR}", bg=PANEL, fg=RAZZ, font=("Georgia", 12, "italic")).pack()
-        tk.Label(mark, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack()
-        ttk.Button(left, text="Credits", command=self.show_credits).pack(side="bottom", fill="x", pady=(14, 0))
+        self.version_label = tk.Label(mark, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8))
+        self.version_label.pack()
+        self.mark_frame = mark
+
+        btn_row = ttk.Frame(left, style="Panel.TFrame")
+        btn_row.pack(side="bottom", fill="x", pady=(14, 0))
+        ttk.Button(btn_row, text="Credits", command=self.show_credits).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        ttk.Button(btn_row, text="Check Update", command=self.check_update_manual).pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         right = ttk.Frame(root, style="Panel.TFrame", padding=18)
         right.grid(row=0, column=1, sticky="nsew")
@@ -639,6 +691,165 @@ class Launcher(tk.Tk):
         box.insert("1.0", text)
         box.config(state="disabled")
         box.pack(fill="both", expand=True, padx=10, pady=10)
+
+    # ---- auto update ----
+    def _check_update_thread(self):
+        info = check_latest_release()
+        if info:
+            self.update_info = info
+            self.after(0, self._show_update_available)
+
+    def _show_update_available(self):
+        if not self.update_info or getattr(self, "_update_btn_shown", False):
+            return
+        self._update_btn_shown = True
+        tag = self.update_info["tag"]
+        self.version_label.config(text=f"v{VERSION}  (Update: {tag})", fg=GOLD)
+        self.update_btn = tk.Button(
+            self.mark_frame,
+            text=f"Update ke {tag}",
+            bg=GOLD,
+            fg=BG,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            activebackground="#dbb458",
+            activeforeground=BG,
+            cursor="hand2",
+            command=self.prompt_update,
+        )
+        self.update_btn.pack(pady=(4, 0))
+
+    def check_update_manual(self):
+        self.status.config(text="Memeriksa pembaruan...")
+
+        def run():
+            info = check_latest_release()
+            if info:
+                self.update_info = info
+                self.after(0, lambda: (
+                    self.status.config(text="Ready"),
+                    self._show_update_available(),
+                    self.prompt_update()
+                ))
+            else:
+                self.after(0, lambda: (
+                    self.status.config(text="Ready"),
+                    messagebox.showinfo("Update", f"Anda sudah menggunakan versi terbaru (v{VERSION}).")
+                ))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def prompt_update(self):
+        if not self.update_info:
+            return
+        tag = self.update_info["tag"]
+        size_mb = self.update_info["size"] / (1024 * 1024)
+        if messagebox.askyesno(
+            "Update Tersedia",
+            f"Versi baru {tag} tersedia di GitHub!\nUkuran unduhan: ~{size_mb:.1f} MB.\n\n"
+            "Launcher akan mengunduh dan menerapkan update secara otomatis.\n"
+            "Data game (folder game\\) dan save data Anda (folder user\\) TIDAK akan terhapus.\n\n"
+            "Unduh dan pasang update sekarang?"
+        ):
+            self._download_and_apply_update(self.update_info)
+
+    def _download_and_apply_update(self, info):
+        win = tk.Toplevel(self)
+        win.title("Basara 4 PC - Updater")
+        win.configure(bg=BG)
+        win.geometry("440x180")
+        win.resizable(False, False)
+        win.grab_set()
+
+        tk.Label(win, text=f"Mengunduh Pembaruan {info['tag']}...", bg=BG, fg=GOLD, font=("Segoe UI", 11, "bold")).pack(pady=(18, 8))
+        status_lbl = tk.Label(win, text="Menghubungkan ke GitHub...", bg=BG, fg=FG, font=("Segoe UI", 9))
+        status_lbl.pack(pady=(0, 8))
+
+        prog = ttk.Progressbar(win, orient="horizontal", length=360, mode="determinate")
+        prog.pack(pady=6)
+
+        def worker():
+            updates_dir = USER / "updates"
+            updates_dir.mkdir(parents=True, exist_ok=True)
+            zip_path = updates_dir / "update.zip"
+
+            try:
+                req = urllib.request.Request(info["url"], headers={"User-Agent": "Basara4-PC-Launcher"})
+                ctx = ssl.create_default_context()
+                with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                    total = int(resp.headers.get("Content-Length", info["size"] or 1))
+                    downloaded = 0
+                    chunk_size = 64 * 1024
+                    with open(zip_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            percent = int((downloaded / total) * 100) if total else 0
+                            cur_mb = downloaded / (1024 * 1024)
+                            tot_mb = total / (1024 * 1024)
+                            win.after(0, lambda p=percent, c=cur_mb, t=tot_mb: (
+                                prog.configure(value=p),
+                                status_lbl.configure(text=f"Mengunduh: {c:.1f} MB / {t:.1f} MB ({p}%)")
+                            ))
+
+                win.after(0, lambda: self._apply_update_and_restart(win))
+            except Exception as e:
+                win.after(0, lambda err=e: (
+                    win.destroy(),
+                    messagebox.showerror("Gagal Mengunduh", f"Pembaruan gagal diunduh:\n{err}")
+                ))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_update_and_restart(self, win):
+        win.destroy()
+        updater_cmd = USER / "updater.cmd"
+        cmd_content = (
+            "@echo off\r\n"
+            "setlocal enabledelayedexpansion\r\n"
+            "title Basara 4 PC - Updater\r\n"
+            "cd /d \"%~dp0\"\r\n"
+            "echo Menunggu launcher menutup...\r\n"
+            "timeout /t 2 /nobreak >nul\r\n"
+            "set \"ZIP=%~dp0updates\\update.zip\"\r\n"
+            "set \"EXTRACT=%~dp0updates\\extract\"\r\n"
+            "set \"DEST=%~dp0..\"\r\n"
+            "if not exist \"!ZIP!\" exit /b 1\r\n"
+            "echo Mengekstrak pembaruan...\r\n"
+            "if exist \"!EXTRACT!\" rmdir /s /q \"!EXTRACT!\"\r\n"
+            "mkdir \"!EXTRACT!\"\r\n"
+            "tar -xf \"!ZIP!\" -C \"!EXTRACT!\" 2>nul\r\n"
+            "if errorlevel 1 (\r\n"
+            "    powershell.exe -NoProfile -Command \"Expand-Archive -Path '!ZIP!' -DestinationPath '!EXTRACT!' -Force\"\r\n"
+            ")\r\n"
+            "set \"SRC=!EXTRACT!\"\r\n"
+            "if not exist \"!EXTRACT!\\Sengoku Basara 4.exe\" (\r\n"
+            "    for /d %%D in (\"!EXTRACT!\\*\") do (\r\n"
+            "        if exist \"%%~fD\\Sengoku Basara 4.exe\" set \"SRC=%%~fD\"\r\n"
+            "    )\r\n"
+            ")\r\n"
+            "echo Menerapkan file baru...\r\n"
+            "if exist \"!SRC!\\_internal\" xcopy /e /y /i \"!SRC!\\_internal\" \"!DEST!\\_internal\" >nul\r\n"
+            "if exist \"!SRC!\\bin\" xcopy /e /y /i \"!SRC!\\bin\" \"!DEST!\\bin\" >nul\r\n"
+            "if exist \"!SRC!\\scripts\" xcopy /e /y /i \"!SRC!\\scripts\" \"!DEST!\\scripts\" >nul\r\n"
+            "if exist \"!SRC!\\launcher\" xcopy /e /y /i \"!SRC!\\launcher\" \"!DEST!\\launcher\" >nul\r\n"
+            "if exist \"!SRC!\\Sengoku Basara 4.exe\" copy /y \"!SRC!\\Sengoku Basara 4.exe\" \"!DEST!\\\" >nul\r\n"
+            "if exist \"!SRC!\\Play Sengoku Basara 4.cmd\" copy /y \"!SRC!\\Play Sengoku Basara 4.cmd\" \"!DEST!\\\" >nul\r\n"
+            "if exist \"!SRC!\\NOTICE.md\" copy /y \"!SRC!\\NOTICE.md\" \"!DEST!\\\" >nul\r\n"
+            "if exist \"!SRC!\\LICENSE\" copy /y \"!SRC!\\LICENSE\" \"!DEST!\\\" >nul\r\n"
+            "rmdir /s /q \"!EXTRACT!\" 2>nul\r\n"
+            "del /f /q \"!ZIP!\" 2>nul\r\n"
+            "echo Memulai versi baru...\r\n"
+            "start \"\" \"!DEST!\\Sengoku Basara 4.exe\"\r\n"
+            "del /f /q \"%~f0\" 2>nul\r\n"
+            "exit /b 0\r\n"
+        )
+        updater_cmd.write_text(cmd_content, encoding="ascii")
+        subprocess.Popen(["cmd.exe", "/c", str(updater_cmd)], creationflags=NO_WINDOW)
+        self.destroy()
 
     def _deiconify(self):
         self.deiconify()
