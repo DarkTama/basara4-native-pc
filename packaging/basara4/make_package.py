@@ -27,7 +27,7 @@ STDLIB = ["argparse", "base64", "collections", "ctypes", "ctypes.wintypes", "has
           "textwrap", "binascii", "zipfile", "functools", "dataclasses", "typing", "enum", "string", "traceback",
           "stat", "errno", "copy", "contextlib", "datetime", "fnmatch", "glob", "operator", "xml.etree.ElementTree",
           "uuid", "codecs", "array", "bisect", "heapq", "runpy", "importlib.util"]
-PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py"]
+PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py"]
 
 
 def run(*cmd, **kw):
@@ -68,7 +68,7 @@ def main():
     pyi = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--name", NAME,
            "--icon", LAUNCHER / "basara4.ico", "--paths", LAUNCHER, "--add-data", f"{LAUNCHER / 'basara4.ico'};.",
            "--distpath", work / "dist", "--workpath", work / "build", "--specpath", work]
-    for module in STDLIB:
+    for module in STDLIB + ["iced_x86"]:
         pyi += ["--hidden-import", module]
     pyi.append(LAUNCHER / "basara4_launcher.py")
     run(*pyi)

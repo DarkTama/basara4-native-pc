@@ -23,14 +23,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
-/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. SPARTAN_DMEM_MB raises it (the resolution
- * patches above 1080p need about 4 GiB more; run.sh sets it). */
+/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. Set to 3584 MiB default on PC
+ * to fit Capcom MT Framework's initial 2048 MiB heap while avoiding Windows commitment limit (error 1455).
+ * SPARTAN_DMEM_MB raises it (the resolution patches above 1080p need about 4 GiB more; run.sh sets it). */
 static uint64_t pool_size_bytes(void) {
     static uint64_t size;
     if (!size) {
         const char *env = getenv("SPARTAN_DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
-        if (mb < 5056 || mb > 16384) mb = 5056;
+        if (mb < 3584 || mb > 16384) mb = 3584;
         size = mb * 1024 * 1024;
     }
     return size;
@@ -237,7 +238,13 @@ static int pool(void) {
     runtime_memory_reserve();
     uint64_t bytes=POOL_SIZE+FLEX_SPAN;
     section=CreateFileMapping2(INVALID_HANDLE_VALUE,NULL,FILE_MAP_ALL_ACCESS,PAGE_EXECUTE_READWRITE,SEC_COMMIT,bytes,NULL,NULL,0);
-    if (!section) { fprintf(stderr,"Runtime: cannot create %" PRIu64 " MiB of guest memory (error %lu); is the page file large enough?\n",bytes>>20,GetLastError()); return -1; }
+    if (!section) {
+        DWORD err = GetLastError();
+        fprintf(stderr,"Runtime: cannot create %" PRIu64 " MiB of guest memory (error %lu: ERROR_COMMITMENT_LIMIT); is the page file large enough?\n"
+                       "Windows Virtual Memory (Paging File) is too small or disabled. Enable 'Automatically manage paging file size' in Windows Settings.\n",
+                bytes>>20, err);
+        return -1;
+    }
     backing_base=MapViewOfFile3(section,GetCurrentProcess(),NULL,0,bytes,0,PAGE_READWRITE,NULL,0);
     return backing_base ? 0 : -1;
 }

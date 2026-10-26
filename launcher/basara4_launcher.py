@@ -20,7 +20,11 @@ import threading
 from pathlib import Path
 
 FROZEN = getattr(sys, "frozen", False)
-ROOT = Path(sys.executable).parent if FROZEN else Path(__file__).resolve().parent.parent
+ROOT = (Path(sys.executable) if FROZEN else Path(__file__)).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
+try:
+    os.chdir(str(ROOT))
+except OSError:
+    pass
 BIN, OUT, USER, SCRIPTS = ROOT / "bin", ROOT / "out", ROOT / "user", ROOT / "scripts"
 CONFIG = USER / "launcher.json"
 INI = USER / "basara4.ini"
@@ -41,7 +45,8 @@ WAV_WARNING = ("WAV capture saves the final mix and every long voice as uncompre
                "It applies to the next game start only and switches itself off after that. It also turns on the audio debug "
                "log. Turn it on?")
 PIPELINE = [("prepare.py", []), ("link_libc.py", []), ("link_modules.py", []),
-            ("content_profile.py", ["--sku", "full"])]
+            ("content_profile.py", ["--sku", "full"]),
+            ("isa_rewrite.py", [])]
 NO_WINDOW = 0x08000000
 
 
@@ -59,6 +64,32 @@ def wav_captures():
 
 def format_size(n):
     return f"{n / 2**30:.1f} GB" if n >= 2**30 else f"{n / 2**20:.0f} MB"
+
+
+def check_commit_limit_mb():
+    """Returns available virtual memory (page file commit limit) in MB, or None if unavailable."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", wintypes.DWORD),
+                ("dwMemoryLoad", wintypes.DWORD),
+                ("ullTotalPhys", ctypes.c_uint64),
+                ("ullAvailPhys", ctypes.c_uint64),
+                ("ullTotalPageFile", ctypes.c_uint64),
+                ("ullAvailPageFile", ctypes.c_uint64),
+                ("ullTotalVirtual", ctypes.c_uint64),
+                ("ullAvailVirtual", ctypes.c_uint64),
+                ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ]
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            return stat.ullAvailPageFile // (1024 * 1024)
+    except Exception:
+        pass
+    return None
 
 
 def run_script_mode():
@@ -501,6 +532,15 @@ class Launcher(tk.Tk):
             self._deiconify()
             messagebox.showerror("Cannot start", f"Runtime not found: {exe}")
             return
+        avail_mb = check_commit_limit_mb()
+        if avail_mb is not None and avail_mb < 6144:
+            if not messagebox.askyesno(
+                "Virtual Memory Rendah",
+                f"Sisa alokasi memori virtual Windows Anda hanya ~{avail_mb} MB.\n"
+                "Game membutuhkan setidaknya ~6080 MB (6 GB) paging file.\n\n"
+                "Jika game crash dengan Error 1455, pastikan Virtual Memory (Paging File) aktif di Windows.\n\n"
+                "Tetap jalankan game?"):
+                return
         self.busy = True
         self.play.config(state="disabled")
         self.pending = None
@@ -557,10 +597,15 @@ class Launcher(tk.Tk):
                     old.unlink()
                 except OSError:
                     pass
+        extra_args = []
+        isa_table = OUT / "isa-rewrite.bin"
+        if isa_table.is_file():
+            extra_args = ["--isa-rewrite", str(isa_table)]
+
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
-             "--app0", str(game), "--user", str(USER), "--no-game-hooks"] + patch_args,
+             "--app0", str(game), "--user", str(USER), "--no-game-hooks"] + extra_args + patch_args,
             env=self._env(), cwd=str(USER), stdout=log, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
         if self.cfg.get("audio_wav"):  # a one-session option: the next start has it off again
             self.cfg["audio_wav"] = False
@@ -602,6 +647,33 @@ class Launcher(tk.Tk):
         if self.proc and self.proc.poll() is None:
             self.proc.kill()
 
+    def _check_exit_error(self, code):
+        if code in (0, None) or not LOG.is_file():
+            return None
+        try:
+            content = LOG.read_text(encoding="utf-8", errors="replace")
+            if "error 1455" in content or "ERROR_COMMITMENT_LIMIT" in content:
+                messagebox.showerror(
+                    "Virtual Memory Error (Error 1455)",
+                    "Alokasi memori game (6080 MiB) gagal karena Virtual Memory / Paging File Windows tidak cukup atau dimatikan.\n\n"
+                    "Solusi:\n"
+                    "1. Buka 'View advanced system settings' di Windows\n"
+                    "2. Klik Settings di bawah Performance -> tab Advanced\n"
+                    "3. Klik Change pada Virtual memory\n"
+                    "4. Centang 'Automatically manage paging file size for all drives'\n"
+                    "5. Klik OK dan restart PC.")
+                return "Error 1455: Windows Virtual Memory / Paging File tidak cukup."
+            if "no rewrite table matches the image" in content:
+                messagebox.showerror(
+                    "CPU Incompatible (No Rewrite Table)",
+                    "CPU Anda membutuhkan emulasi instruksi (MOVBE/BMI1/LZCNT), tetapi tabel isa-rewrite.bin belum ada.\n\n"
+                    "Solusi:\n"
+                    "Hapus folder 'out' lalu tekan Play lagi agar gambar game disiapkan ulang beserta tabel emulasi CPU.")
+                return "CPU butuh isa-rewrite.bin: hapus folder out lalu Play ulang."
+        except Exception:
+            pass
+        return None
+
     def _poll(self):
         if self.proc and self.proc.poll() is not None:
             code = self.proc.returncode
@@ -611,8 +683,9 @@ class Launcher(tk.Tk):
             if self.play_now:
                 self.destroy()
                 return
-            self.status.config(text="Game closed." if code in (0, None) else
-                               f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log.")
+            err_msg = self._check_exit_error(code)
+            self.status.config(text=err_msg if err_msg else ("Game closed." if code in (0, None) else
+                               f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log."))
             self._load_ini_into_ui()
         self.after(500, self._poll)
 
