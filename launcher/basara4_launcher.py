@@ -681,6 +681,11 @@ class Launcher(tk.Tk):
                 env["SPARTAN_GPU_ID"] = str(disc_idx)
             else:
                 env.pop("SPARTAN_GPU_ID", None)
+        avail_mb = check_commit_limit_mb()
+        if avail_mb is not None and avail_mb < 3200:
+            env["SPARTAN_DMEM_MB"] = "2048"
+        elif avail_mb is not None and avail_mb < 4608:
+            env["SPARTAN_DMEM_MB"] = "2560"
         if WINDOW_ICON.exists():
             env["SPARTAN_WINDOW_ICON"] = str(WINDOW_ICON)
         if MAPPING.exists():
@@ -710,11 +715,11 @@ class Launcher(tk.Tk):
             messagebox.showerror("Cannot start", f"Runtime not found: {exe}")
             return
         avail_mb = check_commit_limit_mb()
-        if avail_mb is not None and avail_mb < 6144:
+        if avail_mb is not None and avail_mb < 2560:
             if not messagebox.askyesno(
-                "Virtual Memory Rendah",
+                "Virtual Memory Sangat Rendah",
                 f"Sisa alokasi memori virtual Windows Anda hanya ~{avail_mb} MB.\n"
-                "Game membutuhkan setidaknya ~6080 MB (6 GB) paging file.\n\n"
+                "Game membutuhkan setidaknya ~3584 MB (3.5 GB) virtual memory.\n\n"
                 "Jika game crash dengan Error 1455, pastikan Virtual Memory (Paging File) aktif di Windows.\n\n"
                 "Tetap jalankan game?"):
                 return
@@ -1068,12 +1073,15 @@ class Launcher(tk.Tk):
             self.proc = None
             self.play.config(state="normal")
             self.stop.config(state="disabled")
+            if code not in (0, None):
+                self._deiconify()
+                self._show_crash_dialog(code)
             if self.play_now:
-                self.destroy()
+                if code in (0, None):
+                    self.destroy()
                 return
-            err_msg = self._check_exit_error(code)
-            self.status.config(text=err_msg if err_msg else ("Game closed." if code in (0, None) else
-                               f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log."))
+            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if code not in (0, None) else None
+            self.status.config(text=err_msg if err_msg else "Game closed.")
             self._load_ini_into_ui()
         self.after(500, self._poll)
 
