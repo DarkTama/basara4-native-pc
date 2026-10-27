@@ -40,9 +40,52 @@ AUTHOR = "Razz"
 GITHUB_REPO = "razzconnect/basara4-native-pc"
 
 
-def parse_version(tag):
-    nums = re.findall(r"\d+", str(tag))
-    return tuple(int(n) for n in nums) if nums else (0,)
+FATAL_PATTERNS = [
+    r"(STOP: .*)",
+    r"(Fault: .*)",
+    r"(ASSERT_MSG.*)",
+    r"(vk::Result=.*)",
+    r"(VK_ERROR_\w+)",
+    r"(GPU \[Render\.Vulkan\] <Error> .*)",
+    r"(GPU \[Render\.Vulkan\] <Warning> .*)",
+    r"(GPU \[Lib\.\w+\] <Error> .*)",
+    r"(Runtime: open\(.*?\) -> not found)",
+    r"(guest raised debug exception .*)",
+    r"(cannot create \d+ MiB of guest memory .*)",
+    r"(error 1455.*)",
+    r"(ERROR_COMMITMENT_LIMIT.*)",
+    r"(no rewrite table matches the image.*)",
+    r"(missing MOVBE, BMI1, LZCNT.*)",
+]
+
+
+def extract_crash_summary(log_path, max_context_lines=10):
+    """Parses log from bottom-up and extracts fatal signatures and tail context."""
+    if not log_path.is_file():
+        return {"detected_errors": ["File log tidak ditemukan (game belum sempat menulis log)."], "tail_context": ""}
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as e:
+        return {"detected_errors": [f"Gagal membaca log: {e}"], "tail_context": ""}
+    if not lines:
+        return {"detected_errors": ["Log kosong (game berhenti sebelum inisialisasi)."], "tail_context": ""}
+
+    tail_lines = lines[-max_context_lines:]
+    detected = []
+    for line in reversed(lines):
+        for pat in FATAL_PATTERNS:
+            m = re.search(pat, line)
+            if m:
+                matched_str = m.group(1).strip()
+                if matched_str not in detected:
+                    detected.append(matched_str)
+        if len(detected) >= 4:
+            break
+    return {
+        "detected_errors": detected if detected else ["Tidak ada fatal signature terdaftar (game keluar mendadak)."],
+        "tail_context": "\n".join(tail_lines),
+        "total_lines": len(lines)
+    }
 
 
 def check_latest_release(repo=GITHUB_REPO):
@@ -163,7 +206,68 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
 
 DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
-            "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False}
+            "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
+            "gpu_index": -1}
+
+
+def enumerate_gpus():
+    """Enumerate system Vulkan GPUs using vulkan-1.dll. Returns list of (index, display_name, is_discrete)."""
+    gpus = [(-1, "Auto (Prioritaskan GPU Diskrit)", True)]
+    try:
+        import ctypes
+        vulkan = ctypes.cdll.LoadLibrary("vulkan-1.dll")
+        class VkApplicationInfo(ctypes.Structure):
+            _fields_ = [
+                ("sType", ctypes.c_uint32), ("pNext", ctypes.c_void_p),
+                ("pApplicationName", ctypes.c_char_p), ("applicationVersion", ctypes.c_uint32),
+                ("pEngineName", ctypes.c_char_p), ("engineVersion", ctypes.c_uint32),
+                ("apiVersion", ctypes.c_uint32),
+            ]
+        class VkInstanceCreateInfo(ctypes.Structure):
+            _fields_ = [
+                ("sType", ctypes.c_uint32), ("pNext", ctypes.c_void_p),
+                ("flags", ctypes.c_uint32), ("pApplicationInfo", ctypes.POINTER(VkApplicationInfo)),
+                ("enabledLayerCount", ctypes.c_uint32), ("ppEnabledLayerNames", ctypes.c_void_p),
+                ("enabledExtensionCount", ctypes.c_uint32), ("ppEnabledExtensionNames", ctypes.c_void_p),
+            ]
+        class VkPhysicalDeviceProperties(ctypes.Structure):
+            _fields_ = [
+                ("apiVersion", ctypes.c_uint32), ("driverVersion", ctypes.c_uint32),
+                ("vendorID", ctypes.c_uint32), ("deviceID", ctypes.c_uint32),
+                ("deviceType", ctypes.c_uint32), ("deviceName", ctypes.c_char * 256),
+                ("pipelineCacheUUID", ctypes.c_ubyte * 16), ("limits", ctypes.c_byte * 504),
+                ("sparseProperties", ctypes.c_byte * 20),
+            ]
+        app_info = VkApplicationInfo(sType=1, pApplicationName=b"Basara4Launcher", apiVersion=(1 << 22) | (2 << 12))
+        ci = VkInstanceCreateInfo(sType=2, pApplicationInfo=ctypes.pointer(app_info))
+        vulkan.vkCreateInstance.argtypes = [ctypes.POINTER(VkInstanceCreateInfo), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        vulkan.vkCreateInstance.restype = ctypes.c_int32
+        vulkan.vkDestroyInstance.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        vulkan.vkEnumeratePhysicalDevices.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_void_p)]
+        vulkan.vkEnumeratePhysicalDevices.restype = ctypes.c_int32
+        vulkan.vkGetPhysicalDeviceProperties.argtypes = [ctypes.c_void_p, ctypes.POINTER(VkPhysicalDeviceProperties)]
+
+        inst = ctypes.c_void_p()
+        if vulkan.vkCreateInstance(ctypes.byref(ci), None, ctypes.byref(inst)) == 0:
+            count = ctypes.c_uint32(0)
+            vulkan.vkEnumeratePhysicalDevices(inst, ctypes.byref(count), None)
+            if count.value > 0:
+                devs = (ctypes.c_void_p * count.value)()
+                vulkan.vkEnumeratePhysicalDevices(inst, ctypes.byref(count), devs)
+                for i in range(count.value):
+                    p = VkPhysicalDeviceProperties()
+                    vulkan.vkGetPhysicalDeviceProperties(devs[i], ctypes.byref(p))
+                    name = p.deviceName.decode("utf-8", errors="replace").strip("\x00")
+                    is_disc = (p.deviceType == 2)
+                    kind_tag = "dGPU" if is_disc else ("iGPU" if p.deviceType == 1 else "GPU")
+                    gpus.append((i, f"GPU {i}: {name} ({kind_tag})", is_disc))
+            vulkan.vkDestroyInstance(inst, None)
+    except Exception:
+        pass
+    return gpus
+
+
+SYSTEM_GPUS = enumerate_gpus()
 DISPLAY_MODES = [("Windowed", "windowed"), ("Borderless fullscreen", "borderless"),
                  ("Exclusive fullscreen", "fullscreen")]
 FPS_LIMITS = [("60 (game default)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
@@ -410,39 +514,44 @@ class Launcher(tk.Tk):
 
         opts = ttk.Frame(right, style="Panel.TFrame")
         opts.grid(row=r, column=0, columnspan=3, sticky="ew", pady=6)
-        ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.gpu_var = tk.StringVar()
+        gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
+        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
+                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
+        ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
         self.res_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=20,
-                     values=[n for n, _ in RESOLUTIONS]).grid(row=3, column=1, padx=(8, 24), pady=(10, 0))
-        ttk.Label(opts, text="Upscaling", style="Panel.TLabel").grid(row=3, column=2, sticky="w", pady=(10, 0))
+                     values=[n for n, _ in RESOLUTIONS]).grid(row=4, column=1, padx=(8, 24), pady=(10, 0))
+        ttk.Label(opts, text="Upscaling", style="Panel.TLabel").grid(row=4, column=2, sticky="w", pady=(10, 0))
         self.up_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.up_var, state="readonly", width=18,
-                     values=[n for n, _ in UPSCALERS]).grid(row=3, column=3, padx=8, pady=(10, 0))
+                     values=[n for n, _ in UPSCALERS]).grid(row=4, column=3, padx=8, pady=(10, 0))
         ttk.Label(opts, text="The game draws at 1080p. Window size sets the window in windowed mode; fullscreen "
                   "uses your screen. FSR 1 sharpens the picture when the window or screen is bigger than 1080p.",
-                  style="Muted.TLabel", wraplength=560).grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        ttk.Label(opts, text="Frame limit", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+                  style="Muted.TLabel", wraplength=560).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(opts, text="Frame limit", style="Panel.TLabel").grid(row=1, column=0, sticky="w")
         self.fps_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.fps_var, state="readonly", width=15,
-                     values=[n for n, _ in FPS_LIMITS]).grid(row=0, column=1, padx=(8, 24))
-        ttk.Label(opts, text="Anisotropic", style="Panel.TLabel").grid(row=0, column=2, sticky="w")
+                     values=[n for n, _ in FPS_LIMITS]).grid(row=1, column=1, padx=(8, 24))
+        ttk.Label(opts, text="Anisotropic", style="Panel.TLabel").grid(row=1, column=2, sticky="w")
         self.aniso_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.aniso_var, state="readonly", width=8,
-                     values=[n for n, _ in ANISO]).grid(row=0, column=3, padx=8)
+                     values=[n for n, _ in ANISO]).grid(row=1, column=3, padx=8)
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)  # never remembered: a forgotten tick would write 3 GB every session
-        ttk.Checkbutton(opts, text="VSync", variable=self.vsync_var).grid(row=1, column=0, sticky="w", pady=8)
+        ttk.Checkbutton(opts, text="VSync", variable=self.vsync_var).grid(row=2, column=0, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="Sharpening (RCAS)", variable=self.rcas_var).grid(
-            row=1, column=1, columnspan=2, sticky="w", pady=8)
+            row=2, column=1, columnspan=2, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).grid(
-            row=1, column=3, sticky="w", pady=8)
+            row=2, column=3, sticky="w", pady=8)
         ttk.Checkbutton(opts, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).grid(
-            row=1, column=4, sticky="w", pady=8, padx=(8, 0))
+            row=2, column=4, sticky="w", pady=8, padx=(8, 0))
         ttk.Label(opts, text="Above 60 turns off the game's own frame limiter (experimental). "
                   "VSync caps the rate at your monitor's refresh.",
-                  style="Muted.TLabel", wraplength=560).grid(row=2, column=0, columnspan=4, sticky="w")
+                  style="Muted.TLabel", wraplength=560).grid(row=3, column=0, columnspan=4, sticky="w")
         r += 1
         ttk.Label(right, text="In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
                   style="Muted.TLabel").grid(row=r, column=0, columnspan=3, sticky="w")
@@ -506,6 +615,8 @@ class Launcher(tk.Tk):
         self.fps_var.set(next((n for n, v in FPS_LIMITS if v == fps), FPS_LIMITS[0][0]))
         an = int(ini["anisotropy"]) if ini.get("anisotropy", "").isdigit() else self.cfg["anisotropy"]
         self.aniso_var.set(next((n for n, v in ANISO if v == an), "Off"))
+        saved_gpu = self.cfg.get("gpu_index", -1)
+        self.gpu_var.set(next((name for idx, name, _ in SYSTEM_GPUS if idx == saved_gpu), SYSTEM_GPUS[0][1]))
 
     def _audio_toggled(self):
         if not self.audio_var.get():
@@ -537,18 +648,22 @@ class Launcher(tk.Tk):
                               else "No custom mapping: XInput and known pads work as they are.")
 
     def _collect(self):
+        selected_gpu_name = self.gpu_var.get()
+        selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
         self.cfg.update(
             game=self.game_var.get().strip(), display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
             rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
             resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
-            audio_wav=self.audio_var.get() and self.wav_var.get())
+            audio_wav=self.audio_var.get() and self.wav_var.get(),
+            gpu_index=selected_gpu_idx)
         save_config(self.cfg)
         write_ini(self._ini(), {
             "display_mode": self.cfg["display_mode"], "vsync": int(self.cfg["vsync"]),
             "fps_limit": self.cfg["fps_limit"], "rcas": int(self.cfg["rcas"]),
             "anisotropy": self.cfg["anisotropy"], "render_resolution": self.cfg["resolution"],
-            "fsr1": int(self.cfg["upscale"] == "fsr1")})
+            "fsr1": int(self.cfg["upscale"] == "fsr1"),
+            "gpu_id": self.cfg.get("gpu_index", -1)})
 
     def _env(self):
         env = os.environ.copy()
@@ -556,6 +671,16 @@ class Launcher(tk.Tk):
         env["SPARTAN_GPU_USER_DIR"] = str(USER)
         env["SPARTAN_CONFIG"] = str(self._ini())
         env["SPARTAN_WINDOW_TITLE"] = f"Sengoku Basara 4 Sumeragi - {BRAND} by {AUTHOR}"
+        gpu_idx = self.cfg.get("gpu_index", -1)
+        if gpu_idx != -1:
+            env["SPARTAN_GPU_ID"] = str(gpu_idx)
+        else:
+            # Auto: If discrete GPU exists, prioritize it automatically
+            disc_idx = next((idx for idx, _, is_disc in SYSTEM_GPUS if is_disc and idx >= 0), None)
+            if disc_idx is not None:
+                env["SPARTAN_GPU_ID"] = str(disc_idx)
+            else:
+                env.pop("SPARTAN_GPU_ID", None)
         if WINDOW_ICON.exists():
             env["SPARTAN_WINDOW_ICON"] = str(WINDOW_ICON)
         if MAPPING.exists():
@@ -858,32 +983,84 @@ class Launcher(tk.Tk):
         if self.proc and self.proc.poll() is None:
             self.proc.kill()
 
+    def _show_crash_dialog(self, code):
+        data = extract_crash_summary(LOG)
+        win = tk.Toplevel(self)
+        win.title("Basara 4 PC — Crash Diagnostic")
+        win.configure(bg=BG)
+        win.geometry("680x480")
+        win.minsize(600, 420)
+        win.grab_set()
+
+        header_frame = ttk.Frame(win, style="Panel.TFrame", padding=14)
+        header_frame.pack(fill="x", padx=12, pady=(12, 6))
+
+        exit_hex = f"{code & 0xFFFFFFFF:#x}" if isinstance(code, int) else "Unknown"
+        tk.Label(
+            header_frame,
+            text=f"⚠️ Game Berhenti Mendadak (Exit Code {exit_hex})",
+            bg=PANEL,
+            fg=RED,
+            font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w")
+
+        tk.Label(
+            header_frame,
+            text="Terdeteksi indikasi error dari log permainan di bawah ini:",
+            bg=PANEL,
+            fg=FG,
+            font=("Segoe UI", 9)
+        ).pack(anchor="w", pady=(4, 6))
+
+        for err in data["detected_errors"]:
+            tk.Label(
+                header_frame,
+                text=f"• {err}",
+                bg=PANEL,
+                fg=GOLD,
+                font=("Consolas", 9, "bold"),
+                wraplength=620,
+                justify="left"
+            ).pack(anchor="w", padx=6)
+
+        body_frame = ttk.Frame(win, style="TFrame")
+        body_frame.pack(fill="both", expand=True, padx=12, pady=6)
+
+        ttk.Label(body_frame, text="Cuplikan 10 Baris Log Terakhir (Raw Context):", style="Panel.TLabel").pack(anchor="w", pady=(0, 4))
+        txt = tk.Text(body_frame, bg="#0d0b0a", fg="#d6cfc7", relief="flat", wrap="none", font=("Consolas", 9), padx=8, pady=8)
+        txt.insert("1.0", data["tail_context"])
+        txt.config(state="disabled")
+        txt.pack(fill="both", expand=True)
+
+        btn_bar = ttk.Frame(win, style="TFrame", padding=10)
+        btn_bar.pack(fill="x")
+
+        def copy_details():
+            clip_text = (
+                f"=== Basara 4 PC Crash Report ===\n"
+                f"Version: v{VERSION}\n"
+                f"Exit Code: {exit_hex}\n"
+                f"Detected Signatures:\n" + "\n".join(f"- {e}" for e in data["detected_errors"]) + "\n\n"
+                f"Last Log Lines:\n{data['tail_context']}\n"
+            )
+            self.clipboard_clear()
+            self.clipboard_append(clip_text)
+            messagebox.showinfo("Tersalin", "Detail crash berhasil disalin ke clipboard! Siap di-paste di Discord.", parent=win)
+
+        def open_discord():
+            import webbrowser
+            webbrowser.open("https://discord.gg/UBZc57bBMa")
+
+        ttk.Button(btn_bar, text="📋 Copy Error ke Clipboard", command=copy_details).pack(side="left", padx=4)
+        ttk.Button(btn_bar, text="📁 Buka File Log", command=self.open_log).pack(side="left", padx=4)
+        ttk.Button(btn_bar, text="🌐 Lapor ke Discord", command=open_discord).pack(side="left", padx=4)
+        ttk.Button(btn_bar, text="Tutup", command=win.destroy).pack(side="right", padx=4)
+
     def _check_exit_error(self, code):
         if code in (0, None) or not LOG.is_file():
             return None
-        try:
-            content = LOG.read_text(encoding="utf-8", errors="replace")
-            if "error 1455" in content or "ERROR_COMMITMENT_LIMIT" in content:
-                messagebox.showerror(
-                    "Virtual Memory Error (Error 1455)",
-                    "Alokasi memori game (6080 MiB) gagal karena Virtual Memory / Paging File Windows tidak cukup atau dimatikan.\n\n"
-                    "Solusi:\n"
-                    "1. Buka 'View advanced system settings' di Windows\n"
-                    "2. Klik Settings di bawah Performance -> tab Advanced\n"
-                    "3. Klik Change pada Virtual memory\n"
-                    "4. Centang 'Automatically manage paging file size for all drives'\n"
-                    "5. Klik OK dan restart PC.")
-                return "Error 1455: Windows Virtual Memory / Paging File tidak cukup."
-            if "no rewrite table matches the image" in content:
-                messagebox.showerror(
-                    "CPU Incompatible (No Rewrite Table)",
-                    "CPU Anda membutuhkan emulasi instruksi (MOVBE/BMI1/LZCNT), tetapi tabel isa-rewrite.bin belum ada.\n\n"
-                    "Solusi:\n"
-                    "Hapus folder 'out' lalu tekan Play lagi agar gambar game disiapkan ulang beserta tabel emulasi CPU.")
-                return "CPU butuh isa-rewrite.bin: hapus folder out lalu Play ulang."
-        except Exception:
-            pass
-        return None
+        self._show_crash_dialog(code)
+        return f"Game crash (exit code {code & 0xFFFFFFFF:#x}). Silakan cek jendela diagnostik."
 
     def _poll(self):
         if self.proc and self.proc.poll() is not None:
