@@ -893,10 +893,16 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
             if (v->at9_retries>60 && v->block_count) {
                 /* A third of a second without a decodable superframe. Only the first chunk of a waveform block is known to start
                    on a superframe boundary: leave the chunks in front of the next block start (they count as consumed, the game
-                   refills its ring from that), reset the decoder and begin again there. */
+                   refills its ring from that), reset the decoder and begin again there.
+                   If no block start is in the queue, do NOT discard continuation chunks (flags & 2 != 0) of a looping stream;
+                   doing so flushes the game's valid refill chunks and permanently kills the stream. */
                 static int resynced;
                 uint32_t dropped=0;
-                while (v->block_count && !v->block_starts[0]) { v->consumed_bytes+=v->blocks[0].size; ngs2_pop_block(v); ++dropped; }
+                int has_start=0;
+                for (uint32_t i=0; i<v->block_count; ++i) if (v->block_starts[i]) { has_start=1; break; }
+                if (has_start) {
+                    while (v->block_count && !v->block_starts[0]) { v->consumed_bytes+=v->blocks[0].size; ngs2_pop_block(v); ++dropped; }
+                }
                 if (resynced++<40) runtime_audio_log("ngs2.resync rack=%#x/%u voice=%u dropped_chunks=%u queued=%u",v->rack->id,v->rack->serial,v->index,dropped,v->block_count);
                 v->at9_sf_have=0; v->at9_sf_pos=0; v->at9_sf_ready=0; v->at9_byte=0;
                 ngs2_at9_restart(v);
@@ -918,7 +924,7 @@ static int ngs2_at9_decode(Ngs2Voice *v) {
             if (++v->at9_errors>=16) return 0;
             continue;
         }
-        v->at9_errors=0; ++v->at9_decoded;
+        v->at9_errors=0; ++v->at9_decoded; v->at9_retries=0;
         v->at9_sf_pos+=(uint32_t)used;
         if (++v->at9_frames>=v->at9_info.framesInSuperframe || v->at9_sf_pos>=superframe) { v->at9_sf_ready=0; v->at9_sf_have=0; }
         v->at9_count=v->at9_info.frameSamples; v->at9_pos=0;
@@ -1159,6 +1165,7 @@ static void ngs2_param(Ngs2Voice *v, uint32_t id, const unsigned char *p, uint16
                 v->blocks[v->block_count]=blocks[k]; v->block_data[v->block_count]=data;
                 v->block_starts[v->block_count]=(flags&2)==0; ++v->block_count;
             }
+            if (take && append) v->at9_retries=0;
             if (take && v->streaming) v->stream_final=(flags&1)==0;
             if (!append) ngs2_stream_begin(v);
             else if (was_empty && take && v->wave_type==0x40 && v->block_starts[0] && (!v->stream_wait || was_final)) {
