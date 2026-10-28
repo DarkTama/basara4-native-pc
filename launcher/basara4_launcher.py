@@ -207,7 +207,45 @@ import basara4_patches  # noqa: E402
 
 DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
-            "gpu_index": -1}
+            "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100}
+
+DEFAULT_PC_KEYMAP = {
+    "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
+    "triangle": "Mouse Right",    # Special Skill 1
+    "cross": "Space",             # Lompat (Jump)
+    "l1": "Left Shift",           # Tangkis / Guard / Evade
+    "r1": "E",                    # Special Skill 2
+    "r2": "Q",                    # Special Skill 3
+    "circle": "F",                # Basara Attack (Ultimate)
+    "l2": "R",                    # Sengoku Drive / Poise Boost
+    "touchpad": "Tab",            # Taunt / Provoke
+    "options": "Return",          # Pause / In-Game Menu
+    "up": "Up",                   # D-Pad Up
+    "down": "Down",               # D-Pad Down
+    "left": "Left",               # D-Pad Left
+    "right": "Right",             # D-Pad Right
+    "l3": "Z",                    # L3
+    "r3": "C",                    # R3
+}
+
+ACTION_DESCRIPTIONS = [
+    ("square", "Normal Attack (Serangan Biasa)", "Kotak / Square"),
+    ("triangle", "Special Skill 1 (Skill Utama)", "Segitiga / Triangle"),
+    ("cross", "Jump (Lompat)", "Silang / Cross"),
+    ("circle", "Basara Attack (Ultimate)", "Lingkaran / Circle"),
+    ("l1", "Guard / Tangkis / Dash", "L1"),
+    ("r1", "Special Skill 2 (Skill Tambahan)", "R1"),
+    ("r2", "Special Skill 3 (Skill Karakter)", "R2"),
+    ("l2", "Sengoku Drive / Boost", "L2"),
+    ("touchpad", "Taunt / Provoke", "Touchpad / Tab"),
+    ("options", "Pause / In-Game Menu", "Options / Enter"),
+    ("up", "D-Pad Up (Navigasi / Perintah)", "D-Pad Atas"),
+    ("down", "D-Pad Down (Navigasi / Perintah)", "D-Pad Bawah"),
+    ("left", "D-Pad Left (Navigasi / Perintah)", "D-Pad Kiri"),
+    ("right", "D-Pad Right (Navigasi / Perintah)", "D-Pad Kanan"),
+    ("l3", "L3 Action", "L3"),
+    ("r3", "R3 Action / Lock-on", "R3"),
+]
 
 
 def enumerate_gpus():
@@ -565,6 +603,7 @@ class Launcher(tk.Tk):
         r += 1
         tools = ttk.Frame(right, style="Panel.TFrame")
         tools.grid(row=r, column=0, columnspan=3, sticky="w", pady=6)
+        ttk.Button(tools, text="⌨️ Keyboard & Mouse Controls", style="Play.TButton" if False else "TButton", command=self.open_keymap_ui).pack(side="left", padx=(0, 8))
         ttk.Button(tools, text="Map controller", command=lambda: self.map_pad([])).pack(side="left", padx=(0, 8))
         ttk.Button(tools, text="Map sticks only", command=lambda: self.map_pad(["--sticks"])).pack(
             side="left", padx=(0, 8))
@@ -698,6 +737,21 @@ class Launcher(tk.Tk):
         if self.cfg["fps_limit"] != 60:  # uncapped: 480 Hz vblank, the present thread paces to the limit
             env["SPARTAN_VBLANK_HZ"] = "0"
             env["SPARTAN_FPS_LIMIT"] = str(self.cfg["fps_limit"])
+
+        # Keyboard & Mouse Control Mapping
+        user_keymap = dict(DEFAULT_PC_KEYMAP)
+        user_keymap.update(self.cfg.get("keymap", {}))
+        # Format spec: button=name,button=name,...
+        spec_parts = [f"{btn}={src}" for btn, src in user_keymap.items() if src]
+        if spec_parts:
+            env["SPARTAN_KEY_MAP"] = ",".join(spec_parts)
+
+        if self.cfg.get("mouse_camera", True):
+            env["SPARTAN_MOUSE_LOCK"] = "1"
+            env["SPARTAN_MOUSE_AIM_STYLE"] = "0"  # 0: relative / free camera rotation
+            sens = int(self.cfg.get("mouse_sens", 100))
+            env["SPARTAN_MOUSE_AIM_SENSITIVITY"] = str(sens)
+
         return env
 
     # ---- starting the game ----
@@ -1044,16 +1098,63 @@ class Launcher(tk.Tk):
         btn_bar.pack(fill="x")
 
         def copy_details():
+            try:
+                import platform
+                import ctypes
+                from ctypes import wintypes
+                k = ctypes.windll.kernel32
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", wintypes.DWORD), ("dwMemoryLoad", wintypes.DWORD),
+                        ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
+                        ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
+                        ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailVirtual", ctypes.c_uint64),
+                        ("ullAvailExtendedVirtual", ctypes.c_uint64),
+                    ]
+                mem = MEMORYSTATUSEX()
+                mem.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                k.GlobalMemoryStatusEx(ctypes.byref(mem))
+                ram_total = f"{mem.ullTotalPhys // (1024*1024)} MB"
+                ram_avail = f"{mem.ullAvailPhys // (1024*1024)} MB"
+                commit_avail = f"{mem.ullAvailPageFile // (1024*1024)} MB"
+            except Exception:
+                ram_total = ram_avail = commit_avail = "N/A"
+
+            gpu_list = "\n".join(f"  - {name}" for _, name, _ in SYSTEM_GPUS) if SYSTEM_GPUS else "  - None detected"
+
+            audio_tail = ""
+            if AUDIO_LOG.is_file():
+                try:
+                    a_lines = AUDIO_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if a_lines:
+                        audio_tail = "\n".join(a_lines[-6:])
+                except Exception:
+                    pass
+
             clip_text = (
-                f"=== Basara 4 PC Crash Report ===\n"
-                f"Version: v{VERSION}\n"
-                f"Exit Code: {exit_hex}\n"
-                f"Detected Signatures:\n" + "\n".join(f"- {e}" for e in data["detected_errors"]) + "\n\n"
-                f"Last Log Lines:\n{data['tail_context']}\n"
+                f"=== Sengoku Basara 4 PC — Crash Diagnostic Report ===\n"
+                f"Version       : v{VERSION}\n"
+                f"Exit Code     : {exit_hex}\n"
+                f"OS            : {platform.system()} {platform.release()} (Build {platform.version()})\n"
+                f"Architecture  : {platform.machine()} ({platform.processor()})\n"
+                f"RAM           : Total {ram_total} | Free {ram_avail} | Available Commit {commit_avail}\n"
+                f"Vulkan GPUs   :\n{gpu_list}\n"
+                f"Detected Fatal Signatures:\n" + "\n".join(f"  * {e}" for e in data["detected_errors"]) + "\n\n"
+                f"--- [Last 10 Log Lines (last_run.log)] ---\n"
+                f"{data['tail_context']}\n"
             )
+            if audio_tail:
+                clip_text += f"\n--- [Recent Audio Log (audio_debug.log)] ---\n{audio_tail}\n"
+
+            clip_text += "\n=== End of Report ==="
             self.clipboard_clear()
             self.clipboard_append(clip_text)
-            messagebox.showinfo("Tersalin", "Detail crash berhasil disalin ke clipboard! Siap di-paste di Discord.", parent=win)
+            messagebox.showinfo(
+                "Tersalin ke Clipboard",
+                "Laporan crash lengkap (spek hardware, GPU, log error, dan audio log) berhasil disalin!\n"
+                "Anda tinggal Paste (Ctrl+V) langsung ke Discord untuk bantuan teknis.",
+                parent=win
+            )
 
         def open_discord():
             import webbrowser
@@ -1063,6 +1164,192 @@ class Launcher(tk.Tk):
         ttk.Button(btn_bar, text="📁 Buka File Log", command=self.open_log).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="🌐 Lapor ke Discord", command=open_discord).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="Tutup", command=win.destroy).pack(side="right", padx=4)
+
+    # ---- keyboard & mouse mapping dialog ----
+    def open_keymap_ui(self):
+        win = tk.Toplevel(self)
+        win.title("Keyboard & Mouse Controls — Custom Keymap")
+        win.configure(bg=BG)
+        win.geometry("740x620")
+        win.minsize(680, 520)
+        win.grab_set()
+
+        cur_map = dict(DEFAULT_PC_KEYMAP)
+        cur_map.update(self.cfg.get("keymap", {}))
+        mouse_cam_var = tk.BooleanVar(value=self.cfg.get("mouse_camera", True))
+        mouse_sens_var = tk.IntVar(value=self.cfg.get("mouse_sens", 100))
+
+        # Top Header
+        top_frame = ttk.Frame(win, style="Panel.TFrame", padding=12)
+        top_frame.pack(fill="x", padx=14, pady=(12, 6))
+
+        tk.Label(top_frame, text="⚙️ Pengaturan Kontrol Keyboard & Mouse", bg=PANEL, fg=GOLD, font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        tk.Label(top_frame, text="Klik tombol untuk mengubah tombol pemetaan. Tekan tombol Keyboard atau Mouse untuk mengikat.", bg=PANEL, fg=FG, font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 0))
+
+        # Mouse Settings Bar
+        mouse_bar = ttk.Frame(top_frame, style="Panel.TFrame")
+        mouse_bar.pack(fill="x", pady=(10, 0))
+        ttk.Checkbutton(mouse_bar, text="Aktifkan Kamera Mouse (Mouse Look)", variable=mouse_cam_var).pack(side="left")
+
+        sens_frame = ttk.Frame(mouse_bar, style="Panel.TFrame")
+        sens_frame.pack(side="right")
+        ttk.Label(sens_frame, text="Sensitivitas: ", style="Panel.TLabel").pack(side="left")
+        sens_lbl = ttk.Label(sens_frame, text=f"{mouse_sens_var.get()}%", style="Panel.TLabel", width=5)
+        sens_lbl.pack(side="right")
+        def on_sens_scroll(val):
+            sens_lbl.config(text=f"{int(float(val))}%")
+        scale = ttk.Scale(sens_frame, from_=20, to=300, variable=mouse_sens_var, command=on_sens_scroll, length=120)
+        scale.pack(side="left", padx=6)
+
+        # Body - Scrollable Mapping Table
+        body_container = ttk.Frame(win, style="TFrame")
+        body_container.pack(fill="both", expand=True, padx=14, pady=6)
+
+        canvas = tk.Canvas(body_container, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(body_container, orient="vertical", command=canvas.yview)
+        scroll_content = ttk.Frame(canvas, style="TFrame")
+
+        scroll_content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas_window = canvas.create_window((0, 0), window=scroll_content, anchor="nw")
+        def on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind("<Configure>", on_canvas_configure)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        btn_widgets = {}
+        active_listening = [None]  # holds current button listening
+
+        def format_binding_display(key_str):
+            if not key_str:
+                return "None"
+            return key_str.upper() if len(key_str) <= 3 else key_str
+
+        def finish_listen(action_name, new_key):
+            if active_listening[0] == action_name:
+                active_listening[0] = None
+                cur_map[action_name] = new_key
+                btn = btn_widgets.get(action_name)
+                if btn:
+                    btn.config(text=format_binding_display(new_key), bg="#2c2824", fg=GOLD)
+                win.unbind("<Key>")
+                win.unbind("<Button-1>")
+                win.unbind("<Button-2>")
+                win.unbind("<Button-3>")
+
+        def start_listen(action_name):
+            # If another was listening, reset it
+            if active_listening[0]:
+                old_action = active_listening[0]
+                old_btn = btn_widgets.get(old_action)
+                if old_btn:
+                    old_btn.config(text=format_binding_display(cur_map.get(old_action, "")), bg="#2c2824", fg=GOLD)
+            active_listening[0] = action_name
+            btn = btn_widgets.get(action_name)
+            if btn:
+                btn.config(text="[ TEKAN TOMBOL... ]", bg=RED, fg="#fff")
+
+            def on_key_event(event):
+                # Translate tkinter keysym to SDL scancode name
+                keysym = event.keysym
+                # Special mappings
+                key_map_table = {
+                    "Return": "Return", "Escape": "Escape", "space": "Space",
+                    "BackSpace": "Backspace", "Tab": "Tab", "Shift_L": "Left Shift",
+                    "Shift_R": "Right Shift", "Control_L": "Left Ctrl", "Control_R": "Right Ctrl",
+                    "Alt_L": "Left Alt", "Alt_R": "Right Alt", "Caps_Lock": "CapsLock",
+                    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",
+                    "comma": "Comma", "equal": "Equals", "period": "Period",
+                    "slash": "Slash", "semicolon": "Semicolon", "minus": "Minus"
+                }
+                mapped_name = key_map_table.get(keysym, keysym.capitalize() if len(keysym) > 1 else keysym.upper())
+                finish_listen(action_name, mapped_name)
+                return "break"
+
+            def on_mouse_event(btn_num):
+                name_map = {1: "Mouse Left", 2: "Mouse Middle", 3: "Mouse Right"}
+                finish_listen(action_name, name_map.get(btn_num, f"Mouse {btn_num}"))
+                return "break"
+
+            win.bind("<Key>", on_key_event)
+            # Give focus to window to capture keys
+            win.focus_set()
+            # Allow clicking mouse buttons to bind
+            win.bind("<Button-1>", lambda e: on_mouse_event(1))
+            win.bind("<Button-2>", lambda e: on_mouse_event(2))
+            win.bind("<Button-3>", lambda e: on_mouse_event(3))
+
+        # Render Table Items (Styled like game interaction list)
+        for row_idx, (action_key, action_label, ps_button_label) in enumerate(ACTION_DESCRIPTIONS):
+            item_frame = tk.Frame(scroll_content, bg="#181512", padx=12, pady=7, highlightbackground="#25211d", highlightthickness=1)
+            item_frame.pack(fill="x", pady=2, padx=4)
+
+            # Left Label: Action name
+            lbl_text = f"{action_label}"
+            tk.Label(item_frame, text=lbl_text, bg="#181512", fg=FG, font=("Segoe UI Semibold", 9), anchor="w").pack(side="left", padx=(4, 0))
+
+            # Sub-label for PS button
+            tk.Label(item_frame, text=f"({ps_button_label})", bg="#181512", fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(side="left", padx=8)
+
+            # Right: Key Box Button
+            val = cur_map.get(action_key, "")
+            key_btn = tk.Button(
+                item_frame,
+                text=format_binding_display(val),
+                bg="#2c2824",
+                fg=GOLD,
+                activebackground=RED,
+                activeforeground="#fff",
+                font=("Consolas", 10, "bold"),
+                width=16,
+                relief="flat",
+                bd=0,
+                padx=8,
+                pady=4,
+                cursor="hand2",
+                command=lambda a=action_key: start_listen(a)
+            )
+            key_btn.pack(side="right")
+            btn_widgets[action_key] = key_btn
+
+        # Movement Fixed Notice
+        notice_frame = tk.Frame(scroll_content, bg=PANEL, padx=12, pady=6)
+        notice_frame.pack(fill="x", pady=(8, 4), padx=4)
+        tk.Label(
+            notice_frame,
+            text="ℹ️ Pergerakan Karakter otomatis terikat pada W, A, S, D (Standar PC). Kamera mouse mengontrol analog kanan.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 8, "italic")
+        ).pack(anchor="w")
+
+        # Bottom Action Bar
+        bottom_bar = ttk.Frame(win, style="TFrame", padding=12)
+        bottom_bar.pack(fill="x")
+
+        def reset_defaults():
+            cur_map.clear()
+            cur_map.update(DEFAULT_PC_KEYMAP)
+            mouse_cam_var.set(True)
+            mouse_sens_var.set(100)
+            sens_lbl.config(text="100%")
+            for k, b in btn_widgets.items():
+                b.config(text=format_binding_display(cur_map.get(k, "")), bg="#2c2824", fg=GOLD)
+            messagebox.showinfo("Reset Preset", "Pengaturan kontrol berhasil dikembalikan ke Preset Default PC!", parent=win)
+
+        def save_and_close():
+            self.cfg["keymap"] = cur_map
+            self.cfg["mouse_camera"] = mouse_cam_var.get()
+            self.cfg["mouse_sens"] = int(mouse_sens_var.get())
+            save_config(self.cfg)
+            win.destroy()
+            messagebox.showinfo("Tersimpan", "Pengaturan kontrol Keyboard & Mouse berhasil disimpan!", parent=self)
+
+        ttk.Button(bottom_bar, text="🔄 Reset ke Default PC", command=reset_defaults).pack(side="left", padx=4)
+        ttk.Button(bottom_bar, text="Batal", command=win.destroy).pack(side="right", padx=4)
+        ttk.Button(bottom_bar, text="💾 Simpan Pengaturan", style="Play.TButton", command=save_and_close).pack(side="right", padx=4)
 
     def _check_exit_error(self, code):
         if code in (0, None) or not LOG.is_file():
