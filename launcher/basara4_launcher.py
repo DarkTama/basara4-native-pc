@@ -421,8 +421,8 @@ class Launcher(tk.Tk):
         self.play_now = play_now
         self.title(f"Sengoku Basara 4 Sumeragi  \u00b7  {BRAND} by {AUTHOR}")
         self.configure(bg=BG)
-        self.geometry("980x560")
-        self.minsize(900, 520)
+        self.geometry("1020x620")
+        self.minsize(980, 580)
         icon = Path(__file__).resolve().parent / "basara4.ico"
         if icon.is_file():
             try:
@@ -553,47 +553,54 @@ class Launcher(tk.Tk):
 
         opts = ttk.Frame(right, style="Panel.TFrame")
         opts.grid(row=r, column=0, columnspan=3, sticky="ew", pady=6)
-        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+
+        # Baris 0: Graphics Card (Col 0: Label, Col 1..3: Combobox melebar rapi)
+        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.gpu_var = tk.StringVar()
         gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
-        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
-                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
-        ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
-        self.res_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=20,
-                     values=[n for n, _ in RESOLUTIONS]).grid(row=4, column=1, padx=(8, 24), pady=(10, 0))
-        ttk.Label(opts, text="Upscaling", style="Panel.TLabel").grid(row=4, column=2, sticky="w", pady=(10, 0))
-        self.up_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.up_var, state="readonly", width=18,
-                     values=[n for n, _ in UPSCALERS]).grid(row=4, column=3, padx=8, pady=(10, 0))
-        ttk.Label(opts, text="The game draws at 1080p. Window size sets the window in windowed mode; fullscreen "
-                  "uses your screen. FSR 1 sharpens the picture when the window or screen is bigger than 1080p.",
-                  style="Muted.TLabel", wraplength=560).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        ttk.Label(opts, text="Frame limit", style="Panel.TLabel").grid(row=1, column=0, sticky="w")
+        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=46,
+                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 8))
+
+        # Baris 1: Frame limit & Anisotropic
+        ttk.Label(opts, text="Frame limit", style="Panel.TLabel").grid(row=1, column=0, sticky="w", pady=4)
         self.fps_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.fps_var, state="readonly", width=15,
-                     values=[n for n, _ in FPS_LIMITS]).grid(row=1, column=1, padx=(8, 24))
-        ttk.Label(opts, text="Anisotropic", style="Panel.TLabel").grid(row=1, column=2, sticky="w")
+        ttk.Combobox(opts, textvariable=self.fps_var, state="readonly", width=18,
+                     values=[n for n, _ in FPS_LIMITS]).grid(row=1, column=1, sticky="w", padx=(8, 20), pady=4)
+        ttk.Label(opts, text="Anisotropic", style="Panel.TLabel").grid(row=1, column=2, sticky="w", pady=4)
         self.aniso_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.aniso_var, state="readonly", width=8,
-                     values=[n for n, _ in ANISO]).grid(row=1, column=3, padx=8)
+        ttk.Combobox(opts, textvariable=self.aniso_var, state="readonly", width=12,
+                     values=[n for n, _ in ANISO]).grid(row=1, column=3, sticky="w", padx=(8, 0), pady=4)
+
+        # Baris 2: Window size & Upscaling
+        ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=2, column=0, sticky="w", pady=4)
+        self.res_var = tk.StringVar()
+        ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=18,
+                     values=[n for n, _ in RESOLUTIONS]).grid(row=2, column=1, sticky="w", padx=(8, 20), pady=4)
+        ttk.Label(opts, text="Upscaling", style="Panel.TLabel").grid(row=2, column=2, sticky="w", pady=4)
+        self.up_var = tk.StringVar()
+        ttk.Combobox(opts, textvariable=self.up_var, state="readonly", width=12,
+                     values=[n for n, _ in UPSCALERS]).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=4)
+
+        # Baris 3: Checkboxes (VSync, RCAS, Audio log, WAV)
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
-        self.wav_var = tk.BooleanVar(value=False)  # never remembered: a forgotten tick would write 3 GB every session
-        ttk.Checkbutton(opts, text="VSync", variable=self.vsync_var).grid(row=2, column=0, sticky="w", pady=8)
-        ttk.Checkbutton(opts, text="Sharpening (RCAS)", variable=self.rcas_var).grid(
-            row=2, column=1, columnspan=2, sticky="w", pady=8)
-        ttk.Checkbutton(opts, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).grid(
-            row=2, column=3, sticky="w", pady=8)
-        ttk.Checkbutton(opts, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).grid(
-            row=2, column=4, sticky="w", pady=8, padx=(8, 0))
-        ttk.Label(opts, text="Above 60 turns off the game's own frame limiter (experimental). "
-                  "VSync caps the rate at your monitor's refresh.",
-                  style="Muted.TLabel", wraplength=560).grid(row=3, column=0, columnspan=4, sticky="w")
+        self.wav_var = tk.BooleanVar(value=False)
+
+        chk_frame = ttk.Frame(opts, style="Panel.TFrame")
+        chk_frame.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 4))
+        ttk.Checkbutton(chk_frame, text="VSync", variable=self.vsync_var).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(chk_frame, text="Sharpening (RCAS)", variable=self.rcas_var).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(chk_frame, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(chk_frame, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).pack(side="left")
+
+        # Baris 4: Keterangan / Tips
+        ttk.Label(opts, text="The game draws at 1080p. Window size sets windowed mode. FSR 1 sharpens if screen > 1080p.\n"
+                             "Above 60 turns off internal frame limiter. VSync caps rate at monitor refresh.",
+                  style="Muted.TLabel", wraplength=600).grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
         r += 1
         ttk.Label(right, text="In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
-                  style="Muted.TLabel").grid(row=r, column=0, columnspan=3, sticky="w")
+                  style="Muted.TLabel").grid(row=r, column=0, columnspan=3, sticky="w", pady=(2, 0))
         r += 1
 
         ttk.Separator(right).grid(row=r, column=0, columnspan=3, sticky="ew", pady=12)
@@ -601,16 +608,22 @@ class Launcher(tk.Tk):
         ttk.Label(right, text="Controller & files", style="Head.TLabel").grid(
             row=r, column=0, columnspan=3, sticky="w")
         r += 1
-        tools = ttk.Frame(right, style="Panel.TFrame")
-        tools.grid(row=r, column=0, columnspan=3, sticky="w", pady=6)
-        ttk.Button(tools, text="⌨️ Keyboard & Mouse Controls", style="Play.TButton" if False else "TButton", command=self.open_keymap_ui).pack(side="left", padx=(0, 8))
-        ttk.Button(tools, text="Map controller", command=lambda: self.map_pad([])).pack(side="left", padx=(0, 8))
-        ttk.Button(tools, text="Map sticks only", command=lambda: self.map_pad(["--sticks"])).pack(
-            side="left", padx=(0, 8))
-        ttk.Button(tools, text="Reset mapping", command=self.reset_map).pack(side="left", padx=(0, 8))
-        ttk.Button(tools, text="Open log", command=self.open_log).pack(side="left", padx=(0, 8))
-        ttk.Button(tools, text="Open saves", command=self.open_saves).pack(side="left", padx=(0, 8))
-        ttk.Button(tools, text="Open audio log", command=self.open_audio_log).pack(side="left")
+        # Row 1 of tools
+        tools1 = ttk.Frame(right, style="Panel.TFrame")
+        tools1.grid(row=r, column=0, columnspan=3, sticky="w", pady=(6, 4))
+        ttk.Button(tools1, text="⌨️ Keyboard & Mouse Controls", command=self.open_keymap_ui).pack(side="left", padx=(0, 8))
+        ttk.Button(tools1, text="Map controller", command=lambda: self.map_pad([])).pack(side="left", padx=(0, 8))
+        ttk.Button(tools1, text="Map sticks only", command=lambda: self.map_pad(["--sticks"])).pack(side="left", padx=(0, 8))
+        ttk.Button(tools1, text="Reset mapping", command=self.reset_map).pack(side="left")
+        r += 1
+
+        # Row 2 of tools
+        tools2 = ttk.Frame(right, style="Panel.TFrame")
+        tools2.grid(row=r, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Button(tools2, text="Open log", command=self.open_log).pack(side="left", padx=(0, 8))
+        ttk.Button(tools2, text="Open audio log", command=self.open_audio_log).pack(side="left", padx=(0, 8))
+        ttk.Button(tools2, text="Open saves", command=self.open_saves).pack(side="left")
+        r += 1
         r += 1
         self.pad_label = ttk.Label(right, text="", style="Muted.TLabel")
         self.pad_label.grid(row=r, column=0, columnspan=3, sticky="w")
