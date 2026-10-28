@@ -1063,12 +1063,17 @@ class Launcher(tk.Tk):
         win = tk.Toplevel(self)
         win.title("Basara 4 PC — Crash Diagnostic")
         win.configure(bg=BG)
-        win.geometry("680x480")
-        win.minsize(600, 420)
+        win.geometry("740x560")
+        win.minsize(680, 480)
         win.grab_set()
 
+        # Bottom Button Bar dipack DULUAN dengan side="bottom" agar TIDAK TERDORONG KELUAR LAYAR
+        btn_bar = ttk.Frame(win, style="TFrame", padding=12)
+        btn_bar.pack(side="bottom", fill="x")
+
+        # Top Header Frame
         header_frame = ttk.Frame(win, style="Panel.TFrame", padding=14)
-        header_frame.pack(fill="x", padx=12, pady=(12, 6))
+        header_frame.pack(side="top", fill="x", padx=12, pady=(12, 6))
 
         exit_hex = f"{code & 0xFFFFFFFF:#x}" if isinstance(code, int) else "Unknown"
         tk.Label(
@@ -1094,21 +1099,19 @@ class Launcher(tk.Tk):
                 bg=PANEL,
                 fg=GOLD,
                 font=("Consolas", 9, "bold"),
-                wraplength=620,
+                wraplength=680,
                 justify="left"
             ).pack(anchor="w", padx=6)
 
+        # Center Body Frame
         body_frame = ttk.Frame(win, style="TFrame")
-        body_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        body_frame.pack(side="top", fill="both", expand=True, padx=12, pady=6)
 
         ttk.Label(body_frame, text="Cuplikan 10 Baris Log Terakhir (Raw Context):", style="Panel.TLabel").pack(anchor="w", pady=(0, 4))
         txt = tk.Text(body_frame, bg="#0d0b0a", fg="#d6cfc7", relief="flat", wrap="none", font=("Consolas", 9), padx=8, pady=8)
         txt.insert("1.0", data["tail_context"])
         txt.config(state="disabled")
         txt.pack(fill="both", expand=True)
-
-        btn_bar = ttk.Frame(win, style="TFrame", padding=10)
-        btn_bar.pack(fill="x")
 
         def copy_details():
             try:

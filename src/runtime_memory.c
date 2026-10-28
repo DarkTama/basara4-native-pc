@@ -37,8 +37,8 @@ static uint64_t pool_size_bytes(void) {
     return size;
 }
 #define POOL_SIZE pool_size_bytes()
-#define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
-#define FLEX_SPAN (UINT64_C(448) * 1024 * 1024)
+#define FLEXIBLE_SIZE (UINT64_C(64) * 1024 * 1024)
+#define FLEX_SPAN (UINT64_C(64) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
 #define USER_MIN UINT64_C(0x1000000000)
 #define USER_MAX UINT64_C(0xfc00000000)
