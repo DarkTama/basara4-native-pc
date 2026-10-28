@@ -23,7 +23,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
-/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. Set to 3584 MiB default on PC
+/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. Set to 3136 MiB default on PC
  * to fit Capcom MT Framework's initial 2048 MiB heap while avoiding Windows commitment limit (error 1455).
  * SPARTAN_DMEM_MB raises it (the resolution patches above 1080p need about 4 GiB more; run.sh sets it). */
 static uint64_t pool_size_bytes(void) {
@@ -31,13 +31,14 @@ static uint64_t pool_size_bytes(void) {
     if (!size) {
         const char *env = getenv("SPARTAN_DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
-        if (mb < 3584 || mb > 16384) mb = 3584;
+        if (mb < 3136 || mb > 16384) mb = 3136;
         size = mb * 1024 * 1024;
     }
     return size;
 }
 #define POOL_SIZE pool_size_bytes()
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
+#define FLEX_SPAN (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
 #define USER_MIN UINT64_C(0x1000000000)
 #define USER_MAX UINT64_C(0xfc00000000)
@@ -82,7 +83,6 @@ static Vma *vmas; static size_t vma_count, vma_capacity;
 static int pool_fd=-1;
 #endif
 static unsigned char *backing_base; /* second view of the pool: host writes bypass guest/GPU page protection */
-#define FLEX_SPAN (UINT64_C(1024) * 1024 * 1024)
 static uint64_t flex_bitmap[FLEX_SPAN/PAGE/64];
 /* GPU hooks (spartanportgpu): notified outside the lock, in order, after each operation. */
 typedef void (*GpuRange)(uintptr_t address, uint64_t size);
