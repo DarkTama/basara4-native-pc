@@ -470,6 +470,7 @@ class Launcher(tk.Tk):
         self.status.pack(pady=(14, 4))
         self.play = ttk.Button(left, text="PLAY", style="Play.TButton", command=self.on_play)
         self.play.pack(fill="x", pady=(2, 6))
+        self.user_stopped = False
         self.stop = ttk.Button(left, text="Stop game", command=self.on_stop, state="disabled")
         self.stop.pack(fill="x")
         mark = ttk.Frame(left, style="Panel.TFrame")
@@ -514,11 +515,13 @@ class Launcher(tk.Tk):
 
         opts = ttk.Frame(right, style="Panel.TFrame")
         opts.grid(row=r, column=0, columnspan=3, sticky="ew", pady=6)
-        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        has_multiple_gpus = len(SYSTEM_GPUS) > 2  # lebih dari sekadar ["Auto", 1 GPU fisik]
         self.gpu_var = tk.StringVar()
-        gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
-        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
-                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
+        if has_multiple_gpus:
+            ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
+            ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
+                         values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
         ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
         self.res_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=20,
@@ -703,6 +706,7 @@ class Launcher(tk.Tk):
     def on_play(self):
         if self.busy or self.proc:
             return
+        self.user_stopped = False
         self._collect()
         game = Path(self.cfg["game"]) if self.cfg["game"] else None
         exe = CORE
@@ -986,6 +990,7 @@ class Launcher(tk.Tk):
 
     def on_stop(self):
         if self.proc and self.proc.poll() is None:
+            self.user_stopped = True
             self.proc.kill()
 
     def _show_crash_dialog(self, code):
@@ -1073,14 +1078,14 @@ class Launcher(tk.Tk):
             self.proc = None
             self.play.config(state="normal")
             self.stop.config(state="disabled")
-            if code not in (0, None):
+            if code not in (0, None) and not self.user_stopped:
                 self._deiconify()
                 self._show_crash_dialog(code)
             if self.play_now:
-                if code in (0, None):
+                if code in (0, None) or self.user_stopped:
                     self.destroy()
                 return
-            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if code not in (0, None) else None
+            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if (code not in (0, None) and not self.user_stopped) else None
             self.status.config(text=err_msg if err_msg else "Game closed.")
             self._load_ini_into_ui()
         self.after(500, self._poll)
