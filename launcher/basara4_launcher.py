@@ -515,13 +515,11 @@ class Launcher(tk.Tk):
 
         opts = ttk.Frame(right, style="Panel.TFrame")
         opts.grid(row=r, column=0, columnspan=3, sticky="ew", pady=6)
-        has_multiple_gpus = len(SYSTEM_GPUS) > 2  # lebih dari sekadar ["Auto", 1 GPU fisik]
+        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.gpu_var = tk.StringVar()
-        if has_multiple_gpus:
-            ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-            gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
-            ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
-                         values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
+        gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
+        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=38,
+                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 6))
         ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
         self.res_var = tk.StringVar()
         ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=20,
