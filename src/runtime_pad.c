@@ -1,6 +1,16 @@
 /* libScePad on SDL3 gamepads, with a keyboard fallback. SDL events are pumped
  * by the window thread (gpu/shim/window.cpp); here state is only sampled.
  *
+ * Local 2-player co-op (coop-local-2p): the game's original PS4 release is a
+ * 1-2 player game, so this runtime exposes two pads instead of inventing a
+ * network mode. Pad 1 is exactly the old behaviour (first SDL gamepad and/or
+ * keyboard, with all the P1 assists). Pad 2 is the second SDL gamepad only:
+ * no keyboard, no mouse aim, no QTE/dodge/combo helpers, no recording or
+ * replay, so it can never double-trigger P1-only actions. The first SDL
+ * gamepad found is P1, the second is P2; plug both in before launching.
+ * This is untested against the real game (no game dump here): see
+ * docs/COOP-LOCAL-2P.md for the build/test steps and the known unknowns.
+ *
  * Default keyboard layout (SPARTAN_KEY_MAP changes the buttons, see apply_button_map):
  *   WASD left stick, arrow keys right stick, Space Cross, LShift Circle,
  *   E Square, Q Triangle, 1 L1, 3 R1, R L2, F R2, Z L3, C R3,
@@ -25,7 +35,10 @@
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
 #define ERR_ALREADY_OPENED ((int32_t)0x80920004)
 #define ERR_NOT_INITIALIZED ((int32_t)0x80920005)
-#define PAD_HANDLE 1
+#define PAD_COUNT 2
+/* Handle == user id: 1 = player 1, 2 = player 2. */
+#define PAD_HANDLE_1 1
+#define PAD_HANDLE_2 2
 
 enum {
     BTN_L3=0x2, BTN_R3=0x4, BTN_OPTIONS=0x8, BTN_UP=0x10, BTN_RIGHT=0x20, BTN_DOWN=0x40, BTN_LEFT=0x80,
@@ -66,10 +79,13 @@ _Static_assert(__builtin_offsetof(PadData,timestamp)==80,"OrbisPadData timestamp
 _Static_assert(sizeof(ControllerInfo)==28,"OrbisPadControllerInformation layout");
 
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
-static int initialized, opened, sdl_ready;
-static SDL_Gamepad *gamepad;
-static size_t reads;
+static int initialized, sdl_ready;
+static int opened[PAD_COUNT];
+static SDL_Gamepad *gamepads[PAD_COUNT];
+static size_t reads[PAD_COUNT];
 static uint8_t connected_count;
+/* Slot for a handle (1-based), or -1 for an invalid handle. */
+static int pad_slot(int32_t handle) { return handle>=1 && handle<=PAD_COUNT ? (int)handle-1 : -1; }
 
 static uint64_t now_us(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000u+(uint64_t)t.tv_nsec/1000u; }
 static uint8_t axis(int16_t v) { int x=(v+32768)>>8; return (uint8_t)(x<0 ? 0 : x>255 ? 255 : x); }
@@ -85,8 +101,10 @@ static uint16_t touch_axis(float v, int max) {
  * that comes and goes with the button. The side is chosen when the click starts and kept: the
  * right source with L1 held is a left click (photo mode on pads without a touchpad). */
 enum { CLICK_LEAD_US=50000, CLICK_HOLD_US=50000, CLICK_TAIL_US=100000 };
-static struct { int side; uint64_t pressed, released; } click={-1,0,0};
-static void play_click(PadData *d) {
+/* One touchpad-click state per pad: sharing it would let P2's Back button
+ * corrupt P1's photo-mode/pause timing (and vice versa). */
+static struct { int side; uint64_t pressed, released; } click[PAD_COUNT]={{-1,0,0},{-1,0,0}};
+static void play_click(PadData *d, int slot) {
     const uint64_t now=d->timestamp;
     uint32_t sources=d->buttons & (CLICK_LEFT|CLICK_RIGHT);
     d->buttons&=~(CLICK_LEFT|CLICK_RIGHT);
@@ -95,33 +113,40 @@ static void play_click(PadData *d) {
         sources|=CLICK_LEFT;
     }
     const int side=(sources & CLICK_LEFT) ? 0 : (sources & CLICK_RIGHT) ? !(d->buttons & BTN_L1) : -1;
-    if (side>=0 && (click.side<0 || click.released)) { click.side=side; click.pressed=now; click.released=0; }
-    else if (side<0 && click.side>=0 && !click.released) click.released=now;
-    if (click.side<0) return;
-    const uint64_t down=click.pressed+CLICK_LEAD_US;
+    if (side>=0 && (click[slot].side<0 || click[slot].released)) { click[slot].side=side; click[slot].pressed=now; click[slot].released=0; }
+    else if (side<0 && click[slot].side>=0 && !click[slot].released) click[slot].released=now;
+    if (click[slot].side<0) return;
+    const uint64_t down=click[slot].pressed+CLICK_LEAD_US;
     uint64_t up=down+CLICK_HOLD_US;
-    if (!click.released) up=UINT64_MAX;
-    else if (click.released>up) up=click.released;
-    if (now>=up && now-up>=CLICK_TAIL_US) { click.side=-1; return; }
+    if (!click[slot].released) up=UINT64_MAX;
+    else if (click[slot].released>up) up=click[slot].released;
+    if (now>=up && now-up>=CLICK_TAIL_US) { click[slot].side=-1; return; }
     if (d->touch_count<2) {
-        d->touches[d->touch_count]=(PadTouch){.x=click.side ? 1440 : 480,.y=471,.id=d->touch_count};
+        d->touches[d->touch_count]=(PadTouch){.x=click[slot].side ? 1440 : 480,.y=471,.id=d->touch_count};
         ++d->touch_count;
     }
     if (now>=down && now<up) d->buttons|=BTN_TOUCHPAD;
 }
 
-/* Opens the first gamepad SDL knows about; called under lock. */
-static SDL_Gamepad *current_gamepad(void) {
+/* Opens the gamepad for one slot; called under lock. Slot 0 is the first SDL
+ * gamepad found, slot 1 the second. A slot with no gamepad returns NULL and
+ * never steals the other slot's pad. connected_count tracks how many SDL
+ * gamepads are currently enumerated (capped at PAD_COUNT), so the game can
+ * tell a second controller was plugged in. */
+static SDL_Gamepad *current_gamepad_for_slot(int slot) {
+    if (slot<0 || slot>=PAD_COUNT) return NULL;
     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
     if (sdl_ready<0) return NULL;
-    if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
-    if (!gamepad) {
+    SDL_Gamepad **gamepad=&gamepads[slot];
+    if (*gamepad && !SDL_GamepadConnected(*gamepad)) { SDL_CloseGamepad(*gamepad); *gamepad=NULL; }
+    if (!*gamepad) {
         int count=0;
         SDL_JoystickID *ids=SDL_GetGamepads(&count);
-        if (ids && count>0) {
-            gamepad=SDL_OpenGamepad(ids[0]);
-            if (gamepad) { ++connected_count; printf("Runtime: gamepad connected: %s\n",SDL_GetGamepadName(gamepad)); }
-        } else {
+        if (count>=0) connected_count=(uint8_t)(count>PAD_COUNT ? PAD_COUNT : count);
+        if (ids && count>slot) {
+            *gamepad=SDL_OpenGamepad(ids[slot]);
+            if (*gamepad) printf("Runtime: gamepad %d connected: %s\n",slot+1,SDL_GetGamepadName(*gamepad));
+        } else if (slot==0) {
             /* A joystick SDL has no gamepad mapping for (a generic DirectInput pad) is not a
              * gamepad: say so once, with the way to give it one. */
             static int unmapped_reported;
@@ -139,8 +164,10 @@ static SDL_Gamepad *current_gamepad(void) {
         }
         SDL_free(ids);
     }
-    return gamepad;
+    return *gamepad;
 }
+/* The old single-pad entry point, kept for P1 call sites. */
+static SDL_Gamepad *current_gamepad(void) { return current_gamepad_for_slot(0); }
 /* Button sources: a host button or key and the PS4 button it presses. The defaults below can be
  * changed per PS4 button with SPARTAN_PAD_MAP (gamepad) and SPARTAN_KEY_MAP (keyboard), e.g.
  * SPARTAN_KEY_MAP="cross=Q,square=Left Shift" or SPARTAN_PAD_MAP="cross=b,circle=a": comma-separated
@@ -467,6 +494,34 @@ static bool qte_play(const bool *keys, uint64_t now) {
     return true;
 }
 
+/* Buttons, sticks, triggers and touchpad fingers from one SDL gamepad.
+ * Shared by P1 and P2 (both use pad_map, so SPARTAN_PAD_MAP applies to both);
+ * everything keyboard/mouse/QTE-specific stays in sample_host (P1 only). */
+static void sample_gamepad(PadData *d, SDL_Gamepad *g) {
+    if (!g) return;
+    for (size_t i=0;i<pad_map.count;++i)
+        if (SDL_GetGamepadButton(g,(SDL_GamepadButton)pad_map.entries[i].source)) d->buttons|=pad_map.entries[i].ps;
+    const uint32_t mapped=d->buttons;
+    d->left_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX)); d->left_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY));
+    d->right_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX)); d->right_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY));
+    d->l2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER)); d->r2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+    if (d->l2>30) d->buttons|=BTN_L2;
+    if (d->r2>30) d->buttons|=BTN_R2;
+    if (mapped & BTN_L2) d->l2=255;
+    if (mapped & BTN_R2) d->r2=255;
+    if (SDL_GetNumGamepadTouchpads(g)>0) {
+        const int fingers=SDL_GetNumGamepadTouchpadFingers(g,0);
+        for (int finger=0;finger<fingers && d->touch_count<2;++finger) {
+            bool down=false;
+            float x=0, y=0;
+            if (SDL_GetGamepadTouchpadFinger(g,0,finger,&down,&x,&y,NULL) && down) {
+                d->touches[d->touch_count++]=(PadTouch){.x=touch_axis(x,1919),
+                    .y=touch_axis(y,942),.id=(uint8_t)finger};
+            }
+        }
+    }
+}
+
 static void sample_host(PadData *d) {
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
@@ -478,28 +533,13 @@ static void sample_host(PadData *d) {
     if (spartanportgpu_overlay_captures_input()) { drop_wheel(); return; } /* settings menu open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
     load_button_maps();
-    if (g) {
-        for (size_t i=0;i<pad_map.count;++i)
-            if (SDL_GetGamepadButton(g,(SDL_GamepadButton)pad_map.entries[i].source)) d->buttons|=pad_map.entries[i].ps;
-        const uint32_t mapped=d->buttons;
-        d->left_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX)); d->left_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY));
-        d->right_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX)); d->right_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY));
-        d->l2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER)); d->r2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
-        if (d->l2>30) d->buttons|=BTN_L2;
-        if (d->r2>30) d->buttons|=BTN_R2;
-        if (mapped & BTN_L2) d->l2=255;
-        if (mapped & BTN_R2) d->r2=255;
-        if (SDL_GetNumGamepadTouchpads(g)>0) {
-            const int fingers=SDL_GetNumGamepadTouchpadFingers(g,0);
-            for (int finger=0;finger<fingers && d->touch_count<2;++finger) {
-                bool down=false;
-                float x=0, y=0;
-                if (SDL_GetGamepadTouchpadFinger(g,0,finger,&down,&x,&y,NULL) && down) {
-                    d->touches[d->touch_count++]=(PadTouch){.x=touch_axis(x,1919),
-                        .y=touch_axis(y,942),.id=(uint8_t)finger};
-                }
-            }
-        }
+    /* If exactly 1 gamepad is connected and 2 players are active, route that gamepad to P2 only,
+     * leaving P1 exclusively on Keyboard & Mouse to prevent one gamepad controlling both players. */
+    int gamepad_count=0;
+    SDL_JoystickID *gamepad_ids=SDL_GetGamepads(&gamepad_count);
+    if (gamepad_ids) SDL_free(gamepad_ids);
+    if (gamepad_count>1 || (gamepad_count==1 && !opened[1])) {
+        sample_gamepad(d,g);
     }
     /* The keyboard works with or without a gamepad: its buttons add to the pad's, and a stick
      * follows the keys only while one of them is held. */
@@ -729,7 +769,7 @@ static void engine_fps_combo(PadData *d) {
 static int hold_after_capture;
 static void sample(PadData *d) {
     sample_host(d);
-    if (spartanportgpu_overlay_captures_input()) { hold_after_capture=1; click.side=-1; reset_dodge(); return; }
+    if (spartanportgpu_overlay_captures_input()) { hold_after_capture=1; click[0].side=-1; reset_dodge(); return; }
     record_sample(d); /* the click sources as they are: a replay plays them again */
     read_inject();
     replay_sample(d);
@@ -743,75 +783,126 @@ static void sample(PadData *d) {
     apply_mouse_aim(d);
     note_pause_key(d);
     engine_fps_combo(d);
-    play_click(d);
+    play_click(d,0);
     if (hold_after_capture) {
         if (d->buttons) d->buttons=0;
         else hold_after_capture=0;
     }
 }
 
+/* Local 2-player co-op (coop-local-2p): the game's original PS4 release is a
+ * 1-2 player game, so this runtime exposes two pads.
+ * Hybrid Controller x Keyboard+Mouse:
+ *   - If only 1 gamepad is connected, Pad 1 uses Keyboard+Mouse (P1) and
+ *     Pad 2 automatically uses that gamepad (P2), allowing Co-op with 1 Controller + KBM!
+ *   - If 2 gamepads are connected:
+ *       Gamepad 1 -> P1 (along with Keyboard/Mouse)
+ *       Gamepad 2 -> P2
+ */
+static SDL_Gamepad *current_gamepad_for_p2(void) {
+    int count=0;
+    SDL_JoystickID *ids=SDL_GetGamepads(&count);
+    if (ids) SDL_free(ids);
+    /* If exactly 1 gamepad is plugged in, assign it to P2 so P1 can use KBM */
+    if (count==1) return current_gamepad_for_slot(0);
+    return current_gamepad_for_slot(1);
+}
+
+static void sample_p2(PadData *d) {
+    memset(d,0,sizeof(*d));
+    d->left_x=d->left_y=d->right_x=d->right_y=128;
+    d->orientation[3]=1.0f;
+    d->timestamp=now_us();
+    SDL_Gamepad *g=current_gamepad_for_p2();
+    d->connected=g ? 1 : 0;
+    d->connected_count=connected_count ? connected_count : 1;
+    if (spartanportgpu_overlay_captures_input()) { click[1].side=-1; return; }
+    if (!g) return;
+    load_button_maps();
+    sample_gamepad(d,g);
+    play_click(d,1);
+}
+
 static ABI int32_t pad_init(void) { pthread_mutex_lock(&lock); initialized=1; pthread_mutex_unlock(&lock); return 0; }
 static ABI int32_t pad_open(int32_t user, int32_t type, int32_t index, const void *param) {
     (void)param;
     if (!initialized) return ERR_NOT_INITIALIZED;
-    if (user!=1) return ERR_INVALID_ARG;
+    if (user<1 || user>PAD_COUNT) {
+        /* Logged on purpose: if the real game ever asks for a second user
+         * with an id other than 2, this line is what the tester reports. */
+        printf("Runtime: pad open rejected: user=%d type=%d index=%d (expected user 1 or 2)\n",user,type,index);
+        return ERR_INVALID_ARG;
+    }
     if (type!=0 && type!=2) return ERR_INVALID_ARG; /* standard / special port */
     if (index) return ERR_INVALID_ARG;
+    const int slot=user-1;
     pthread_mutex_lock(&lock);
-    int already=opened; opened=1;
+    int already=opened[slot]; opened[slot]=1;
     pthread_mutex_unlock(&lock);
     if (already) return ERR_ALREADY_OPENED;
-    puts("Runtime: pad opened for user 1 (SDL gamepad or keyboard)");
-    return PAD_HANDLE;
+    puts(slot==0 ? "Runtime: pad opened for user 1 (SDL gamepad or keyboard)"
+                 : "Runtime: pad opened for user 2 (second SDL gamepad)");
+    return slot==0 ? PAD_HANDLE_1 : PAD_HANDLE_2; /* handle == user id */
 }
 static ABI int32_t pad_close(int32_t handle) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
-    opened=0; return 0;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
+    opened[slot]=0; return 0;
 }
 static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
     if (!data) return ERR_INVALID_ARG;
     pthread_mutex_lock(&lock);
-    sample(data); ++reads;
+    if (slot==0) sample(data); else sample_p2(data);
+    ++reads[slot];
     pthread_mutex_unlock(&lock);
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */
 static ABI int32_t pad_read(int32_t handle, PadData *data, int32_t count) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
     if (!data || count<1 || count>64) return ERR_INVALID_ARG;
     pad_read_state(handle,data);
     return 1;
 }
 static ABI int32_t pad_info(int32_t handle, ControllerInfo *info) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
     if (!info) return ERR_INVALID_ARG;
     memset(info,0,sizeof(*info));
     info->pixel_density=44.86f; info->resolution_x=1920; info->resolution_y=943;
     info->dead_zone_left=info->dead_zone_right=2;
-    info->connection_type=0; info->connected=1; info->device_class=0;
+    info->connection_type=0; info->device_class=0;
     pthread_mutex_lock(&lock);
-    current_gamepad();
+    SDL_Gamepad *g=current_gamepad_for_slot(slot);
+    /* P1 keeps the old behaviour (keyboard fallback counts as connected);
+     * P2 reports its real gamepad, so the game does not wait for a pad
+     * that is not plugged in. */
+    info->connected=slot==0 ? 1 : (g ? 1 : 0);
     info->connected_count=connected_count ? connected_count : 1;
     pthread_mutex_unlock(&lock);
     return 0;
 }
 static ABI int32_t pad_vibration(int32_t handle, const uint8_t *param) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
     if (!param) return ERR_INVALID_ARG;
     pthread_mutex_lock(&lock);
-    SDL_Gamepad *g=current_gamepad();
+    SDL_Gamepad *g=current_gamepad_for_slot(slot);
     /* The menu's vibration strength scales the game's motors (0: off). */
     const unsigned percent=(unsigned)spartanportgpu_vibration_percent();
     if (g) SDL_RumbleGamepad(g,(uint16_t)(param[0]*257u*percent/100u),(uint16_t)(param[1]*257u*percent/100u),1000);
     pthread_mutex_unlock(&lock);
     return 0;
 }
-static ABI int32_t pad_ok_handle(int32_t handle) { return handle==PAD_HANDLE && opened ? 0 : ERR_INVALID_HANDLE; }
+static ABI int32_t pad_ok_handle(int32_t handle) { const int slot=pad_slot(handle); return slot>=0 && opened[slot] ? 0 : ERR_INVALID_HANDLE; }
 static ABI int32_t pad_ok_handle_flag(int32_t handle, uint8_t flag) { (void)flag; return pad_ok_handle(handle); }
 
 static ABI int32_t pad_light_bar(int32_t handle, const uint8_t *rgb) {
-    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    const int slot=pad_slot(handle);
+    if (slot<0 || !opened[slot]) return ERR_INVALID_HANDLE;
     (void)rgb; return 0;
 }
 static const RuntimeExport exports[]={
@@ -824,7 +915,9 @@ static const RuntimeExport exports[]={
     {"scePadSetMotionSensorState",pad_ok_handle_flag},
 };
 uintptr_t runtime_pad_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
-void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : "none"); }
+void runtime_pad_report(void) { printf("Runtime: pad reads=%zu+%zu, gamepad1=%s, gamepad2=%s\n",reads[0],reads[1],
+    gamepads[0] ? SDL_GetGamepadName(gamepads[0]) : "none",
+    gamepads[1] ? SDL_GetGamepadName(gamepads[1]) : "none"); }
 
 /* probe --gamepad: runs before any game state exists, so it uses its own SDL gamepad and leaves
  * the lock and statics above alone. run.py parses this line; keep the format. */
