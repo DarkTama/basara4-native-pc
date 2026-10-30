@@ -60,7 +60,7 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 ```
 
 ## Cheat
-Lima cheat gameplay (Uang Maksimal, Koin, Poin Pengembangan, Poin Senjata, Rank Senjata) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
+Lima cheat gameplay (**Gold won't decrease**, **Special Coin x99999**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
 
 ## Kontrol
 - **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).
@@ -68,14 +68,14 @@ Lima cheat gameplay (Uang Maksimal, Koin, Poin Pengembangan, Poin Senjata, Rank 
 - Controller native XInput & SDL3 (Xbox, DualShock 4, DualSense, Switch Pro) serta gamepad DirectInput generik dipetakan otomatis melalui SDL GameControllerDB bawaan. Untuk gamepad yang belum dikenali, klik **Map controller** di launcher untuk kalibrasi tombol dan stik analog menggunakan `basara4-pad-mapper.exe`.
 
 ## Membangun dari Source Code
-Prasyarat: MSYS2 dengan environment CLANG64 dan Python 3.10+ di Windows.
+Prasyarat: Pasang MSYS2 (`winget install MSYS2.MSYS2`), buka shell **MSYS2 CLANG64** (bukan PowerShell: perintah `bash` di PowerShell akan membuka WSL), jalankan `pacman -Syu` terlebih dahulu, serta pastikan Windows Python 3.10+ terpasang.
 
 ```bash
-pacman -S --needed base-devel mingw-w64-clang-x86_64-toolchain \
-    mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja \
-    mingw-w64-clang-x86_64-vulkan-headers mingw-w64-clang-x86_64-vulkan-loader \
-    mingw-w64-clang-x86_64-sdl3 mingw-w64-clang-x86_64-ffmpeg \
-    mingw-w64-clang-x86_64-glslang mingw-w64-clang-x86_64-pkg-config
+pacman -S --needed git patch \
+  mingw-w64-clang-x86_64-{toolchain,cmake,ninja,pkgconf,python} \
+  mingw-w64-clang-x86_64-{vulkan-headers,vulkan-loader,vulkan-memory-allocator,glslang} \
+  mingw-w64-clang-x86_64-{sdl3,fmt,boost,robin-map,xxhash,ffmpeg,zydis} \
+  mingw-w64-clang-x86_64-{spirv-tools,spirv-headers,spirv-cross}
 ```
 
 ```powershell
@@ -86,6 +86,7 @@ Langkah kompilasi:
 ```bash
 git clone --recursive https://github.com/DarkTama/basara4-native-pc.git
 cd basara4-native-pc
+git submodule update --init --recursive
 bash build.sh
 ```
 
