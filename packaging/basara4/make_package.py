@@ -109,11 +109,12 @@ def main():
     ):
         shutil.copy2(LAUNCHER / name, target / "launcher" / name)
 
-    # translation patch manifest
+    # translation patch manifest and gamepad mapping database
     data_dir = target / "data"
     data_dir.mkdir(exist_ok=True)
-    if (REPO / "data" / "ps3_patch_manifest.json").is_file():
-        shutil.copy2(REPO / "data" / "ps3_patch_manifest.json", data_dir / "ps3_patch_manifest.json")
+    for name in ("ps3_patch_manifest.json", "gamecontrollerdb.txt", "gamecontrollerdb.LICENSE"):
+        if (REPO / "data" / name).is_file():
+            shutil.copy2(REPO / "data" / name, data_dir / name)
 
     # documents
     for doc in ("NOTICE.md", "LICENSE"):

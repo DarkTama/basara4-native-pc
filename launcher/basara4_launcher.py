@@ -763,7 +763,7 @@ class Launcher(tk.Tk):
 
     def _pad_text(self):
         self.pad_label.config(text="Custom gamepad mapping in use." if MAPPING.exists()
-                              else "No custom mapping: XInput and known pads work as they are.")
+                              else "No custom mapping: XInput, database and known pads work as they are.")
 
     def _collect(self):
         selected_gpu_name = self.gpu_var.get()

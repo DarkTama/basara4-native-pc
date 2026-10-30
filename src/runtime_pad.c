@@ -30,6 +30,15 @@
 #include <math.h>
 #include <SDL3/SDL.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
@@ -128,6 +137,115 @@ static void play_click(PadData *d, int slot) {
     if (now>=down && now<up) d->buttons|=BTN_TOUCHPAD;
 }
 
+static int file_exists(const char *path) {
+    struct stat st;
+    return path && path[0] && stat(path, &st) == 0 && !S_ISDIR(st.st_mode);
+}
+
+static const char *resolve_gamecontrollerdb(char *buf, size_t size) {
+    const char *candidates[8];
+    size_t count = 0;
+    static char path_user[512];
+    static char path_data_env[512];
+#ifdef _WIN32
+    static char path_exe[512];
+    static char path_exe_dev[512];
+#endif
+
+    const char *data_env = getenv("SPARTAN_DATA_DIR");
+    if (data_env && *data_env) {
+        snprintf(path_data_env, sizeof(path_data_env), "%s/gamecontrollerdb.txt", data_env);
+        candidates[count++] = path_data_env;
+    }
+
+    const char *udir = runtime_file_user_dir();
+    if (!udir || !*udir) udir = getenv("SPARTAN_GPU_USER_DIR");
+    if (!udir || !*udir) udir = getenv("SPARTAN_USER_DIR");
+    if (!udir || !*udir) udir = "user";
+    snprintf(path_user, sizeof(path_user), "%s/../data/gamecontrollerdb.txt", udir);
+    candidates[count++] = path_user;
+
+    candidates[count++] = "data/gamecontrollerdb.txt";
+    candidates[count++] = "../data/gamecontrollerdb.txt";
+
+#ifdef _WIN32
+    char exe_buf[MAX_PATH];
+    if (GetModuleFileNameA(NULL, exe_buf, sizeof(exe_buf))) {
+        char *slash = strrchr(exe_buf, '\\');
+        char *slash2 = strrchr(exe_buf, '/');
+        if (slash2 && (!slash || slash2 > slash)) slash = slash2;
+        if (slash) {
+            *slash = '\0';
+            snprintf(path_exe, sizeof(path_exe), "%s/../data/gamecontrollerdb.txt", exe_buf);
+            candidates[count++] = path_exe;
+            snprintf(path_exe_dev, sizeof(path_exe_dev), "%s/../../data/gamecontrollerdb.txt", exe_buf);
+            candidates[count++] = path_exe_dev;
+        }
+    }
+#endif
+
+    for (size_t i = 0; i < count; ++i) {
+        if (file_exists(candidates[i])) {
+            snprintf(buf, size, "%s", candidates[i]);
+            return buf;
+        }
+    }
+    return NULL;
+}
+
+void runtime_pad_load_mappings(void) {
+    static pthread_mutex_t db_lock = PTHREAD_MUTEX_INITIALIZER;
+    static int mappings_loaded;
+    pthread_mutex_lock(&db_lock);
+    if (mappings_loaded) {
+        pthread_mutex_unlock(&db_lock);
+        return;
+    }
+    mappings_loaded = 1;
+
+    if (!SDL_WasInit(SDL_INIT_GAMEPAD)) {
+        if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+            pthread_mutex_unlock(&db_lock);
+            return;
+        }
+    }
+
+    char db_path[512];
+    const char *resolved = resolve_gamecontrollerdb(db_path, sizeof(db_path));
+    if (resolved) {
+        int count = SDL_AddGamepadMappingsFromFile(resolved);
+        if (count >= 0) {
+            printf("Runtime: gamepad database: %d mappings loaded\n", count);
+        } else {
+            printf("Runtime: gamepad database: failed to load %s\n", resolved);
+        }
+    } else {
+        printf("Runtime: gamepad database: not found\n");
+    }
+
+    /* Precedence: user's custom mapping must win over the database. SDL uses the
+     * most recently added mapping per GUID, so reload user mapping after database. */
+    const char *user_map = getenv("SDL_GAMECONTROLLERCONFIG_FILE");
+    char user_map_buf[512];
+    if (!user_map || !*user_map) {
+        const char *udir = runtime_file_user_dir();
+        if (!udir || !*udir) udir = getenv("SPARTAN_GPU_USER_DIR");
+        if (!udir || !*udir) udir = getenv("SPARTAN_USER_DIR");
+        if (!udir || !*udir) udir = "user";
+        snprintf(user_map_buf, sizeof(user_map_buf), "%s/gamepad_mapping.txt", udir);
+        if (file_exists(user_map_buf)) user_map = user_map_buf;
+    }
+    if (user_map && file_exists(user_map)) {
+        SDL_AddGamepadMappingsFromFile(user_map);
+    }
+    const char *env_config = getenv("SDL_GAMECONTROLLERCONFIG");
+    if (env_config && *env_config) {
+        SDL_AddGamepadMapping(env_config);
+    }
+
+    pthread_mutex_unlock(&db_lock);
+}
+
 /* Opens the gamepad for one slot; called under lock. Slot 0 is the first SDL
  * gamepad found, slot 1 the second. A slot with no gamepad returns NULL and
  * never steals the other slot's pad. connected_count tracks how many SDL
@@ -137,6 +255,7 @@ static SDL_Gamepad *current_gamepad_for_slot(int slot) {
     if (slot<0 || slot>=PAD_COUNT) return NULL;
     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
     if (sdl_ready<0) return NULL;
+    runtime_pad_load_mappings();
     SDL_Gamepad **gamepad=&gamepads[slot];
     if (*gamepad && !SDL_GamepadConnected(*gamepad)) { SDL_CloseGamepad(*gamepad); *gamepad=NULL; }
     if (!*gamepad) {
@@ -937,6 +1056,7 @@ static const char *label_name(SDL_GamepadButtonLabel label) {
 int runtime_pad_describe(void) {
     SDL_Gamepad *g=NULL;
     const bool ready=SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+    if (ready) runtime_pad_load_mappings();
     /* No event loop yet, so pads show up only after a pump: poll for about 300 ms. */
     for (int waited=0; ready && !g && waited<30; ++waited) {
         SDL_PumpEvents();
