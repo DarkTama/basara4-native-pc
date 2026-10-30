@@ -218,7 +218,7 @@ import game_update  # noqa: E402
 import dlc  # noqa: E402
 import patches  # noqa: E402
 
-DEFAULTS = {"game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
+DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": ""}
@@ -242,24 +242,44 @@ DEFAULT_PC_KEYMAP = {
     "r3": "C",                    # R3
 }
 
-ACTION_DESCRIPTIONS = [
-    ("square", "Normal Attack (Serangan Biasa)", "Kotak / Square"),
-    ("triangle", "Special Skill 1 (Skill Utama)", "Segitiga / Triangle"),
-    ("cross", "Jump (Lompat)", "Silang / Cross"),
-    ("circle", "Basara Attack (Ultimate)", "Lingkaran / Circle"),
-    ("l1", "Guard / Tangkis / Dash", "L1"),
-    ("r1", "Special Skill 2 (Skill Tambahan)", "R1"),
-    ("r2", "Special Skill 3 (Skill Karakter)", "R2"),
+ACTION_DESCRIPTIONS_EN = [
+    ("square", "Normal Attack", "Square"),
+    ("triangle", "Special Skill 1", "Triangle"),
+    ("cross", "Jump", "Cross"),
+    ("circle", "Basara Attack (Ultimate)", "Circle"),
+    ("l1", "Guard / Evade / Dash", "L1"),
+    ("r1", "Special Skill 2", "R1"),
+    ("r2", "Special Skill 3", "R2"),
     ("l2", "Sengoku Drive / Boost", "L2"),
     ("touchpad", "Taunt / Provoke", "Touchpad / Tab"),
     ("options", "Pause / In-Game Menu", "Options / Enter"),
-    ("up", "D-Pad Up (Navigasi / Perintah)", "D-Pad Atas"),
-    ("down", "D-Pad Down (Navigasi / Perintah)", "D-Pad Bawah"),
-    ("left", "D-Pad Left (Navigasi / Perintah)", "D-Pad Kiri"),
-    ("right", "D-Pad Right (Navigasi / Perintah)", "D-Pad Kanan"),
+    ("up", "D-Pad Up", "D-Pad Up"),
+    ("down", "D-Pad Down", "D-Pad Down"),
+    ("left", "D-Pad Left", "D-Pad Left"),
+    ("right", "D-Pad Right", "D-Pad Right"),
     ("l3", "L3 Action", "L3"),
     ("r3", "R3 Action / Lock-on", "R3"),
 ]
+
+ACTION_DESCRIPTIONS_ID = [
+    ("square", "Serangan Biasa (Normal Attack)", "Kotak / Square"),
+    ("triangle", "Skill Spesial 1 (Skill Utama)", "Segitiga / Triangle"),
+    ("cross", "Lompat (Jump)", "Silang / Cross"),
+    ("circle", "Serangan Basara (Ultimate)", "Lingkaran / Circle"),
+    ("l1", "Tangkis / Guard / Dash", "L1"),
+    ("r1", "Skill Spesial 2 (Skill Tambahan)", "R1"),
+    ("r2", "Skill Spesial 3 (Skill Karakter)", "R2"),
+    ("l2", "Sengoku Drive / Poise Boost", "L2"),
+    ("touchpad", "Ejekan (Taunt / Provoke)", "Touchpad / Tab"),
+    ("options", "Jeda / Menu Game (Pause)", "Options / Enter"),
+    ("up", "D-Pad Atas (Navigasi / Perintah)", "D-Pad Atas"),
+    ("down", "D-Pad Bawah (Navigasi / Perintah)", "D-Pad Bawah"),
+    ("left", "D-Pad Kiri (Navigasi / Perintah)", "D-Pad Kiri"),
+    ("right", "D-Pad Kanan (Navigasi / Perintah)", "D-Pad Kanan"),
+    ("l3", "Aksi L3", "L3"),
+    ("r3", "Aksi R3 / Lock-on", "R3"),
+]
+ACTION_DESCRIPTIONS = ACTION_DESCRIPTIONS_ID
 
 
 def enumerate_gpus():
@@ -320,36 +340,90 @@ def enumerate_gpus():
 
 
 SYSTEM_GPUS = enumerate_gpus()
-DISPLAY_MODES = [("Windowed", "windowed"), ("Borderless", "borderless"), ("Exclusive", "fullscreen")]
-FPS_LIMITS = [("60 (game default)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
-              ("240", 240), ("Unlimited", 0)]
-RESOLUTIONS = [("1920 x 1080  (native)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
-               ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
-UPSCALERS = [("Off  (plain scaling)", "off"), ("FSR 1  (sharper)", "fsr1")]
-ANISO = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
+
+DISPLAY_MODES_EN = [("Windowed", "windowed"), ("Borderless", "borderless"), ("Exclusive", "fullscreen")]
+DISPLAY_MODES_ID = [("Jendela", "windowed"), ("Tanpa Batas", "borderless"), ("Layar Penuh", "fullscreen")]
+
+FPS_LIMITS_EN = [("60 (game default)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
+                 ("240", 240), ("Unlimited", 0)]
+FPS_LIMITS_ID = [("60 (standar game)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
+                 ("240", 240), ("Tanpa Batas", 0)]
+
+RESOLUTIONS_EN = [("1920 x 1080  (native)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
+                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
+RESOLUTIONS_ID = [("1920 x 1080  (asli)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
+                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
+
+UPSCALERS_EN = [("Off  (plain scaling)", "off"), ("FSR 1  (sharper)", "fsr1")]
+UPSCALERS_ID = [("Nonaktif  (skala standar)", "off"), ("FSR 1  (lebih tajam)", "fsr1")]
+
+ANISO_EN = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
+ANISO_ID = [("Nonaktif", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
+
+FPS_LIMIT_MAP = {
+    "60 (game default)": 60, "60 (standar game)": 60, "60": 60,
+    "90": 90, "120": 120, "144": 144, "165": 165, "240": 240,
+    "Unlimited": 0, "Tanpa Batas": 0, "0": 0
+}
+
+UPSCALER_MAP = {
+    "Off  (plain scaling)": "off", "Nonaktif  (skala standar)": "off", "Off": "off", "Nonaktif": "off",
+    "FSR 1  (sharper)": "fsr1", "FSR 1  (lebih tajam)": "fsr1", "fsr1": "fsr1", "off": "off"
+}
+
+ANISO_MAP = {
+    "Off": 0, "Nonaktif": 0, "0": 0,
+    "2x": 2, "4x": 4, "8x": 8, "16x": 16,
+    2: 2, 4: 4, 8: 8, 16: 16, 0: 0
+}
+
+RESOLUTION_MAP = {
+    "1920 x 1080  (native)": "native", "1920 x 1080  (asli)": "native", "native": "native",
+    "1280 x 720": "720p", "720p": "720p",
+    "1600 x 900": "900p", "900p": "900p",
+    "2560 x 1440": "1440p", "1440p": "1440p",
+    "3200 x 1800": "1800p", "1800p": "1800p",
+    "3840 x 2160  (4K)": "4K", "4K": "4K"
+}
+
 BG, PANEL, FG, MUTED, GOLD, RED = "#12100e", "#1c1916", "#eadfcb", "#8d8374", "#c9a24a", "#9c2b24"
 RAZZ = "#e0526a"  # the accent of the by-Razz mark
 FIELD, EDGE, LINE, RULE, HOVER, OK = "#12100e", "#3f382f", "#332d27", "#26211d", "#221e1a", "#7da36b"
 FONT, FONT_SMALL = ("Segoe UI", 10), ("Segoe UI", 8)
-CHEAT_HINT = "Can also be toggled in game (Insert / R3+L2)"
+CHEAT_HINT_EN = "Can also be toggled in game (Insert / R3+L2)"
+CHEAT_HINT_ID = "Dapat diatur juga di dalam game (Insert / R3+L2)"
 CHEAT_KEYS = ["cheat_gold", "cheat_coins", "cheat_growth_points", "cheat_weapon_points", "cheat_weapon_rank"]
 
-# Every string the main window shows lives here, so a translation touches one place. Hints are one line each.
-NAV = [("game", "Game"), ("display", "Display"), ("controls", "Controls"), ("mods", "Mods & Cheats"), ("tools", "Tools")]
-PAGE_SUBTITLE = {"display": "Applied the next time you press PLAY."}
-PAGE_HINT = {
+NAV_EN = [("game", "Game"), ("display", "Display"), ("controls", "Controls"), ("mods", "Mods & Cheats"), ("tools", "Tools")]
+NAV_ID = [("game", "Game"), ("display", "Tampilan"), ("controls", "Kontrol"), ("mods", "Mod & Cheat"), ("tools", "Alat")]
+
+PAGE_SUBTITLE_EN = {"display": "Applied the next time you press PLAY."}
+PAGE_SUBTITLE_ID = {"display": "Diterapkan saat Anda menekan tombol PLAY berikutnya."}
+
+PAGE_HINT_EN = {
     "game": "The game image is made on the first start (about a minute).",
     "display": "In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
     "controls": "Map controller: press each pad button when asked. Skip it if your pad already works.",
     "mods": "Import needs your own PS3 patch files. Cheats can also be toggled in game.",
     "tools": "Open log: the launcher and runtime log of the last run.",
 }
-GROUP = {"translation": "Translation", "cheats": "Cheats"}
-ROW = {  # key: (label, hint)
+PAGE_HINT_ID = {
+    "game": "Game image dibuat saat pertama kali mulai (sekitar satu menit).",
+    "display": "Menu dalam game: Insert, atau R3 + L2 pada stick (bisa diubah di sana juga).",
+    "controls": "Atur controller: tekan tombol stick saat diminta. Lewati jika stick sudah berfungsi.",
+    "mods": "Impor memerlukan file patch PS3 Anda sendiri. Cheat juga dapat diaktifkan di dalam game.",
+    "tools": "Buka log: log launcher dan runtime dari sesi permainan terakhir.",
+}
+
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat"}
+
+ROW_EN = {
     "game_folder": ("Game folder", "The folder that holds eboot.bin."),
     "game_image": ("Game image", "Made from eboot.bin on the first start; again if eboot.bin changes."),
     "game_update": ("Game update folder", "Separate update dump, e.g. CUSA01159-patch (v01.02). Your dump is not modified."),
     "dlc_folder": ("DLC folder", "Folder holding extracted add-ons: <root>/CUSA01159/<entitlement>/"),
+    "language": ("Language", "Choose the launcher interface language."),
     "display_mode": ("Display mode", "Windowed, borderless fullscreen or exclusive fullscreen."),
     "gpu": ("Graphics card", "Auto picks the discrete GPU when there is one."),
     "resolution": ("Window size", "The game draws at 1080p. Window size sets windowed mode."),
@@ -363,24 +437,152 @@ ROW = {  # key: (label, hint)
     "map_sticks": ("Map sticks only", "Maps only the two sticks; the buttons stay as they are."),
     "reset_map": ("Reset mapping", "Deletes the saved controller mapping (a .bak copy is kept)."),
     "keymap": ("Keyboard & Mouse controls", "Choose the key and mouse bindings and the mouse camera."),
-    "mouse_camera": ("Aktifkan Kamera Mouse (Mouse Look)", "Kontrol kamera bebas menggunakan pergerakan mouse."),
-    "mouse_sens": ("Sensitivitas Kamera Mouse", "Sensitivitas rotasi kamera mouse (20% - 300%, default 100%)."),
-    "mouse_invert_x": ("Invert X", "Membalik arah horizontal kamera mouse (SPARTAN_MOUSE_INVERT_X=1)."),
-    "mouse_invert_y": ("Invert Y", "Membalik arah vertikal kamera mouse (SPARTAN_MOUSE_INVERT_Y=1)."),
+    "mouse_camera": ("Enable Mouse Camera", "Free camera look using mouse movement."),
+    "mouse_sens": ("Mouse Camera Sensitivity", "Mouse camera rotation sensitivity (20% - 300%, default 100%)."),
+    "mouse_invert_x": ("Invert X", "Invert mouse horizontal camera axis (SPARTAN_MOUSE_INVERT_X=1)."),
+    "mouse_invert_y": ("Invert Y", "Invert mouse vertical camera axis (SPARTAN_MOUSE_INVERT_Y=1)."),
     "english": ("English Translation Patch", "PS3 v0.85 port. Needs an imported patch; applied when you press PLAY."),
     "import_patch": ("Import PS3 English Patch", "Pick your own PS3 (BLJM61248) English patch folder."),
     "rebuild_patch": ("Rebuild Translation Patch", "Builds the patch again from the imported files."),
-    "cheat_gold": ("Gold won't decrease", CHEAT_HINT),
-    "cheat_coins": ("Special Coin x99999", CHEAT_HINT),
-    "cheat_growth_points": ("Growth points won't decrease", CHEAT_HINT),
-    "cheat_weapon_points": ("Weapon points won't decrease", CHEAT_HINT),
-    "cheat_weapon_rank": ("Weapon rank points won't decrease", CHEAT_HINT),
+    "cheat_gold": ("Gold won't decrease", CHEAT_HINT_EN),
+    "cheat_coins": ("Special Coin x99999", CHEAT_HINT_EN),
+    "cheat_growth_points": ("Growth points won't decrease", CHEAT_HINT_EN),
+    "cheat_weapon_points": ("Weapon points won't decrease", CHEAT_HINT_EN),
+    "cheat_weapon_rank": ("Weapon rank points won't decrease", CHEAT_HINT_EN),
     "open_log": ("Open log", "The launcher and runtime log of the last run."),
     "open_audio_log": ("Open audio log", "Needs \"Audio debug log\" on, then a game start."),
     "open_saves": ("Open saves", "Opens user\\savedata in Explorer."),
     "audio_log": ("Audio debug log", "One timestamped line per audio event, for bug reports."),
     "audio_wav": ("WAV capture (up to 3 GB)", "Next game start only; about 70 MB per minute. Turns the audio log on."),
 }
+
+ROW_ID = {
+    "game_folder": ("Folder game", "Folder yang berisi file eboot.bin."),
+    "game_image": ("Game image", "Dibuat dari eboot.bin saat awal mulai; diperbarui jika eboot.bin berubah."),
+    "game_update": ("Folder update game", "Dump update terpisah, cth. CUSA01159-patch (v01.02). Dump asli tidak diubah."),
+    "dlc_folder": ("Folder DLC", "Folder berisi add-on yang diekstrak: <root>/CUSA01159/<entitlement>/"),
+    "language": ("Bahasa", "Pilih bahasa antarmuka untuk launcher."),
+    "display_mode": ("Mode tampilan", "Jendela (Windowed), Tanpa Batas (Borderless), atau Layar Penuh (Exclusive)."),
+    "gpu": ("Kartu grafis (GPU)", "Otomatis memilih GPU diskrit jika tersedia."),
+    "resolution": ("Ukuran jendela", "Game dirender pada 1080p. Ukuran jendela mengatur resolusi tampilan."),
+    "fps": ("Batas FPS", "Di atas 60 mematikan pembatas bawaan game. VSync tetap membatasi ke refresh monitor."),
+    "upscale": ("Upscaling", "FSR 1 mempertajam tampilan jika resolusi di atas 1080p."),
+    "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
+    "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
+    "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
+    "pad": ("Gamepad / Controller", "Pemetaan kustom dibuat dengan tombol di bawah."),
+    "map_pad": ("Atur controller", "Tekan setiap tombol stick saat diminta. Lewati jika stick sudah berfungsi."),
+    "map_sticks": ("Atur analog saja", "Hanya mengatur kedua analog stick; tombol lainnya tetap."),
+    "reset_map": ("Reset pemetaan", "Menghapus pemetaan controller yang tersimpan (salinan .bak disimpan)."),
+    "keymap": ("Kontrol Keyboard & Mouse", "Atur tombol keyboard, mouse, dan kamera mouse."),
+    "mouse_camera": ("Aktifkan Kamera Mouse (Mouse Look)", "Kontrol kamera bebas menggunakan pergerakan mouse."),
+    "mouse_sens": ("Sensitivitas Kamera Mouse", "Sensitivitas rotasi kamera mouse (20% - 300%, default 100%)."),
+    "mouse_invert_x": ("Invert X", "Membalik arah horizontal kamera mouse (SPARTAN_MOUSE_INVERT_X=1)."),
+    "mouse_invert_y": ("Invert Y", "Membalik arah vertikal kamera mouse (SPARTAN_MOUSE_INVERT_Y=1)."),
+    "english": ("Patch Terjemahan Inggris", "Port PS3 v0.85. Memerlukan patch impor; diterapkan saat klik PLAY."),
+    "import_patch": ("Impor Patch PS3 Inggris", "Pilih folder patch Bahasa Inggris PS3 (BLJM61248) milik Anda."),
+    "rebuild_patch": ("Bangun Ulang Patch", "Membangun ulang patch dari file yang diimpor."),
+    "cheat_gold": ("Gold tidak berkurang", CHEAT_HINT_ID),
+    "cheat_coins": ("Koin Spesial x99999", CHEAT_HINT_ID),
+    "cheat_growth_points": ("Poin Growth tidak berkurang", CHEAT_HINT_ID),
+    "cheat_weapon_points": ("Poin Weapon tidak berkurang", CHEAT_HINT_ID),
+    "cheat_weapon_rank": ("Poin Rank Weapon tidak berkurang", CHEAT_HINT_ID),
+    "open_log": ("Buka log", "Log launcher dan runtime dari sesi permainan terakhir."),
+    "open_audio_log": ("Buka log audio", "Memerlukan \"Log debug audio\" aktif, lalu jalankan game."),
+    "open_saves": ("Buka savedata", "Membuka folder user\\savedata di Explorer."),
+    "audio_log": ("Log debug audio", "Satu baris bertanda waktu per peristiwa audio, untuk laporan bug."),
+    "audio_wav": ("Perekaman WAV (hingga 3 GB)", "Hanya untuk sesi mulai berikutnya; ~70 MB per menit. Mengaktifkan log audio."),
+}
+
+UI_STRINGS_EN = {
+    "check_updates": "Check for updates",
+    "ready": "Ready",
+    "play": "PLAY",
+    "stop": "Stop game",
+    "browse": "Browse…",
+    "clear": "Clear",
+    "map": "Map…",
+    "map_sticks": "Map sticks…",
+    "reset": "Reset",
+    "edit": "Edit…",
+    "import": "Import…",
+    "rebuild": "Rebuild",
+    "open": "Open",
+    "on": "On",
+    "pad_custom": "Custom gamepad mapping in use.",
+    "pad_default": "No custom mapping: XInput, database and known pads work as they are.",
+    "image_no_eboot": "No eboot.bin in this folder.",
+    "image_ready": "Game image ready.",
+    "image_needed": "The game image is made on the first start (about a minute); again if eboot.bin changes.",
+    "preparing": "Preparing game image…",
+    "starting": "Starting…",
+    "running": "Running",
+    "closed": "Game closed.",
+    "press_key": "[ PRESS A KEY... ]",
+    "keymap_title": "Keyboard & Mouse Controls — Custom Keymap",
+    "keymap_header": "⚙️ Keyboard & Mouse Controls Settings",
+    "keymap_sub": "Click a button to change key mapping. Press any Keyboard key or Mouse button to bind.",
+    "keymap_cam": "Enable Mouse Camera (Mouse Look)",
+    "keymap_sens": "Sensitivity: ",
+    "keymap_notice": "ℹ️ Character movement is bound to W, A, S, D (PC Standard). Mouse camera controls the right analog stick.",
+    "keymap_reset": "🔄 Reset to PC Defaults",
+    "keymap_cancel": "Cancel",
+    "keymap_save": "💾 Save Settings",
+    "keymap_reset_msg": "Control settings reset to default PC preset!",
+    "keymap_save_msg": "Keyboard & Mouse control settings saved successfully!",
+    "keymap_saved_title": "Saved",
+}
+
+UI_STRINGS_ID = {
+    "check_updates": "Periksa Pembaruan",
+    "ready": "Siap",
+    "play": "PLAY",
+    "stop": "Hentikan Game",
+    "browse": "Telusuri…",
+    "clear": "Hapus",
+    "map": "Atur…",
+    "map_sticks": "Atur analog…",
+    "reset": "Reset",
+    "edit": "Ubah…",
+    "import": "Impor…",
+    "rebuild": "Bangun Ulang",
+    "open": "Buka",
+    "on": "Aktif",
+    "pad_custom": "Pemetaan gamepad kustom sedang digunakan.",
+    "pad_default": "Tanpa pemetaan kustom: XInput, database dan stick umum langsung berfungsi.",
+    "image_no_eboot": "Tidak ada eboot.bin di folder ini.",
+    "image_ready": "Game image siap.",
+    "image_needed": "Game image dibuat saat pertama kali mulai (sekitar satu menit); diperbarui jika eboot.bin berubah.",
+    "preparing": "Menyiapkan image game…",
+    "starting": "Memulai…",
+    "running": "Sedang berjalan",
+    "closed": "Game ditutup.",
+    "press_key": "[ TEKAN TOMBOL... ]",
+    "keymap_title": "Kontrol Keyboard & Mouse — Pemetaan Kustom",
+    "keymap_header": "⚙️ Pengaturan Kontrol Keyboard & Mouse",
+    "keymap_sub": "Klik tombol untuk mengubah pemetaan. Tekan tombol Keyboard atau Mouse untuk mengikat.",
+    "keymap_cam": "Aktifkan Kamera Mouse (Mouse Look)",
+    "keymap_sens": "Sensitivitas: ",
+    "keymap_notice": "ℹ️ Pergerakan Karakter otomatis terikat pada W, A, S, D (Standar PC). Kamera mouse mengontrol analog kanan.",
+    "keymap_reset": "🔄 Reset ke Default PC",
+    "keymap_cancel": "Batal",
+    "keymap_save": "💾 Simpan Pengaturan",
+    "keymap_reset_msg": "Pengaturan kontrol berhasil dikembalikan ke Preset Default PC!",
+    "keymap_save_msg": "Pengaturan kontrol Keyboard & Mouse berhasil disimpan!",
+    "keymap_saved_title": "Tersimpan",
+}
+
+DISPLAY_MODES = DISPLAY_MODES_EN
+FPS_LIMITS = FPS_LIMITS_EN
+RESOLUTIONS = RESOLUTIONS_EN
+UPSCALERS = UPSCALERS_EN
+ANISO = ANISO_EN
+ROW = ROW_EN
+NAV = NAV_EN
+PAGE_HINT = PAGE_HINT_EN
+PAGE_SUBTITLE = PAGE_SUBTITLE_EN
+GROUP = GROUP_EN
+CHEAT_HINT = CHEAT_HINT_EN
 
 
 def find_game():
@@ -400,6 +602,8 @@ def load_config():
         cfg.update(json.loads(CONFIG.read_text(encoding="utf-8-sig")))
     except (OSError, ValueError):
         pass
+    if cfg.get("language") not in ("id", "en"):
+        cfg["language"] = "id"
     if not cfg["game"] or not (Path(cfg["game"]) / "eboot.bin").is_file():
         cfg["game"] = find_game()
     return cfg
