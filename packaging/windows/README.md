@@ -1,13 +1,13 @@
-# spartanport on Windows
+# Basara 4 Native PC on Windows
 
-The port builds and runs natively on 64-bit Windows 10 (1903+) / 11 with the same sources as
-on Linux. Players: see `README-Windows.txt` (it ships in the package).
+Basara 4 Native PC builds and runs **Sengoku Basara 4 Sumeragi** (PlayStation 4, CUSA01159)
+natively on 64-bit Windows 10 (1903+) / 11. Players: see `packaging/basara4/README.txt` and
+`packaging/basara4/README.id.txt` (packaged with releases).
 
 ## Build
 
 Install [MSYS2](https://www.msys2.org) (`winget install MSYS2.MSYS2`), open the
-**MSYS2 CLANG64** shell and install the toolchain and libraries (the counterpart of
-`shell.nix`):
+**MSYS2 CLANG64** shell and install the toolchain and libraries:
 
 ```bash
 pacman -S --needed git patch \
@@ -19,13 +19,14 @@ pacman -S --needed git patch \
 
 magic_enum, miniz and xbyak (not packaged by MSYS2) are submodules under `gpu/third_party/`.
 Before packaging, also install Windows Python 3.10+ from python.org with Tk support; the
-packaging script uses it to create its private Python environment.
+packaging script uses it to freeze the launcher into an executable.
+
 Then, in the repository, build with MSYS2 CLANG64:
 
 ```bash
 git submodule update --init --recursive
-bash build.sh                      # out/spartanport-probe.exe, out/spartanport-gpu-capabilities.exe
-bash packaging/windows/package.sh  # dist/spartanport-windows/ and .zip: SpartanPort.exe + DLLs
+bash build.sh                               # out/spartanport-probe.exe, out/spartanport-gpu-capabilities.exe
+python packaging/basara4/make_package.py    # dist/basara4-windows/ package
 ```
 
 For a source launcher, install Windows Python 3.10+ from python.org with Tk support. In
@@ -33,42 +34,15 @@ PowerShell at the repository root:
 
 ```powershell
 python -m pip install pillow iced-x86==1.21.0
-python launcher/spartanport_launcher_win.py
+python launcher/basara4_launcher.py
 ```
 
-Choose the game folder in the launcher. For platform-specific tests, see
-[Tests in the root README](https://github.com/FelipePrado0/SpartanPort#tests): Windows uses Ninja
-test targets; `bash build.sh --test` runs additional runtime tests only on Linux.
+Choose your game dump folder (containing `eboot.bin`) in the launcher.
 
-`run.py` is the Windows `run.sh` (same variables; works from a plain Windows Python too).
-The package freezes the launcher with PyInstaller (a private venv in `out/pyenv`, from a
-python.org Python) into `SpartanPort.exe`, which also runs `run.py` (`--run`), the preparation
-scripts (`--script`) and the game without the window (`--play`): players need no Python.
-The venv also receives `iced-x86`, which `scripts/isa_rewrite.py` uses for CPUs without MOVBE,
-BMI1 or LZCNT.
-`Play SpartanPort.exe` (`packaging/windows/play.c`) is a small native program that runs
-`SpartanPort.exe --play` from its folder and waits for it, for players who want to start the
-game directly with the saved settings.
-`scripts/patches.py` identifies SpartanPort by title ID or title and finds built-in patch
-sites by signature, rather than requiring one `eboot.bin` hash. Each unmatched patch is skipped
-and reported; this is not a guarantee that every game build works. The startup black-screen
-fix is always requested, including with patch lists saved by older launchers. The resolution
-patch and texture fix are mutually exclusive. See the root README for tested builds.
-From a source tree, `run.py` adds `C:\msys64\clang64\bin` (or `$MSYS2_ROOT`) to `PATH` for DLLs.
-
-FSR 1 and temporal upscaling (FSR 3.1, FSR 4, TAA and DLSS) are disabled in the current launcher
-and game settings path. RCAS sharpening remains available. The DLSS bridge and FSR asset tools
-remaining in the tree are experimental development code, not supported player setup steps.
-See [the historical research notes](../../docs/upscaler.md) for context.
-
-See the [feature availability table](https://github.com/FelipePrado0/SpartanPort#feature-availability)
-for differences between published packages and current source builds, including Discord Rich Presence.
-
-The launcher texts are written in English with the Russian beside them; the other languages
-are in `launcher/spartanport_lang.py` (one list per language in the order of `KEYS`; a missing or
-empty text falls back to English). The icon (`launcher/spartanport.ico`/`.png`) is made from the
-SP monogram (`packaging/icon/monogram.png`) by `packaging/windows/make_icon.py` and built into `SpartanPort.exe`, `spartanport-probe.exe` (the game
-window) and `spartanport-gpu-capabilities.exe`.
+`run.py` is the Windows runtime runner (`run.sh` equivalent).
+`packaging/basara4/make_package.py` packages the runtime (`bin/basara4-core.exe`), the frozen
+launcher (`Sengoku Basara 4.exe`), dependencies, and game scripts into a standalone distribution.
+`Play Sengoku Basara 4.cmd` starts the game straight away with the saved settings.
 
 ## What is different from Linux
 
@@ -87,7 +61,3 @@ window) and `spartanport-gpu-capabilities.exe`.
 Diagnostics added on the way: `SPARTAN_FRAME_DUMP_TRIGGER=<file>` writes the guest display buffer
 and the presented image of the next frame to `SPARTAN_DUMP_DIR` (raw 32-bit pixels), which also
 works for menus and movies.
-
-Linux-specific features include watchdog/`--timeout` thread dumps (Linux signals), userfaultfd
-tracking (`SPARTAN_UFFD`), MangoHud and PGO (GCC flags). Many Python and C/C++ tests run on Windows;
-some tests still require Linux APIs. See the root README and `gpu/CMakeLists.txt` for test commands.
