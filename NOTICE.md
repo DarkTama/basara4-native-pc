@@ -35,6 +35,14 @@ Copyright (C) 2026 Razz, released under the GNU GPL v2 or later.
 - **Diagnostics**: the `SPARTAN_NGS2_TRACE`, `SPARTAN_AVPLAYER_TRACE`, `SPARTAN_TIME_TRACE` and
   `SPARTAN_FILE_TRACE` environment switches (off by default).
 
+## Changes in this fork (DarkTama, 2026)
+
+Copyright (C) 2026 DarkTama, released under the GNU GPL v2 or later.
+
+- PS3 English patch import and repatcher: launcher/basara4_repatch.py, launcher/basara4_translation.py, launcher/basara4_translation_extract.py, launcher/basara4_tex.py (UI texture conversion), launcher/gmdarc.py and tools/gmdarc.py (MT Framework ARC/GMD), tools/extract_ps3_translation.py, tools/make_ps3_patch_manifest.py, data/ps3_patch_manifest.json (hash manifest, no translated text).
+- English patch toggle in the launcher, served through a sparse app0 overlay (launcher/basara4_overlay.py, launcher/basara4_launcher.py).
+- Tests: tests/test_translation*.py.
+
 ## What this project is built on
 
 This is a fork. The architecture, the loader, most of the runtime and the whole GPU side come from
