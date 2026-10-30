@@ -207,13 +207,17 @@ try:
 except ImportError:  # still works, just without artwork
     Image = None
 
+sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
 import basara4_translation  # noqa: E402
 import basara4_overlay  # noqa: E402
 import basara4_repatch  # noqa: E402
+import game_update  # noqa: E402
+import dlc  # noqa: E402
+import patches  # noqa: E402
 
-DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
+DEFAULTS = {"game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "english_patch": False,
             "ps3_patch_source": ""}
@@ -343,6 +347,8 @@ GROUP = {"translation": "Translation", "cheats": "Cheats"}
 ROW = {  # key: (label, hint)
     "game_folder": ("Game folder", "The folder that holds eboot.bin."),
     "game_image": ("Game image", "Made from eboot.bin on the first start; again if eboot.bin changes."),
+    "game_update": ("Game update folder", "Separate update dump, e.g. CUSA01159-patch (v01.02). Your dump is not modified."),
+    "dlc_folder": ("DLC folder", "Folder holding extracted add-ons: <root>/CUSA01159/<entitlement>/"),
     "display_mode": ("Display mode", "Windowed, borderless fullscreen or exclusive fullscreen."),
     "gpu": ("Graphics card", "Auto picks the discrete GPU when there is one."),
     "resolution": ("Window size", "The game draws at 1080p. Window size sets windowed mode."),
@@ -604,7 +610,10 @@ class Launcher(tk.Tk):
     # ---- layout ----
     def _build(self):
         self._font = tkfont.Font(self, font=FONT)
-        self.game_var = tk.StringVar(value=self.cfg["game"])
+        self.game_var = tk.StringVar(value=self.cfg.get("game", ""))
+        self.game_update_var = tk.StringVar(value=self.cfg.get("game_update", ""))
+        self.dlc_var = tk.StringVar(value=self.cfg.get("dlc_folder", ""))
+        self.update_view = None
         self.mode_var = tk.StringVar(value=self.cfg["display_mode"])
         self.gpu_var, self.fps_var, self.aniso_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         self.res_var, self.up_var = tk.StringVar(), tk.StringVar()
@@ -796,7 +805,23 @@ class Launcher(tk.Tk):
             self.image_label.pack(side="right")
         self._row(page, "game_image", image, width=None)
         self.game_var.trace_add("write", lambda *_: self._refresh_image_label())
-        # Rows for "Game update folder" and "DLC folder" will go here.
+
+        def update_folder(holder):
+            ttk.Button(holder, text="Clear", command=self._clear_update).pack(side="right", padx=(4, 0))
+            ttk.Button(holder, text="Browse…", command=self._browse_update).pack(side="right", padx=(6, 0))
+            entry = ttk.Entry(holder, textvariable=self.game_update_var)
+            entry.pack(side="left", fill="both", expand=True)
+            entry.bind("<Map>", lambda _e: entry.xview_moveto(1))
+        self._row(page, "game_update", update_folder, width=340)
+        self.game_update_var.trace_add("write", lambda *_: self._refresh_image_label())
+
+        def dlc_folder(holder):
+            ttk.Button(holder, text="Clear", command=self._clear_dlc).pack(side="right", padx=(4, 0))
+            ttk.Button(holder, text="Browse…", command=self._browse_dlc).pack(side="right", padx=(6, 0))
+            entry = ttk.Entry(holder, textvariable=self.dlc_var)
+            entry.pack(side="left", fill="both", expand=True)
+            entry.bind("<Map>", lambda _e: entry.xview_moveto(1))
+        self._row(page, "dlc_folder", dlc_folder, width=340)
 
     def _page_display(self, page):
         def modes(holder):
@@ -848,13 +873,95 @@ class Launcher(tk.Tk):
 
     def _refresh_image_label(self):
         game = self.game_var.get().strip()
-        if not game or not (Path(game) / "eboot.bin").is_file():
+        update = self.game_update_var.get().strip() if hasattr(self, "game_update_var") else ""
+        target = update if (update and (Path(update) / "eboot.bin").is_file()) else game
+        if not target or not (Path(target) / "eboot.bin").is_file():
             text = "No eboot.bin in this folder."
-        elif image_ready(game):
+        elif image_ready(target):
             text = "Game image ready."
         else:
             text = "The game image is made on the first start (about a minute); again if eboot.bin changes."
         self.image_label.config(text=text, fg=OK if text == "Game image ready." else MUTED)
+
+    def _cleanup_update_view(self):
+        if getattr(self, "update_view", None):
+            try:
+                game_update.remove_view(self.update_view)
+            except Exception:
+                pass
+            self.update_view = None
+
+    def _get_effective_game(self, game):
+        update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+        if update_dir and game:
+            update_path = Path(update_dir)
+            if update_path.is_dir() and (update_path / "eboot.bin").is_file():
+                self._cleanup_update_view()
+                self.update_view = game_update.create_view(game, update_path, OUT)
+                return self.update_view
+        self._cleanup_update_view()
+        return game
+
+    def _browse_update(self):
+        path = filedialog.askdirectory(initialdir=self.game_update_var.get() or self.game_var.get() or str(ROOT), mustexist=True)
+        if not path:
+            return
+        p = Path(path).resolve()
+        sfo = patches.find_sfo(p)
+        if not sfo or not sfo.is_file():
+            self.status.config(text="Error: missing sce_sys/param.sfo")
+            return
+        tid = patches.game_title_id(p)
+        ver = patches.game_app_ver(p)
+        if not tid:
+            self.status.config(text="Error: missing TITLE_ID in update")
+            return
+        base_game = self.game_var.get().strip()
+        if base_game and Path(base_game).is_dir():
+            base_tid = patches.game_title_id(base_game)
+            if base_tid and base_tid != tid:
+                self.status.config(text=f"Error: title ID mismatch ({tid} vs {base_tid})")
+                return
+        if not (p / "eboot.bin").is_file():
+            self.status.config(text="Error: missing eboot.bin in update folder")
+            return
+        self.game_update_var.set(os.path.normpath(str(p)))
+        self._collect()
+        self._cleanup_update_view()
+        self._refresh_image_label()
+        prefix = "" if ver and ver.lower().startswith("v") else "v"
+        self.status.config(text=f"Update {prefix}{ver} found" if ver else "Update found")
+
+    def _clear_update(self):
+        self.game_update_var.set("")
+        self._collect()
+        self._cleanup_update_view()
+        self._refresh_image_label()
+        self.status.config(text="Game update cleared.")
+
+    def _browse_dlc(self):
+        path = filedialog.askdirectory(initialdir=self.dlc_var.get() or str(ROOT), mustexist=True)
+        if not path:
+            return
+        p = Path(path).resolve()
+        try:
+            base_game = self.game_var.get().strip()
+            tid = (patches.game_title_id(base_game) if base_game and Path(base_game).is_dir() else None) or "CUSA01159"
+            addons = dlc.discover_addons(p, title_id=tid)
+            if not addons:
+                self.status.config(text=f"No add-ons found for {tid}")
+            else:
+                count = len(addons)
+                self.status.config(text=f"{count} add-on{'s' if count != 1 else ''} found")
+            self.dlc_var.set(os.path.normpath(str(p)))
+            self._collect()
+        except Exception as e:
+            self.status.config(text=f"DLC error: {e}")
+
+    def _clear_dlc(self):
+        self.dlc_var.set("")
+        self._collect()
+        self.status.config(text="DLC folder cleared.")
 
     def _ini(self):
         if OLD_INI.exists() and not INI.exists():
@@ -917,7 +1024,10 @@ class Launcher(tk.Tk):
         selected_gpu_name = self.gpu_var.get()
         selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
         self.cfg.update(
-            game=self.game_var.get().strip(), display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
+            game=self.game_var.get().strip(),
+            game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
+            dlc_folder=self.dlc_var.get().strip() if hasattr(self, "dlc_var") else "",
+            display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
             rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
             resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
@@ -1028,7 +1138,8 @@ class Launcher(tk.Tk):
 
         self.cfg["ps3_patch_source"] = src_dir
         save_config(self.cfg)
-        self._run_ps3_repatch(Path(src_dir), game)
+        effective_game = self._get_effective_game(game)
+        self._run_ps3_repatch(Path(src_dir), effective_game)
 
     def _run_ps3_repatch(self, src_path: Path, game: Path):
         self.import_patch_btn.config(state="disabled")
@@ -1085,9 +1196,10 @@ class Launcher(tk.Tk):
             messagebox.showerror("Cannot build patch", "Choose the game folder (the one with eboot.bin) first.")
             return
 
+        effective_game = self._get_effective_game(game)
         ps3_src = self.cfg.get("ps3_patch_source")
         if ps3_src and Path(ps3_src).exists():
-            self._run_ps3_repatch(Path(ps3_src), game)
+            self._run_ps3_repatch(Path(ps3_src), effective_game)
             return
 
         if not TRANSLATION_DB.is_file():
@@ -1107,10 +1219,10 @@ class Launcher(tk.Tk):
                 def _prog(cur, tot, msg):
                     self.after(0, lambda c=cur, t=tot: self.status.config(text=f"Building English patch… {c + 1}/{t}"))
                 stats = basara4_translation.build_patch(
-                    game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                    effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                 )
                 if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
-                    basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
             except Exception as e:
                 err = str(e)
 
@@ -1141,10 +1253,45 @@ class Launcher(tk.Tk):
     def _prepare_then_launch(self, game, exe):
         self.pending_text = "Starting…"
         error = None
-        if not image_ready(game):
-            error = prepare_image(game, self._progress)
+        update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+        effective_game = game
+        if update_dir:
+            update_path = Path(update_dir)
+            if not update_path.is_dir() or not (update_path / "eboot.bin").is_file():
+                self.pending = (f"Invalid update folder: {update_dir}", game, exe, [], "", game)
+                return
+            try:
+                self._progress("Applying game update…")
+                if hasattr(self, "_cleanup_update_view"):
+                    self._cleanup_update_view()
+                elif getattr(self, "update_view", None):
+                    try:
+                        game_update.remove_view(self.update_view)
+                    except Exception:
+                        pass
+                    self.update_view = None
+                view = game_update.create_view(game, update_path, OUT)
+                if hasattr(self, "update_view"):
+                    self.update_view = view
+                effective_game = view
+            except Exception as e:
+                self.pending = (f"Failed to create update view: {e}", game, exe, [], "", game)
+                return
+        else:
+            if hasattr(self, "_cleanup_update_view"):
+                self._cleanup_update_view()
+            elif getattr(self, "update_view", None):
+                try:
+                    game_update.remove_view(self.update_view)
+                except Exception:
+                    pass
+                self.update_view = None
+            effective_game = game
+
+        if not image_ready(effective_game):
+            error = prepare_image(effective_game, self._progress)
         patch_args, notice = [], ""
-        if not error and self.cfg["fps_limit"] != 60:
+        if not error and self.cfg.get("fps_limit", 60) != 60:
             try:
                 writes, _ = basara4_patches.build(OUT / "eboot.elf", OUT / "patches.bin", True)
             except OSError:
@@ -1155,7 +1302,7 @@ class Launcher(tk.Tk):
                 self.cfg["fps_limit"] = 60
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
 
-        app0 = game
+        app0 = effective_game
         if not error and self.cfg.get("english_patch"):
             manifest_file = PATCH_DIR / "manifest.json"
             is_ps3_import = False
@@ -1168,24 +1315,44 @@ class Launcher(tk.Tk):
 
             if is_ps3_import:
                 try:
-                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
                 except Exception as e:
                     error = f"Failed to build English patch: {e}"
             elif TRANSLATION_DB.is_file():
                 try:
-                    if patch_needs_rebuild(game, TRANSLATION_DB, PATCH_DIR):
+                    if patch_needs_rebuild(effective_game, TRANSLATION_DB, PATCH_DIR):
                         def _prog(cur, tot, msg):
                             self._progress(f"Building English patch… {cur + 1}/{tot}")
                         basara4_translation.build_patch(
-                            game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                            effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                         )
-                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
                 except Exception as e:
                     error = f"Failed to build English patch: {e}"
             else:
                 error = 'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.'
 
-        self.pending = (error, game, exe, patch_args, notice, app0)
+        addons_args = []
+        dlc_dir = self.cfg.get("dlc_folder", "").strip() if isinstance(self.cfg.get("dlc_folder"), str) else ""
+        if not error and dlc_dir:
+            dlc_path = Path(dlc_dir)
+            if not dlc_path.is_dir():
+                error = f"DLC folder does not exist: {dlc_dir}"
+            else:
+                self._progress("Generating DLC manifest…")
+                dlc_script = [sys.executable, "--run-script", "dlc.py"] if FROZEN else [sys.executable, str(SCRIPTS / "dlc.py")]
+                res = subprocess.run(
+                    dlc_script + [str(dlc_path), "--out", str(OUT)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    creationflags=NO_WINDOW
+                )
+                addons_bin = OUT / "addons.bin"
+                if res.returncode == 0 and addons_bin.is_file():
+                    addons_args = ["--addons", str(addons_bin)]
+                else:
+                    error = f"Failed to generate DLC manifest: {res.stdout.decode('utf-8', errors='replace').strip()}"
+
+        self.pending = (error, game, exe, addons_args + patch_args, notice, app0)
 
     def _wait_prepare(self):
         if self.pending is None:
@@ -1795,6 +1962,7 @@ class Launcher(tk.Tk):
         os.startfile(path)
 
     def _close(self):
+        self._cleanup_update_view()
         if self.proc and self.proc.poll() is None:
             if not messagebox.askyesno("Game running", "Stop the game and close the launcher?"):
                 return
