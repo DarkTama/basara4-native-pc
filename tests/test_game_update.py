@@ -177,6 +177,40 @@ class GameUpdateTests(unittest.TestCase):
         self.assertEqual(tree_hashes(self.base), base_before)
         self.assertEqual(tree_hashes(self.update), update_before)
 
+    def test_volume_selection_cross_volume_creates_sibling_view(self):
+        with mock.patch.object(game_update, '_same_volume', return_value=False):
+            view = self.view()
+            self.assertEqual(view.parent.name, '.basara4-view')
+            self.assertEqual(view.parent.parent, self.update.resolve().parent)
+            self.assertEqual((view / 'eboot.bin').read_text(), 'update eboot')
+            self.assertEqual((view / 'EXEC/WAD/A.WAD').read_text(), 'wad')
+            hidden_parent = view.parent
+            game_update.remove_view(view)
+            self.assertFalse(view.exists())
+            self.assertFalse(hidden_parent.exists())  # cleaned up when empty
+            self.assertEqual((self.base / 'eboot.bin').read_text(), 'base eboot')
+            self.assertEqual((self.update / 'eboot.bin').read_text(), 'update eboot')
+
+    def test_volume_selection_cross_volume_fallback_on_unwritable(self):
+        original_touch = Path.touch
+
+        def fake_touch(path_obj, *args, **kwargs):
+            if '.basara4-view' in str(path_obj):
+                raise PermissionError('Simulated write-protected volume')
+            return original_touch(path_obj, *args, **kwargs)
+
+        with mock.patch.object(game_update, '_same_volume', return_value=False), \
+             mock.patch.object(Path, 'touch', autospec=True, side_effect=fake_touch):
+            view = self.view()
+            self.assertEqual(view.parent, self.out.resolve())
+            self.assertEqual((view / 'eboot.bin').read_text(), 'update eboot')
+            game_update.remove_view(view)
+            self.assertFalse(view.exists())
+
+    def test_same_volume_detection(self):
+        self.assertFalse(game_update._same_volume('C:/games/base', 'D:/games/out'))
+        self.assertTrue(game_update._same_volume('D:/games/base', 'D:/games/out'))
+
 
 class ValidationTests(unittest.TestCase):
     def setUp(self):

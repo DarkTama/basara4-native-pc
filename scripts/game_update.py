@@ -7,6 +7,11 @@ The update (eboot.bin, sce_sys, ...) is laid over the base game in a temporary f
 neither dump is modified. Whatever the update does not touch is linked as a whole (a symlink,
 or a junction / hard link on Windows without the symlink privilege, see mods.make_link), so
 large game assets cost a handful of links. Names are matched without regard to case.
+
+When the designated output folder is on a different volume than the update dump, the view
+directory is created in a hidden sibling folder (<update parent>/.basara4-view/) on the update's
+volume so hard links can be used instead of slow cross-volume file copies. Nothing inside the
+user's dump folders is ever modified.
 """
 import argparse
 import os
@@ -61,8 +66,64 @@ def remove(path):
             path.unlink()
 
 
+def _volume_id(path):
+    """Returns a volume identifier for a path (Windows drive letter or POSIX device id)."""
+    p = Path(path).resolve()
+    drive = os.path.splitdrive(str(p))[0].upper()
+    if drive:
+        return drive
+    curr = p
+    while not curr.exists() and curr != curr.parent:
+        curr = curr.parent
+    return curr.stat().st_dev
+
+
+def _same_volume(path_a, path_b):
+    """Checks whether two paths reside on the same filesystem volume."""
+    try:
+        return _volume_id(path_a) == _volume_id(path_b)
+    except Exception:
+        return False
+
+
+def _select_view_parent(update, out):
+    """Chooses where to create the update view.
+    If out is on the same volume as update, uses out.
+    If out is on a different volume, attempts to use a hidden sibling directory
+    <update parent>/.basara4-view/ on the update's volume so files can be hard-linked
+    rapidly without cross-volume copies. Falls back to out if that location is not writable.
+    Nothing inside the user's dump folders is modified.
+    """
+    out_path = Path(out).resolve()
+    update_path = Path(update).resolve()
+    if _same_volume(update_path, out_path):
+        out_path.mkdir(parents=True, exist_ok=True)
+        return out_path
+
+    # Try hidden sibling directory next to update dump
+    candidate_parent = update_path.parent
+    if candidate_parent != update_path:
+        sibling_dir = candidate_parent / ".basara4-view"
+        try:
+            sibling_dir.mkdir(parents=True, exist_ok=True)
+            test_file = sibling_dir / f".write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            return sibling_dir
+        except (OSError, PermissionError):
+            pass
+
+    out_path.mkdir(parents=True, exist_ok=True)
+    return out_path
+
+
 def create_view(base, update, out):
-    """The folder holding base with update over it, made in out; the caller removes it."""
+    """The folder holding base with update over it; the caller removes it.
+    When out is on a different volume than the update dump, the view directory is
+    created on the same volume as the update dump (in a hidden sibling folder
+    <update parent>/.basara4-view/) to ensure fast hard links instead of slow cross-volume
+    file copies. Falls back to out if that location is not writable. Dumps are never modified.
+    """
     from patches import game_title_id
     base, update = Path(base).resolve(), Path(update).resolve()
     base_id, update_id = game_title_id(base), game_title_id(update)
@@ -72,8 +133,8 @@ def create_view(base, update, out):
         raise ValueError('Choose two separate folders for the game and its update')
     if not (update / 'eboot.bin').is_file():
         raise ValueError('The update folder needs eboot.bin and sce_sys/param.sfo')
-    Path(out).mkdir(parents=True, exist_ok=True)
-    target = Path(tempfile.mkdtemp(prefix='game-update-', dir=out))
+    view_parent = _select_view_parent(update, out)
+    target = Path(tempfile.mkdtemp(prefix='game-update-', dir=view_parent))
     try:
         for entry in base.iterdir():
             make_link(target / entry.name, entry)
@@ -89,6 +150,12 @@ def remove_view(path):
     p = Path(path)
     if p.exists() or is_link(p):
         remove(p)
+        parent = p.parent
+        if parent.name == ".basara4-view":
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
 
 
 def validate_game(base, update=None):
