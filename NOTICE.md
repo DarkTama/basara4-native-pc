@@ -45,6 +45,8 @@ Copyright (C) 2026 DarkTama, released under the GNU GPL v2 or later.
 - Launcher redesign with navigation rail layout, ruled settings rows, and hint bar: launcher/basara4_launcher.py.
 - Launcher wiring for game update and DLC folders: launcher/basara4_launcher.py.
 - GameControllerDB loading for generic DirectInput gamepads: src/runtime_pad.c.
+- Free mouse camera look with configurable sensitivity (20% - 300%), invert X/Y axes, deadzone compensation, and automatic cursor capture/release on pause/focus loss: src/runtime_pad.c, gpu/shim/window.cpp, launcher/basara4_launcher.py.
+- AMD Radeon iGPU VMA budget fallback allocation on device memory pressure: gpu/shadps4/video_core/buffer_cache/buffer.cpp, gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp, gpu/shadps4/video_core/texture_cache/image.cpp.
 - Tests: tests/test_translation*.py.
 
 ## What this project is built on
