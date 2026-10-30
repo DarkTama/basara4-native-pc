@@ -105,9 +105,10 @@ def main():
     for ms, kv in starts:
         if kv.get("major") == "1" and shown < 60:
             shown += 1
+            routes = [k + '->' + v for k, v in kv.items() if re.fullmatch(r'p\d+->.*', k)]
             print(f"    {mmss(ms)} voice {kv.get('voice')}: type {kv.get('type')} ch={kv.get('channels')} "
                   f"rate={kv.get('rate')} bytes={kv.get('bytes')} streaming={kv.get('streaming')} "
-                  f"routes={[k + '->' + v for k, v in kv.items() if re.fullmatch(r'p\d+->.*', k)]}")
+                  f"routes={routes}")
     unrouted = Counter()
     for ms, kind, kv, _ in events:
         if kind == "ngs2.voice" and kv.get("routed") == "0":

@@ -28,23 +28,23 @@ def _is_link_or_reparse(entry: os.DirEntry) -> bool:
     return False
 
 
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
 def _check_not_nested(overlay: Path, game: Path) -> None:
     overlay_res = overlay.resolve()
     game_res = game.resolve()
     if overlay_res == game_res:
         raise ValueError(f"Refusing operation: overlay path equals game path ({overlay_res})")
-    try:
-        if overlay_res.is_relative_to(game_res):
-            raise ValueError(f"Refusing operation: overlay path is inside game path ({overlay_res} inside {game_res})")
-    except (AttributeError, ValueError) as e:
-        if isinstance(e, ValueError) and "inside" in str(e):
-            raise
-    try:
-        if game_res.is_relative_to(overlay_res):
-            raise ValueError(f"Refusing operation: game path is inside overlay path ({game_res} inside {overlay_res})")
-    except (AttributeError, ValueError) as e:
-        if isinstance(e, ValueError) and "inside" in str(e):
-            raise
+    if _is_relative_to(overlay_res, game_res):
+        raise ValueError(f"Refusing operation: overlay path is inside game path ({overlay_res} inside {game_res})")
+    if _is_relative_to(game_res, overlay_res):
+        raise ValueError(f"Refusing operation: game path is inside overlay path ({game_res} inside {overlay_res})")
 
 
 def _safe_remove_tree(path: Path | str, game: Path | str | None = None) -> None:

@@ -429,8 +429,8 @@ extern uintptr_t spartanport_auto_qte_flag(void);
 /* The hooks below find their sites by signature (src/signature.h), so they work in any region
  * and version of the game whose code matches; a site that is not found leaves its feature off. */
 static void install_cheats(Segment *segments, uint64_t count, uint64_t size) {
-    const char *names[] = {"health", "magic", "item meter", "Rage of Sparta", "red orbs",
-                           "Very Hard unlock", "infinite double jumps"};
+    const char *names[] = {"Gold won't decrease", "Special coin x99999", "Growth points won't decrease",
+                           "Weapon points won't decrease", "Weapon rank points won't decrease"};
     uint64_t at[SPARTAN_CHEAT_HOOK_COUNT];
     for (unsigned i = 0; i < SPARTAN_CHEAT_HOOK_COUNT; ++i)
         at[i] = spartanport_signature_find(image, size, &spartanport_cheat_hooks[i].site);
@@ -899,19 +899,21 @@ int main(int argc, char **argv) {
     runtime_memory_reserve();
     runtime_thread_tcb_offset();
 #endif
-    int cpu_only = 0, strict_imports = 0, check_imports = 0, game_hooks = 1;
+    int cpu_only = 0, strict_imports = 0, check_imports = 0, game_hooks = 1, cheats_enabled = 0;
     unsigned timeout_seconds = 10;
-    const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *isa_file=NULL, *pause_menu=NULL;
+    const char *content_profile=NULL, *addons_file=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *isa_file=NULL, *pause_menu=NULL;
     const char *mounts[8]; int mount_count=0;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--cpu-only")) cpu_only = 1;
         else if (!strcmp(argv[i], "--strict-imports")) strict_imports = 1;
         else if (!strcmp(argv[i], "--check-imports")) check_imports = 1;
         else if (!strcmp(argv[i], "--content-profile") && i+1<argc) content_profile=argv[++i];
+        else if (!strcmp(argv[i], "--addons") && i+1<argc) addons_file=argv[++i];
         else if (!strcmp(argv[i], "--app0") && i+1<argc) app0=argv[++i];
         else if (!strcmp(argv[i], "--user") && i+1<argc) user_dir=argv[++i];
         else if (!strcmp(argv[i], "--patches") && i+1<argc) patch_file=argv[++i];
         else if (!strcmp(argv[i], "--no-game-hooks")) game_hooks = 0;
+        else if (!strcmp(argv[i], "--cheats")) cheats_enabled = 1;
         else if (!strcmp(argv[i], "--isa-rewrite") && i+1<argc) isa_file=argv[++i];
         else if (!strcmp(argv[i], "--pause-menu") && i+1<argc) pause_menu=argv[++i];
         else if (!strcmp(argv[i], "--mount") && i+1<argc) {
@@ -924,9 +926,10 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
     }
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
+        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--addons file] [--app0 dir] [--user dir] [--patches file] [--cheats] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
         return 1;
     }
+    if (!addons_file) addons_file = getenv("SPARTAN_ADDONS");
     if (!cpu_supported(missing, sizeof missing)) return 20;
     if (cpu_missing_sets) printf("CPU: missing %s\n", missing);
     /* SPARTAN_ISA_REWRITE=0 never rewrites, =1 rewrites every site; by default the sets the CPU lacks. */
@@ -952,6 +955,21 @@ int main(int argc, char **argv) {
             values[i]=(uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
         }
         runtime_content_configure(values);
+    }
+    if (addons_file) {
+        FILE *mf = fopen(addons_file, "rb");
+        if (mf) {
+            fclose(mf);
+            char id[16] = "";
+            if (app0) {
+                char sfo[4096];
+                snprintf(sfo, sizeof(sfo), "%s/sce_sys/param.sfo", app0);
+                sfo_value(sfo, "TITLE_ID", id, sizeof(id), NULL);
+            }
+            if (runtime_content_configure_addons(addons_file, id[0] ? id : NULL) != 0) {
+                printf("Runtime: add-on manifest ignored: %s\n", runtime_content_addon_reject_reason());
+            }
+        }
     }
     if (app0) {
         runtime_file_configure(app0, user_dir ? user_dir : "user");
@@ -1171,8 +1189,8 @@ int main(int argc, char **argv) {
     /* The hooks below find their sites by signature in one game's code (cheats, multipliers, enemy
      * health, QTE prompts, pause menu). --no-game-hooks leaves them out for any other game. */
     if (!game_hooks) puts("Game hooks: off");
+    if (gpu_enabled && (game_hooks || cheats_enabled)) install_cheats(segments, ns, size);
     if (gpu_enabled && game_hooks) install_orb_multiplier(segments, ns, size);
-    if (gpu_enabled && game_hooks) install_cheats(segments, ns, size);
     if (gpu_enabled && game_hooks) find_engine_fps(segments, ns, size);
     if (gpu_enabled && game_hooks) install_actor_watch(segments, ns, size);
     if (gpu_enabled && game_hooks) install_stat_multipliers(segments, ns, size);

@@ -68,11 +68,14 @@ static bool StartSize(s32& width, s32& height, SDL_DisplayID display) {
     return scale < 1.0;
 }
 
+extern "C" void runtime_pad_load_mappings(void);
+
 WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}, height{height_} {
     // Gamepads are sampled by runtime_pad.c; their events are pumped here with the window's.
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         UNREACHABLE_MSG("Failed to initialize SDL video: {}", SDL_GetError());
     }
+    runtime_pad_load_mappings();
     const SDL_DisplayID display = MonitorDisplay();
     const bool too_large = StartSize(width_, height_, display);
     SDL_PropertiesID props = SDL_CreateProperties();

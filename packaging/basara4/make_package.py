@@ -27,7 +27,8 @@ STDLIB = ["argparse", "base64", "collections", "ctypes", "ctypes.wintypes", "has
           "textwrap", "binascii", "zipfile", "functools", "dataclasses", "typing", "enum", "string", "traceback",
           "stat", "errno", "copy", "contextlib", "datetime", "fnmatch", "glob", "operator", "xml.etree.ElementTree",
           "uuid", "codecs", "array", "bisect", "heapq", "runpy", "importlib.util", "urllib", "urllib.request", "ssl"]
-PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py"]
+PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py",
+                   "game_update.py", "mods.py", "patches.py", "dlc.py"]
 
 
 def run(*cmd, **kw):
@@ -109,11 +110,12 @@ def main():
     ):
         shutil.copy2(LAUNCHER / name, target / "launcher" / name)
 
-    # translation patch manifest
+    # translation patch manifest and gamepad mapping database
     data_dir = target / "data"
     data_dir.mkdir(exist_ok=True)
-    if (REPO / "data" / "ps3_patch_manifest.json").is_file():
-        shutil.copy2(REPO / "data" / "ps3_patch_manifest.json", data_dir / "ps3_patch_manifest.json")
+    for name in ("ps3_patch_manifest.json", "gamecontrollerdb.txt", "gamecontrollerdb.LICENSE"):
+        if (REPO / "data" / name).is_file():
+            shutil.copy2(REPO / "data" / name, data_dir / name)
 
     # documents
     for doc in ("NOTICE.md", "LICENSE"):

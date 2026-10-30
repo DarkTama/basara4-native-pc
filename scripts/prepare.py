@@ -294,14 +294,28 @@ def prepare(game, out):
     print(f"libc _init_env verified RET: {libc_evidence['init_env_is_ret']}")
 
 
-if __name__ == '__main__':
+def get_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('game', type=Path)
+    parser.add_argument('--update', type=Path, default=None, help='Separate game update folder to overlay before preparation')
     parser.add_argument('--out', type=Path, default=Path(__file__).resolve().parent.parent / 'out')
+    return parser
+
+
+if __name__ == '__main__':
+    parser = get_parser()
     args = parser.parse_args()
     # The title is printed; a console or pipe in a legacy code page cannot encode every language.
     sys.stdout.reconfigure(errors='replace')
     try:
-        prepare(args.game, args.out)
+        if args.update:
+            from game_update import create_view, remove_view
+            view = create_view(args.game, args.update, args.out)
+            try:
+                prepare(view, args.out)
+            finally:
+                remove_view(view)
+        else:
+            prepare(args.game, args.out)
     except (ValueError, OSError, StopIteration, KeyError, IndexError) as error:
         parser.exit(1, f'prepare failed: {error}\n')

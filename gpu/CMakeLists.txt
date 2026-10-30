@@ -442,7 +442,7 @@ add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp
 target_include_directories(fsr4-bench PRIVATE shadps4/video_core/renderer_vulkan/fsr411)
 target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan::fsr4-v07-assets Vulkan::Vulkan)
 
-add_executable(cheat-hook-test ../tests/test_cheat_hook.cpp)
+add_executable(cheat-hook-test EXCLUDE_FROM_ALL ../tests/test_cheat_hook.cpp)
 target_compile_options(cheat-hook-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 
 add_executable(swapchain-focus-test EXCLUDE_FROM_ALL ../tests/test_swapchain_focus.cpp

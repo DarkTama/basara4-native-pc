@@ -41,7 +41,8 @@ CORE = BIN / "basara4-core.exe"
 VERSION = "1.0.4"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
-GITHUB_REPO = "razzconnect/basara4-native-pc"
+FORK = "DarkTama"
+GITHUB_REPO = f"{FORK}/basara4-native-pc"
 
 
 FATAL_PATTERNS = [
@@ -199,20 +200,24 @@ if len(sys.argv) > 2 and sys.argv[1] == "--run-script":
     sys.exit(0)
 
 import tkinter as tk  # noqa: E402  (after the script mode, which needs no window)
-from tkinter import filedialog, messagebox, ttk  # noqa: E402
+from tkinter import filedialog, font as tkfont, messagebox, ttk  # noqa: E402
 
 try:
-    from PIL import Image, ImageEnhance, ImageFilter, ImageTk
+    from PIL import Image, ImageTk
 except ImportError:  # still works, just without artwork
     Image = None
 
+sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
 import basara4_translation  # noqa: E402
 import basara4_overlay  # noqa: E402
 import basara4_repatch  # noqa: E402
+import game_update  # noqa: E402
+import dlc  # noqa: E402
+import patches  # noqa: E402
 
-DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
+DEFAULTS = {"game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "english_patch": False,
             "ps3_patch_source": ""}
@@ -258,7 +263,7 @@ ACTION_DESCRIPTIONS = [
 
 def enumerate_gpus():
     """Enumerate system Vulkan GPUs using vulkan-1.dll. Returns list of (index, display_name, is_discrete)."""
-    gpus = [(-1, "Auto (Prioritaskan GPU Diskrit)", True)]
+    gpus = [(-1, "Auto (Prefer discrete GPU)", True)]
     try:
         import ctypes
         vulkan = ctypes.cdll.LoadLibrary("vulkan-1.dll")
@@ -314,8 +319,7 @@ def enumerate_gpus():
 
 
 SYSTEM_GPUS = enumerate_gpus()
-DISPLAY_MODES = [("Windowed", "windowed"), ("Borderless fullscreen", "borderless"),
-                 ("Exclusive fullscreen", "fullscreen")]
+DISPLAY_MODES = [("Windowed", "windowed"), ("Borderless", "borderless"), ("Exclusive", "fullscreen")]
 FPS_LIMITS = [("60 (game default)", 60), ("90", 90), ("120", 120), ("144", 144), ("165", 165),
               ("240", 240), ("Unlimited", 0)]
 RESOLUTIONS = [("1920 x 1080  (native)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
@@ -324,6 +328,54 @@ UPSCALERS = [("Off  (plain scaling)", "off"), ("FSR 1  (sharper)", "fsr1")]
 ANISO = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 BG, PANEL, FG, MUTED, GOLD, RED = "#12100e", "#1c1916", "#eadfcb", "#8d8374", "#c9a24a", "#9c2b24"
 RAZZ = "#e0526a"  # the accent of the by-Razz mark
+FIELD, EDGE, LINE, RULE, HOVER, OK = "#12100e", "#3f382f", "#332d27", "#26211d", "#221e1a", "#7da36b"
+FONT, FONT_SMALL = ("Segoe UI", 10), ("Segoe UI", 8)
+CHEAT_HINT = "Can also be toggled in game (Insert / R3+L2)"
+CHEAT_KEYS = ["cheat_gold", "cheat_coins", "cheat_growth_points", "cheat_weapon_points", "cheat_weapon_rank"]
+
+# Every string the main window shows lives here, so a translation touches one place. Hints are one line each.
+NAV = [("game", "Game"), ("display", "Display"), ("controls", "Controls"), ("mods", "Mods & Cheats"), ("tools", "Tools")]
+PAGE_SUBTITLE = {"display": "Applied the next time you press PLAY."}
+PAGE_HINT = {
+    "game": "The game image is made on the first start (about a minute).",
+    "display": "In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
+    "controls": "Map controller: press each pad button when asked. Skip it if your pad already works.",
+    "mods": "Import needs your own PS3 patch files. Cheats can also be toggled in game.",
+    "tools": "Open log: the launcher and runtime log of the last run.",
+}
+GROUP = {"translation": "Translation", "cheats": "Cheats"}
+ROW = {  # key: (label, hint)
+    "game_folder": ("Game folder", "The folder that holds eboot.bin."),
+    "game_image": ("Game image", "Made from eboot.bin on the first start; again if eboot.bin changes."),
+    "game_update": ("Game update folder", "Separate update dump, e.g. CUSA01159-patch (v01.02). Your dump is not modified."),
+    "dlc_folder": ("DLC folder", "Folder holding extracted add-ons: <root>/CUSA01159/<entitlement>/"),
+    "display_mode": ("Display mode", "Windowed, borderless fullscreen or exclusive fullscreen."),
+    "gpu": ("Graphics card", "Auto picks the discrete GPU when there is one."),
+    "resolution": ("Window size", "The game draws at 1080p. Window size sets windowed mode."),
+    "fps": ("Frame limit", "Above 60 turns off the game's own limiter. VSync still caps at monitor refresh."),
+    "upscale": ("Upscaling", "FSR 1 sharpens if the screen is above 1080p."),
+    "aniso": ("Anisotropic", "Texture filtering: sharper at a slant, costs a little speed."),
+    "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
+    "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
+    "pad": ("Gamepad", "Custom mapping is made with the buttons below."),
+    "map_pad": ("Map controller", "Press each pad button when asked. Skip it if your pad already works."),
+    "map_sticks": ("Map sticks only", "Maps only the two sticks; the buttons stay as they are."),
+    "reset_map": ("Reset mapping", "Deletes the saved controller mapping (a .bak copy is kept)."),
+    "keymap": ("Keyboard & Mouse controls", "Choose the key and mouse bindings and the mouse camera."),
+    "english": ("English Translation Patch", "PS3 v0.85 port. Needs an imported patch; applied when you press PLAY."),
+    "import_patch": ("Import PS3 English Patch", "Pick your own PS3 (BLJM61248) English patch folder."),
+    "rebuild_patch": ("Rebuild Translation Patch", "Builds the patch again from the imported files."),
+    "cheat_gold": ("Gold won't decrease", CHEAT_HINT),
+    "cheat_coins": ("Special Coin x99999", CHEAT_HINT),
+    "cheat_growth_points": ("Growth points won't decrease", CHEAT_HINT),
+    "cheat_weapon_points": ("Weapon points won't decrease", CHEAT_HINT),
+    "cheat_weapon_rank": ("Weapon rank points won't decrease", CHEAT_HINT),
+    "open_log": ("Open log", "The launcher and runtime log of the last run."),
+    "open_audio_log": ("Open audio log", "Needs \"Audio debug log\" on, then a game start."),
+    "open_saves": ("Open saves", "Opens user\\savedata in Explorer."),
+    "audio_log": ("Audio debug log", "One timestamped line per audio event, for bug reports."),
+    "audio_wav": ("WAV capture (up to 3 GB)", "Next game start only; about 70 MB per minute. Turns the audio log on."),
+}
 
 
 def find_game():
@@ -472,12 +524,13 @@ class Launcher(tk.Tk):
         self.cfg = load_config()
         self.proc = None
         self.busy = False
+        self.user_stopped = False
         self.pending = None
         self.play_now = play_now
         self.title(f"Sengoku Basara 4 Sumeragi  \u00b7  {BRAND} by {AUTHOR}")
         self.configure(bg=BG)
-        self.geometry("1020x620")
-        self.minsize(980, 580)
+        self.geometry("1000x620")
+        self.resizable(False, False)
         icon = Path(__file__).resolve().parent / "basara4.ico"
         if icon.is_file():
             try:
@@ -505,7 +558,7 @@ class Launcher(tk.Tk):
         s = ttk.Style(self)
         s.theme_use("clam")
         s.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, bordercolor=PANEL,
-                    lightcolor=PANEL, darkcolor=PANEL, font=("Segoe UI", 10))
+                    lightcolor=PANEL, darkcolor=PANEL, font=FONT)
         s.configure("TFrame", background=BG)
         s.configure("Panel.TFrame", background=PANEL)
         s.configure("TLabel", background=BG, foreground=FG)
@@ -513,186 +566,304 @@ class Launcher(tk.Tk):
         s.configure("Muted.TLabel", background=PANEL, foreground=MUTED, font=("Segoe UI", 9))
         s.configure("Head.TLabel", background=PANEL, foreground=GOLD, font=("Segoe UI Semibold", 11))
         s.configure("TRadiobutton", background=PANEL, foreground=FG)
-        s.configure("TCheckbutton", background=PANEL, foreground=FG)
+        s.configure("TCheckbutton", background=PANEL, foreground=FG, indicatorbackground=FIELD,
+                    indicatorforeground=GOLD, upperbordercolor=EDGE, lowerbordercolor=EDGE)
         s.map("TRadiobutton", background=[("active", PANEL)], foreground=[("active", GOLD)])
-        s.map("TCheckbutton", background=[("active", PANEL)], foreground=[("active", GOLD)])
-        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 6), borderwidth=0)
+        s.map("TCheckbutton", background=[("active", PANEL)], foreground=[("active", GOLD)],
+              indicatorbackground=[("active", FIELD)])
+        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 6), borderwidth=1,
+                    bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622")
+        edge = [("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
         s.map("TButton", background=[("active", "#3a342e"), ("disabled", "#1c1916")],
-              foreground=[("disabled", MUTED)])
+              foreground=[("disabled", MUTED)], bordercolor=edge, lightcolor=edge, darkcolor=edge)
         s.configure("Play.TButton", background=RED, foreground="#fff", font=("Segoe UI Semibold", 15),
-                    padding=(10, 12))
-        s.map("Play.TButton", background=[("active", "#b8362d"), ("disabled", "#4a2522")])
-        s.configure("TCombobox", arrowcolor=GOLD, selectbackground=PANEL, selectforeground=FG)
-        s.map("TCombobox", fieldbackground=[("readonly", PANEL)], foreground=[("readonly", FG)])
-        self.option_add("*TCombobox*Listbox.background", PANEL)
+                    padding=(10, 12), bordercolor=RED, lightcolor=RED, darkcolor=RED)
+        play_edge = [("disabled", "#4a2522"), ("active", "#b8362d")]
+        s.map("Play.TButton", background=[("active", "#b8362d"), ("disabled", "#4a2522")],
+              bordercolor=play_edge, lightcolor=play_edge, darkcolor=play_edge)
+        s.configure("Seg.Toolbutton", background="#2a2622", foreground=FG, padding=(10, 6), borderwidth=0,
+                    anchor="center")
+        s.map("Seg.Toolbutton", background=[("selected", GOLD), ("active", "#3a342e")],
+              foreground=[("selected", BG)])
+        s.configure("TCombobox", arrowcolor=GOLD, bordercolor=EDGE, lightcolor=EDGE, darkcolor=EDGE,
+                    padding=(6, 4), selectbackground=FIELD, selectforeground=FG)
+        s.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", FG)],
+              selectbackground=[("readonly", FIELD)], selectforeground=[("readonly", FG)],
+              bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
+        s.configure("TEntry", fieldbackground=FIELD, foreground=FG, insertcolor=FG, bordercolor=EDGE,
+                    lightcolor=EDGE, darkcolor=EDGE, padding=(6, 4))
+        self.option_add("*TCombobox*Listbox.background", FIELD)
         self.option_add("*TCombobox*Listbox.foreground", FG)
+        self.option_add("*TCombobox*Listbox.selectBackground", GOLD)
+        self.option_add("*TCombobox*Listbox.selectForeground", BG)
 
     def _art(self):
-        self.cover = self.bg_img = None
+        self.cover = None
         if Image is None or not self.cfg["game"]:
             return
-        sys_dir = Path(self.cfg["game"]) / "sce_sys"
         try:
-            self.cover = ImageTk.PhotoImage(Image.open(sys_dir / "icon0.png").convert("RGB").resize((220, 220)))
-        except OSError:
-            pass
-        try:
-            bg = Image.open(sys_dir / "pic1.png").convert("RGB").resize((980, 560))
-            bg = ImageEnhance.Brightness(bg.filter(ImageFilter.GaussianBlur(6))).enhance(0.25)
-            self.bg_img = ImageTk.PhotoImage(bg)
+            self.cover = ImageTk.PhotoImage(
+                Image.open(Path(self.cfg["game"]) / "sce_sys" / "icon0.png").convert("RGB").resize((220, 220)))
         except OSError:
             pass
 
     # ---- layout ----
     def _build(self):
-        if self.bg_img:
-            tk.Label(self, image=self.bg_img, bd=0).place(x=0, y=0, relwidth=1, relheight=1)
-        root = ttk.Frame(self, style="TFrame")
-        root.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.94, relheight=0.92)
-        root.columnconfigure(1, weight=1)
-        root.rowconfigure(0, weight=1)
-
-        left = ttk.Frame(root, style="Panel.TFrame", padding=16)
-        left.grid(row=0, column=0, sticky="ns", padx=(0, 14))
-        if self.cover:
-            tk.Label(left, image=self.cover, bd=0, bg=PANEL).pack()
-        ttk.Label(left, text="戦国BASARA4 皇", style="Head.TLabel").pack(pady=(12, 0))
-        ttk.Label(left, text="Sengoku Basara 4 Sumeragi", style="Panel.TLabel").pack()
-        ttk.Label(left, text="CUSA01159", style="Muted.TLabel").pack()
-        self.status = ttk.Label(left, text="Ready", style="Muted.TLabel", wraplength=220)
-        self.status.pack(pady=(14, 4))
-        self.play = ttk.Button(left, text="PLAY", style="Play.TButton", command=self.on_play)
-        self.play.pack(fill="x", pady=(2, 6))
-        self.user_stopped = False
-        self.stop = ttk.Button(left, text="Stop game", command=self.on_stop, state="disabled")
-        self.stop.pack(fill="x")
-        mark = ttk.Frame(left, style="Panel.TFrame")
-        mark.pack(side="bottom", pady=(18, 0))
-        tk.Label(mark, text=BRAND.upper(), bg=PANEL, fg=GOLD, font=("Georgia", 11, "bold")).pack()
-        tk.Label(mark, text=f"by {AUTHOR}", bg=PANEL, fg=RAZZ, font=("Georgia", 12, "italic")).pack()
-        self.version_label = tk.Label(mark, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8))
-        self.version_label.pack()
-        self.mark_frame = mark
-
-        btn_row = ttk.Frame(left, style="Panel.TFrame")
-        btn_row.pack(side="bottom", fill="x", pady=(14, 0))
-        ttk.Button(btn_row, text="Credits", command=self.show_credits).pack(side="left", fill="x", expand=True, padx=(0, 2))
-        ttk.Button(btn_row, text="Check Update", command=self.check_update_manual).pack(side="right", fill="x", expand=True, padx=(2, 0))
-
-        right = ttk.Frame(root, style="Panel.TFrame", padding=18)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.columnconfigure(1, weight=1)
-        r = 0
-        ttk.Label(right, text="Game", style="Head.TLabel").grid(row=r, column=0, columnspan=3, sticky="w")
-        r += 1
-        self.game_var = tk.StringVar(value=self.cfg["game"])
-        self.game_var.trace_add("write", lambda *_: self._refresh_image_label())
-        ttk.Label(right, text="Game folder", style="Panel.TLabel").grid(row=r, column=0, sticky="w", pady=4)
-        ttk.Entry(right, textvariable=self.game_var).grid(row=r, column=1, sticky="ew", padx=8)
-        ttk.Button(right, text="Browse…", command=self._browse).grid(row=r, column=2)
-        r += 1
-        self.image_label = ttk.Label(right, text="", style="Muted.TLabel")
-        self.image_label.grid(row=r, column=1, sticky="w", padx=8)
-        r += 1
-
-        ttk.Separator(right).grid(row=r, column=0, columnspan=3, sticky="ew", pady=12)
-        r += 1
-        ttk.Label(right, text="Display", style="Head.TLabel").grid(row=r, column=0, columnspan=3, sticky="w")
-        r += 1
+        self._font = tkfont.Font(self, font=FONT)
+        self.game_var = tk.StringVar(value=self.cfg.get("game", ""))
+        self.game_update_var = tk.StringVar(value=self.cfg.get("game_update", ""))
+        self.dlc_var = tk.StringVar(value=self.cfg.get("dlc_folder", ""))
+        self.update_view = None
         self.mode_var = tk.StringVar(value=self.cfg["display_mode"])
-        modes = ttk.Frame(right, style="Panel.TFrame")
-        modes.grid(row=r, column=0, columnspan=3, sticky="w", pady=4)
-        for label, key in DISPLAY_MODES:
-            ttk.Radiobutton(modes, text=label, value=key, variable=self.mode_var).pack(side="left", padx=(0, 18))
-        r += 1
-
-        opts = ttk.Frame(right, style="Panel.TFrame")
-        opts.grid(row=r, column=0, columnspan=3, sticky="ew", pady=6)
-
-        # Baris 0: Graphics Card (Col 0: Label, Col 1..3: Combobox melebar rapi)
-        ttk.Label(opts, text="Graphics card", style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
-        self.gpu_var = tk.StringVar()
-        gpu_display_names = [name for _, name, _ in SYSTEM_GPUS]
-        ttk.Combobox(opts, textvariable=self.gpu_var, state="readonly", width=46,
-                     values=gpu_display_names).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(0, 8))
-
-        # Baris 1: Frame limit & Anisotropic
-        ttk.Label(opts, text="Frame limit", style="Panel.TLabel").grid(row=1, column=0, sticky="w", pady=4)
-        self.fps_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.fps_var, state="readonly", width=18,
-                     values=[n for n, _ in FPS_LIMITS]).grid(row=1, column=1, sticky="w", padx=(8, 20), pady=4)
-        ttk.Label(opts, text="Anisotropic", style="Panel.TLabel").grid(row=1, column=2, sticky="w", pady=4)
-        self.aniso_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.aniso_var, state="readonly", width=12,
-                     values=[n for n, _ in ANISO]).grid(row=1, column=3, sticky="w", padx=(8, 0), pady=4)
-
-        # Baris 2: Window size & Upscaling
-        ttk.Label(opts, text="Window size", style="Panel.TLabel").grid(row=2, column=0, sticky="w", pady=4)
-        self.res_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.res_var, state="readonly", width=18,
-                     values=[n for n, _ in RESOLUTIONS]).grid(row=2, column=1, sticky="w", padx=(8, 20), pady=4)
-        ttk.Label(opts, text="Upscaling", style="Panel.TLabel").grid(row=2, column=2, sticky="w", pady=4)
-        self.up_var = tk.StringVar()
-        ttk.Combobox(opts, textvariable=self.up_var, state="readonly", width=12,
-                     values=[n for n, _ in UPSCALERS]).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=4)
-
-        # Baris 3: Checkboxes (VSync, RCAS, Audio log, WAV)
+        self.gpu_var, self.fps_var, self.aniso_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.res_var, self.up_var = tk.StringVar(), tk.StringVar()
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)
         self.english_var = tk.BooleanVar(value=self.cfg.get("english_patch", False))
+        self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
 
-        chk_frame = ttk.Frame(opts, style="Panel.TFrame")
-        chk_frame.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 4))
-        ttk.Checkbutton(chk_frame, text="VSync", variable=self.vsync_var).pack(side="left", padx=(0, 16))
-        ttk.Checkbutton(chk_frame, text="Sharpening (RCAS)", variable=self.rcas_var).pack(side="left", padx=(0, 16))
-        ttk.Checkbutton(chk_frame, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).pack(side="left", padx=(0, 16))
-        ttk.Checkbutton(chk_frame, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).pack(side="left")
+        shell = tk.Frame(self, bg=BG)
+        shell.pack(fill="both", expand=True, padx=14, pady=14)
+        left = tk.Frame(shell, bg=PANEL, width=240, padx=16, pady=16)
+        left.pack(side="left", fill="y", padx=(0, 12))
+        left.pack_propagate(False)
+        self._build_left(left)
+        right = tk.Frame(shell, bg=PANEL)
+        right.pack(side="left", fill="both", expand=True)
+        self._build_right(right)
+        game = self.cfg["game"]
+        self.show_page("display" if game and (Path(game) / "eboot.bin").is_file() else "game")
 
-        # Baris 4: English Patch toggle & Rebuild button
-        patch_frame = ttk.Frame(opts, style="Panel.TFrame")
-        patch_frame.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 4))
-        ttk.Checkbutton(patch_frame, text="English Translation Patch (PS3 v0.85 Port)", variable=self.english_var).pack(side="left", padx=(0, 12))
-        self.import_patch_btn = ttk.Button(patch_frame, text="Import PS3 English Patch…", command=self.on_import_ps3_patch)
-        self.import_patch_btn.pack(side="left", padx=(0, 8))
-        self.rebuild_patch_btn = ttk.Button(patch_frame, text="Rebuild Translation Patch", command=self.on_rebuild_patch)
-        self.rebuild_patch_btn.pack(side="left")
+    def _build_left(self, left):
+        bottom = tk.Frame(left, bg=PANEL)  # packed first so a long status can never push it out
+        bottom.pack(side="bottom", fill="x")
+        self.mark_frame = bottom
+        self.version_label = tk.Label(bottom, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=FONT_SMALL)
+        self.version_label.pack(pady=(0, 6))
+        self.check_btn = ttk.Button(bottom, text="Check for updates", command=self.check_update_manual)
+        self.check_btn.pack(fill="x")
+        credit = tk.Frame(bottom, bg=PANEL, cursor="hand2")  # clicking it opens the credits
+        credit.pack(pady=(10, 0))
+        for text, color, font in ((f"{BRAND} by ", MUTED, FONT_SMALL), (AUTHOR, RAZZ, ("Segoe UI", 8, "bold italic")),
+                                  (f" · fork by {FORK}", MUTED, FONT_SMALL)):
+            tk.Label(credit, text=text, bg=PANEL, fg=color, font=font, bd=0, padx=0).pack(side="left")
+        for widget in [credit] + credit.winfo_children():
+            widget.bind("<Button-1>", lambda _e: self.show_credits())
 
-        # Baris 5: Keterangan / Tips
-        ttk.Label(opts, text="The game draws at 1080p. Window size sets windowed mode. FSR 1 sharpens if screen > 1080p.\n"
-                             "Above 60 turns off internal frame limiter. VSync caps rate at monitor refresh.",
-                  style="Muted.TLabel", wraplength=600).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        r += 1
-        ttk.Label(right, text="In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
-                  style="Muted.TLabel").grid(row=r, column=0, columnspan=3, sticky="w", pady=(2, 0))
-        r += 1
+        if self.cover:
+            frame = tk.Frame(left, bg=GOLD, padx=1, pady=1)
+            frame.pack()
+            tk.Label(frame, image=self.cover, bd=0, bg=PANEL).pack()
+        tk.Label(left, text="戦国BASARA4 皇", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12)).pack(pady=(12, 0))
+        tk.Label(left, text="Sengoku Basara 4 Sumeragi", bg=PANEL, fg=FG, font=FONT).pack()
+        tk.Label(left, text="CUSA01159", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack()
+        self.status = tk.Label(left, text="Ready", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=208)
+        self.status.pack(pady=(14, 8))
+        self.play = ttk.Button(left, text="PLAY", style="Play.TButton", command=self.on_play)
+        self.play.pack(fill="x", pady=(0, 6))
+        self.stop = ttk.Button(left, text="Stop game", command=self.on_stop, state="disabled")
+        self.stop.pack(fill="x")
 
-        ttk.Separator(right).grid(row=r, column=0, columnspan=3, sticky="ew", pady=12)
-        r += 1
-        ttk.Label(right, text="Controller & files", style="Head.TLabel").grid(
-            row=r, column=0, columnspan=3, sticky="w")
-        r += 1
-        # Row 1 of tools
-        tools1 = ttk.Frame(right, style="Panel.TFrame")
-        tools1.grid(row=r, column=0, columnspan=3, sticky="w", pady=(6, 4))
-        ttk.Button(tools1, text="⌨️ Keyboard & Mouse Controls", command=self.open_keymap_ui).pack(side="left", padx=(0, 8))
-        ttk.Button(tools1, text="Map controller", command=lambda: self.map_pad([])).pack(side="left", padx=(0, 8))
-        ttk.Button(tools1, text="Map sticks only", command=lambda: self.map_pad(["--sticks"])).pack(side="left", padx=(0, 8))
-        ttk.Button(tools1, text="Reset mapping", command=self.reset_map).pack(side="left")
-        r += 1
+    def _build_right(self, right):
+        nav = tk.Frame(right, bg=PANEL, width=150, pady=14)
+        nav.pack(side="left", fill="y")
+        nav.pack_propagate(False)
+        tk.Frame(right, bg=LINE, width=1).pack(side="left", fill="y")
+        self.nav = {}
+        for key, text in NAV:
+            item = tk.Frame(nav, bg=PANEL)
+            item.pack(fill="x")
+            bar = tk.Frame(item, bg=PANEL, width=3)
+            bar.pack(side="left", fill="y")
+            label = tk.Label(item, text=text, bg=PANEL, fg=MUTED, font=("Segoe UI", 11), anchor="w", padx=13,
+                             pady=9, cursor="hand2", takefocus=1, highlightthickness=1, highlightbackground=PANEL,
+                             highlightcolor=GOLD)
+            label.pack(side="left", fill="x", expand=True)
+            for widget in (item, bar, label):
+                widget.bind("<Button-1>", lambda _e, k=key: self.show_page(k))
+            label.bind("<Return>", lambda _e, k=key: self.show_page(k))
+            label.bind("<space>", lambda _e, k=key: self.show_page(k))
+            self.nav[key] = (item, bar, label)
 
-        # Row 2 of tools
-        tools2 = ttk.Frame(right, style="Panel.TFrame")
-        tools2.grid(row=r, column=0, columnspan=3, sticky="w", pady=(0, 6))
-        ttk.Button(tools2, text="Open log", command=self.open_log).pack(side="left", padx=(0, 8))
-        ttk.Button(tools2, text="Open audio log", command=self.open_audio_log).pack(side="left", padx=(0, 8))
-        ttk.Button(tools2, text="Open saves", command=self.open_saves).pack(side="left")
-        r += 1
-        r += 1
-        self.pad_label = ttk.Label(right, text="", style="Muted.TLabel")
-        self.pad_label.grid(row=r, column=0, columnspan=3, sticky="w")
+        content = tk.Frame(right, bg=PANEL)
+        content.pack(side="left", fill="both", expand=True)
+        tip = tk.Frame(content, bg=PANEL, height=35)  # the docked hint bar
+        tip.pack(side="bottom", fill="x")
+        tip.pack_propagate(False)
+        tk.Frame(tip, bg=LINE, height=1).pack(fill="x")
+        tk.Label(tip, text="?", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9)).pack(side="left", padx=(20, 6))
+        self.hint = tk.Label(tip, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w")
+        self.hint.pack(side="left", fill="x", expand=True)
+        host = tk.Frame(content, bg=PANEL)
+        host.pack(side="top", fill="both", expand=True, padx=20, pady=(16, 0))
+        self.pages, self._lit_bar = {}, None
+        for key, name in NAV:
+            page = self.pages[key] = tk.Frame(host, bg=PANEL)
+            title = tk.Frame(page, bg=PANEL)
+            title.pack(fill="x", pady=(0, 8))
+            tk.Label(title, text=name, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 14)).pack(side="left")
+            if key in PAGE_SUBTITLE:
+                tk.Label(title, text=PAGE_SUBTITLE[key], bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(
+                    side="left", padx=12, pady=(4, 0))
+        self._page_game(self.pages["game"])
+        self._page_display(self.pages["display"])
+        self._page_controls(self.pages["controls"])
+        self._page_mods(self.pages["mods"])
+        self._page_tools(self.pages["tools"])
+
+    def show_page(self, key):
+        for name, page in self.pages.items():
+            page.pack_forget()
+            item, bar, label = self.nav[name]
+            on = name == key
+            fill = HOVER if on else PANEL
+            item.config(bg=fill)
+            label.config(bg=fill, fg=GOLD if on else MUTED, highlightbackground=fill,
+                         font=("Segoe UI Semibold" if on else "Segoe UI", 11))
+            bar.config(bg=GOLD if on else PANEL)
+        self.pages[key].pack(fill="both", expand=True)
+        self._light(None)
+        self.hint.config(text=PAGE_HINT[key])
+
+    # ---- settings rows ----
+    def _light(self, bar):
+        """The gold bar of the row being hovered or focused (None: no row)."""
+        if self._lit_bar is not None:
+            self._lit_bar.config(bg=PANEL)
+        self._lit_bar = bar
+        if bar is not None:
+            bar.config(bg=GOLD)
+
+    def _row(self, page, key, make, width=250, sub=False, stack=False):
+        """One ruled row: label left, the control `make(holder)` right. Hovering or focusing it shows its hint."""
+        label, hint = ROW[key]
+        row = tk.Frame(page, bg=PANEL)
+        row.pack(fill="x")
+        row.columnconfigure(1, weight=1)
+        row.rowconfigure(0, minsize=40)
+        bar = tk.Frame(row, bg=PANEL, width=3)
+        bar.grid(row=0, column=0, sticky="ns")
+        tk.Label(row, text=label, bg=PANEL, fg=FG, font=FONT).grid(row=0, column=1, sticky="w",
+                                                                    padx=(10 + (23 if sub else 0), 0))
+        holder = tk.Frame(row, bg=PANEL)
+        if stack:  # a value too long for the right column gets the full width under its label
+            holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(13, 10), pady=(0, 8))
+        else:
+            holder.grid(row=0, column=2, sticky="e", padx=(0, 10))
+        if width and not stack:
+            holder.config(width=width, height=30)
+            holder.pack_propagate(False)
+        make(holder)
+        tk.Frame(row, bg=RULE, height=1).grid(row=2, column=0, columnspan=3, sticky="ew")
+
+        def show(_event=None):
+            self._light(bar)
+            self.hint.config(text=hint)
+
+        def wire(widget):
+            widget.bind("<Enter>", show, add="+")
+            widget.bind("<FocusIn>", show, add="+")  # the same hint for keyboard and pad users
+            for child in widget.winfo_children():
+                wire(child)
+        wire(row)
+        return row
+
+    def _group(self, page, key):
+        tk.Label(page, text=GROUP[key].upper(), bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9),
+                 anchor="w").pack(fill="x", padx=13, pady=(14, 2))
+
+    def _combo_row(self, page, key, var, values):
+        need = max(self._font.measure(v) for v in values) + 48  # text + arrow + padding: nothing truncated
+        self._row(page, key, lambda h: ttk.Combobox(h, textvariable=var, state="readonly", values=values).pack(
+            fill="both", expand=True), width=max(250, need), stack=need > 330)
+
+    def _check_row(self, page, key, var, command=None, sub=False):
+        self._row(page, key, lambda h: ttk.Checkbutton(h, text="On", variable=var, command=command).pack(side="left"),
+                  sub=sub)
+
+    def _button_row(self, page, key, text, command, attr=None):
+        def make(holder):
+            button = ttk.Button(holder, text=text, command=command)
+            button.pack(fill="both", expand=True)
+            if attr:
+                setattr(self, attr, button)
+        self._row(page, key, make)
+
+    def _page_game(self, page):
+        def folder(holder):
+            ttk.Button(holder, text="Browse…", command=self._browse).pack(side="right", padx=(6, 0))
+            entry = ttk.Entry(holder, textvariable=self.game_var)
+            entry.pack(side="left", fill="both", expand=True)
+            entry.bind("<Map>", lambda _e: entry.xview_moveto(1))  # the folder name matters more than the drive
+        self._row(page, "game_folder", folder, width=340)
+
+        def image(holder):
+            self.image_label = tk.Label(holder, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=330,
+                                        justify="right", anchor="e")
+            self.image_label.pack(side="right")
+        self._row(page, "game_image", image, width=None)
+        self.game_var.trace_add("write", lambda *_: self._refresh_image_label())
+
+        def update_folder(holder):
+            ttk.Button(holder, text="Clear", command=self._clear_update).pack(side="right", padx=(4, 0))
+            ttk.Button(holder, text="Browse…", command=self._browse_update).pack(side="right", padx=(6, 0))
+            entry = ttk.Entry(holder, textvariable=self.game_update_var)
+            entry.pack(side="left", fill="both", expand=True)
+            entry.bind("<Map>", lambda _e: entry.xview_moveto(1))
+        self._row(page, "game_update", update_folder, width=340)
+        self.game_update_var.trace_add("write", lambda *_: self._refresh_image_label())
+
+        def dlc_folder(holder):
+            ttk.Button(holder, text="Clear", command=self._clear_dlc).pack(side="right", padx=(4, 0))
+            ttk.Button(holder, text="Browse…", command=self._browse_dlc).pack(side="right", padx=(6, 0))
+            entry = ttk.Entry(holder, textvariable=self.dlc_var)
+            entry.pack(side="left", fill="both", expand=True)
+            entry.bind("<Map>", lambda _e: entry.xview_moveto(1))
+        self._row(page, "dlc_folder", dlc_folder, width=340)
+
+    def _page_display(self, page):
+        def modes(holder):
+            for label, key in DISPLAY_MODES:
+                ttk.Radiobutton(holder, text=label, value=key, variable=self.mode_var, style="Seg.Toolbutton").pack(
+                    side="left", fill="both", expand=True, padx=1)
+        self._row(page, "display_mode", modes, width=340)
+        self._combo_row(page, "gpu", self.gpu_var, [name for _, name, _ in SYSTEM_GPUS])
+        self._combo_row(page, "resolution", self.res_var, [n for n, _ in RESOLUTIONS])
+        self._combo_row(page, "fps", self.fps_var, [n for n, _ in FPS_LIMITS])
+        self._combo_row(page, "upscale", self.up_var, [n for n, _ in UPSCALERS])
+        self._combo_row(page, "aniso", self.aniso_var, [n for n, _ in ANISO])
+        self._check_row(page, "vsync", self.vsync_var)
+        self._check_row(page, "rcas", self.rcas_var)
+
+    def _page_controls(self, page):
+        def pad(holder):
+            self.pad_label = tk.Label(holder, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=340,
+                                      justify="right", anchor="e")
+            self.pad_label.pack(side="right")
+        self._row(page, "pad", pad, width=None)
         self._pad_text()
+        self._button_row(page, "map_pad", "Map…", lambda: self.map_pad([]))
+        self._button_row(page, "map_sticks", "Map sticks…", lambda: self.map_pad(["--sticks"]))
+        self._button_row(page, "reset_map", "Reset", self.reset_map)
+        self._button_row(page, "keymap", "Edit…", self.open_keymap_ui)
+
+    def _page_mods(self, page):
+        self._group(page, "translation")
+        self._check_row(page, "english", self.english_var)
+        self._button_row(page, "import_patch", "Import…", self.on_import_ps3_patch, "import_patch_btn")
+        self._button_row(page, "rebuild_patch", "Rebuild", self.on_rebuild_patch, "rebuild_patch_btn")
+        self._group(page, "cheats")
+        for key in CHEAT_KEYS:
+            self._check_row(page, key, self.cheat_vars[key])
+
+    def _page_tools(self, page):
+        self._button_row(page, "open_log", "Open", self.open_log)
+        self._button_row(page, "open_audio_log", "Open", self.open_audio_log)
+        self._button_row(page, "open_saves", "Open", self.open_saves)
+        self._check_row(page, "audio_log", self.audio_var, self._audio_toggled)
+        self._check_row(page, "audio_wav", self.wav_var, self._wav_toggled, sub=True)
 
     # ---- helpers ----
     def _browse(self):
@@ -702,13 +873,95 @@ class Launcher(tk.Tk):
 
     def _refresh_image_label(self):
         game = self.game_var.get().strip()
-        if not game or not (Path(game) / "eboot.bin").is_file():
+        update = self.game_update_var.get().strip() if hasattr(self, "game_update_var") else ""
+        target = update if (update and (Path(update) / "eboot.bin").is_file()) else game
+        if not target or not (Path(target) / "eboot.bin").is_file():
             text = "No eboot.bin in this folder."
-        elif image_ready(game):
+        elif image_ready(target):
             text = "Game image ready."
         else:
             text = "The game image is made on the first start (about a minute); again if eboot.bin changes."
-        self.image_label.config(text=text)
+        self.image_label.config(text=text, fg=OK if text == "Game image ready." else MUTED)
+
+    def _cleanup_update_view(self):
+        if getattr(self, "update_view", None):
+            try:
+                game_update.remove_view(self.update_view)
+            except Exception:
+                pass
+            self.update_view = None
+
+    def _get_effective_game(self, game):
+        update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+        if update_dir and game:
+            update_path = Path(update_dir)
+            if update_path.is_dir() and (update_path / "eboot.bin").is_file():
+                self._cleanup_update_view()
+                self.update_view = game_update.create_view(game, update_path, OUT)
+                return self.update_view
+        self._cleanup_update_view()
+        return game
+
+    def _browse_update(self):
+        path = filedialog.askdirectory(initialdir=self.game_update_var.get() or self.game_var.get() or str(ROOT), mustexist=True)
+        if not path:
+            return
+        p = Path(path).resolve()
+        sfo = patches.find_sfo(p)
+        if not sfo or not sfo.is_file():
+            self.status.config(text="Error: missing sce_sys/param.sfo")
+            return
+        tid = patches.game_title_id(p)
+        ver = patches.game_app_ver(p)
+        if not tid:
+            self.status.config(text="Error: missing TITLE_ID in update")
+            return
+        base_game = self.game_var.get().strip()
+        if base_game and Path(base_game).is_dir():
+            base_tid = patches.game_title_id(base_game)
+            if base_tid and base_tid != tid:
+                self.status.config(text=f"Error: title ID mismatch ({tid} vs {base_tid})")
+                return
+        if not (p / "eboot.bin").is_file():
+            self.status.config(text="Error: missing eboot.bin in update folder")
+            return
+        self.game_update_var.set(os.path.normpath(str(p)))
+        self._collect()
+        self._cleanup_update_view()
+        self._refresh_image_label()
+        prefix = "" if ver and ver.lower().startswith("v") else "v"
+        self.status.config(text=f"Update {prefix}{ver} found" if ver else "Update found")
+
+    def _clear_update(self):
+        self.game_update_var.set("")
+        self._collect()
+        self._cleanup_update_view()
+        self._refresh_image_label()
+        self.status.config(text="Game update cleared.")
+
+    def _browse_dlc(self):
+        path = filedialog.askdirectory(initialdir=self.dlc_var.get() or str(ROOT), mustexist=True)
+        if not path:
+            return
+        p = Path(path).resolve()
+        try:
+            base_game = self.game_var.get().strip()
+            tid = (patches.game_title_id(base_game) if base_game and Path(base_game).is_dir() else None) or "CUSA01159"
+            addons = dlc.discover_addons(p, title_id=tid)
+            if not addons:
+                self.status.config(text=f"No add-ons found for {tid}")
+            else:
+                count = len(addons)
+                self.status.config(text=f"{count} add-on{'s' if count != 1 else ''} found")
+            self.dlc_var.set(os.path.normpath(str(p)))
+            self._collect()
+        except Exception as e:
+            self.status.config(text=f"DLC error: {e}")
+
+    def _clear_dlc(self):
+        self.dlc_var.set("")
+        self._collect()
+        self.status.config(text="DLC folder cleared.")
 
     def _ini(self):
         if OLD_INI.exists() and not INI.exists():
@@ -733,6 +986,8 @@ class Launcher(tk.Tk):
         self.fps_var.set(next((n for n, v in FPS_LIMITS if v == fps), FPS_LIMITS[0][0]))
         an = int(ini["anisotropy"]) if ini.get("anisotropy", "").isdigit() else self.cfg["anisotropy"]
         self.aniso_var.set(next((n for n, v in ANISO if v == an), "Off"))
+        for key, var in self.cheat_vars.items():  # the in-game menu writes these too
+            var.set(ini.get(key) == "1")
         saved_gpu = self.cfg.get("gpu_index", -1)
         self.gpu_var.set(next((name for idx, name, _ in SYSTEM_GPUS if idx == saved_gpu), SYSTEM_GPUS[0][1]))
 
@@ -763,13 +1018,16 @@ class Launcher(tk.Tk):
 
     def _pad_text(self):
         self.pad_label.config(text="Custom gamepad mapping in use." if MAPPING.exists()
-                              else "No custom mapping: XInput and known pads work as they are.")
+                              else "No custom mapping: XInput, database and known pads work as they are.")
 
     def _collect(self):
         selected_gpu_name = self.gpu_var.get()
         selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
         self.cfg.update(
-            game=self.game_var.get().strip(), display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
+            game=self.game_var.get().strip(),
+            game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
+            dlc_folder=self.dlc_var.get().strip() if hasattr(self, "dlc_var") else "",
+            display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
             rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
             resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
@@ -782,7 +1040,8 @@ class Launcher(tk.Tk):
             "fps_limit": self.cfg["fps_limit"], "rcas": int(self.cfg["rcas"]),
             "anisotropy": self.cfg["anisotropy"], "render_resolution": self.cfg["resolution"],
             "fsr1": int(self.cfg["upscale"] == "fsr1"),
-            "gpu_id": self.cfg.get("gpu_index", -1)})
+            "gpu_id": self.cfg.get("gpu_index", -1),
+            **{key: int(var.get()) for key, var in self.cheat_vars.items()}})
 
     def _env(self):
         env = os.environ.copy()
@@ -879,7 +1138,8 @@ class Launcher(tk.Tk):
 
         self.cfg["ps3_patch_source"] = src_dir
         save_config(self.cfg)
-        self._run_ps3_repatch(Path(src_dir), game)
+        effective_game = self._get_effective_game(game)
+        self._run_ps3_repatch(Path(src_dir), effective_game)
 
     def _run_ps3_repatch(self, src_path: Path, game: Path):
         self.import_patch_btn.config(state="disabled")
@@ -936,9 +1196,10 @@ class Launcher(tk.Tk):
             messagebox.showerror("Cannot build patch", "Choose the game folder (the one with eboot.bin) first.")
             return
 
+        effective_game = self._get_effective_game(game)
         ps3_src = self.cfg.get("ps3_patch_source")
         if ps3_src and Path(ps3_src).exists():
-            self._run_ps3_repatch(Path(ps3_src), game)
+            self._run_ps3_repatch(Path(ps3_src), effective_game)
             return
 
         if not TRANSLATION_DB.is_file():
@@ -958,10 +1219,10 @@ class Launcher(tk.Tk):
                 def _prog(cur, tot, msg):
                     self.after(0, lambda c=cur, t=tot: self.status.config(text=f"Building English patch… {c + 1}/{t}"))
                 stats = basara4_translation.build_patch(
-                    game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                    effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                 )
                 if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
-                    basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
             except Exception as e:
                 err = str(e)
 
@@ -992,10 +1253,45 @@ class Launcher(tk.Tk):
     def _prepare_then_launch(self, game, exe):
         self.pending_text = "Starting…"
         error = None
-        if not image_ready(game):
-            error = prepare_image(game, self._progress)
+        update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+        effective_game = game
+        if update_dir:
+            update_path = Path(update_dir)
+            if not update_path.is_dir() or not (update_path / "eboot.bin").is_file():
+                self.pending = (f"Invalid update folder: {update_dir}", game, exe, [], "", game)
+                return
+            try:
+                self._progress("Applying game update…")
+                if hasattr(self, "_cleanup_update_view"):
+                    self._cleanup_update_view()
+                elif getattr(self, "update_view", None):
+                    try:
+                        game_update.remove_view(self.update_view)
+                    except Exception:
+                        pass
+                    self.update_view = None
+                view = game_update.create_view(game, update_path, OUT)
+                if hasattr(self, "update_view"):
+                    self.update_view = view
+                effective_game = view
+            except Exception as e:
+                self.pending = (f"Failed to create update view: {e}", game, exe, [], "", game)
+                return
+        else:
+            if hasattr(self, "_cleanup_update_view"):
+                self._cleanup_update_view()
+            elif getattr(self, "update_view", None):
+                try:
+                    game_update.remove_view(self.update_view)
+                except Exception:
+                    pass
+                self.update_view = None
+            effective_game = game
+
+        if not image_ready(effective_game):
+            error = prepare_image(effective_game, self._progress)
         patch_args, notice = [], ""
-        if not error and self.cfg["fps_limit"] != 60:
+        if not error and self.cfg.get("fps_limit", 60) != 60:
             try:
                 writes, _ = basara4_patches.build(OUT / "eboot.elf", OUT / "patches.bin", True)
             except OSError:
@@ -1006,7 +1302,7 @@ class Launcher(tk.Tk):
                 self.cfg["fps_limit"] = 60
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
 
-        app0 = game
+        app0 = effective_game
         if not error and self.cfg.get("english_patch"):
             manifest_file = PATCH_DIR / "manifest.json"
             is_ps3_import = False
@@ -1019,24 +1315,44 @@ class Launcher(tk.Tk):
 
             if is_ps3_import:
                 try:
-                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
                 except Exception as e:
                     error = f"Failed to build English patch: {e}"
             elif TRANSLATION_DB.is_file():
                 try:
-                    if patch_needs_rebuild(game, TRANSLATION_DB, PATCH_DIR):
+                    if patch_needs_rebuild(effective_game, TRANSLATION_DB, PATCH_DIR):
                         def _prog(cur, tot, msg):
                             self._progress(f"Building English patch… {cur + 1}/{tot}")
                         basara4_translation.build_patch(
-                            game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                            effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                         )
-                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
                 except Exception as e:
                     error = f"Failed to build English patch: {e}"
             else:
                 error = 'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.'
 
-        self.pending = (error, game, exe, patch_args, notice, app0)
+        addons_args = []
+        dlc_dir = self.cfg.get("dlc_folder", "").strip() if isinstance(self.cfg.get("dlc_folder"), str) else ""
+        if not error and dlc_dir:
+            dlc_path = Path(dlc_dir)
+            if not dlc_path.is_dir():
+                error = f"DLC folder does not exist: {dlc_dir}"
+            else:
+                self._progress("Generating DLC manifest…")
+                dlc_script = [sys.executable, "--run-script", "dlc.py"] if FROZEN else [sys.executable, str(SCRIPTS / "dlc.py")]
+                res = subprocess.run(
+                    dlc_script + [str(dlc_path), "--out", str(OUT)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    creationflags=NO_WINDOW
+                )
+                addons_bin = OUT / "addons.bin"
+                if res.returncode == 0 and addons_bin.is_file():
+                    addons_args = ["--addons", str(addons_bin)]
+                else:
+                    error = f"Failed to generate DLC manifest: {res.stdout.decode('utf-8', errors='replace').strip()}"
+
+        self.pending = (error, game, exe, addons_args + patch_args, notice, app0)
 
     def _wait_prepare(self):
         if self.pending is None:
@@ -1075,7 +1391,7 @@ class Launcher(tk.Tk):
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
-             "--app0", str(app0), "--user", str(USER), "--no-game-hooks"] + extra_args + patch_args,
+             "--app0", str(app0), "--user", str(USER), "--no-game-hooks", "--cheats"] + extra_args + patch_args,
             env=self._env(), cwd=str(USER), stdout=log, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
         if self.cfg.get("audio_wav"):  # a one-session option: the next start has it off again
             self.cfg["audio_wav"] = False
@@ -1135,7 +1451,7 @@ class Launcher(tk.Tk):
             cursor="hand2",
             command=self.prompt_update,
         )
-        self.update_btn.pack(pady=(4, 0))
+        self.update_btn.pack(before=self.check_btn, fill="x", pady=(0, 6), ipady=3)
 
     def check_update_manual(self):
         self.status.config(text="Memeriksa pembaruan...")
@@ -1387,17 +1703,17 @@ class Launcher(tk.Tk):
             messagebox.showinfo(
                 "Tersalin ke Clipboard",
                 "Laporan crash lengkap (spek hardware, GPU, log error, dan audio log) berhasil disalin!\n"
-                "Anda tinggal Paste (Ctrl+V) langsung ke Discord untuk bantuan teknis.",
+                "Anda tinggal Paste (Ctrl+V) langsung ke laporan GitHub untuk bantuan teknis.",
                 parent=win
             )
 
-        def open_discord():
+        def open_issues():
             import webbrowser
-            webbrowser.open("https://discord.gg/UBZc57bBMa")
+            webbrowser.open(f"https://github.com/{GITHUB_REPO}/issues")
 
         ttk.Button(btn_bar, text="📋 Copy Error ke Clipboard", command=copy_details).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="📁 Buka File Log", command=self.open_log).pack(side="left", padx=4)
-        ttk.Button(btn_bar, text="🌐 Lapor ke Discord", command=open_discord).pack(side="left", padx=4)
+        ttk.Button(btn_bar, text="Report on GitHub", command=open_issues).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="Tutup", command=win.destroy).pack(side="right", padx=4)
 
     # ---- keyboard & mouse mapping dialog ----
@@ -1646,6 +1962,7 @@ class Launcher(tk.Tk):
         os.startfile(path)
 
     def _close(self):
+        self._cleanup_update_view()
         if self.proc and self.proc.poll() is None:
             if not messagebox.askyesno("Game running", "Stop the game and close the launcher?"):
                 return
