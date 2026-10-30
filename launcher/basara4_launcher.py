@@ -219,8 +219,8 @@ import patches  # noqa: E402
 
 DEFAULTS = {"game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
-            "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "english_patch": False,
-            "ps3_patch_source": ""}
+            "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
+            "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": ""}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -362,6 +362,10 @@ ROW = {  # key: (label, hint)
     "map_sticks": ("Map sticks only", "Maps only the two sticks; the buttons stay as they are."),
     "reset_map": ("Reset mapping", "Deletes the saved controller mapping (a .bak copy is kept)."),
     "keymap": ("Keyboard & Mouse controls", "Choose the key and mouse bindings and the mouse camera."),
+    "mouse_camera": ("Aktifkan Kamera Mouse (Mouse Look)", "Kontrol kamera bebas menggunakan pergerakan mouse."),
+    "mouse_sens": ("Sensitivitas Kamera Mouse", "Sensitivitas rotasi kamera mouse (20% - 300%, default 100%)."),
+    "mouse_invert_x": ("Invert X", "Membalik arah horizontal kamera mouse (SPARTAN_MOUSE_INVERT_X=1)."),
+    "mouse_invert_y": ("Invert Y", "Membalik arah vertikal kamera mouse (SPARTAN_MOUSE_INVERT_Y=1)."),
     "english": ("English Translation Patch", "PS3 v0.85 port. Needs an imported patch; applied when you press PLAY."),
     "import_patch": ("Import PS3 English Patch", "Pick your own PS3 (BLJM61248) English patch folder."),
     "rebuild_patch": ("Rebuild Translation Patch", "Builds the patch again from the imported files."),
@@ -622,6 +626,10 @@ class Launcher(tk.Tk):
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)
         self.english_var = tk.BooleanVar(value=self.cfg.get("english_patch", False))
+        self.mouse_camera_var = tk.BooleanVar(value=self.cfg.get("mouse_camera", True))
+        self.mouse_sens_var = tk.IntVar(value=self.cfg.get("mouse_sens", 100))
+        self.mouse_invert_x_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_x", False))
+        self.mouse_invert_y_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_y", False))
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
 
         shell = tk.Frame(self, bg=BG)
@@ -783,6 +791,16 @@ class Launcher(tk.Tk):
         self._row(page, key, lambda h: ttk.Checkbutton(h, text="On", variable=var, command=command).pack(side="left"),
                   sub=sub)
 
+    def _slider_row(self, page, key, var, from_, to):
+        def make(holder):
+            lbl = ttk.Label(holder, text=f"{int(var.get())}%", style="Panel.TLabel", width=5)
+            lbl.pack(side="right")
+            def on_scroll(val):
+                lbl.config(text=f"{int(float(val))}%")
+            scale = ttk.Scale(holder, from_=from_, to=to, variable=var, command=on_scroll, length=120)
+            scale.pack(side="right", padx=6)
+        self._row(page, key, make, width=200)
+
     def _button_row(self, page, key, text, command, attr=None):
         def make(holder):
             button = ttk.Button(holder, text=text, command=command)
@@ -848,6 +866,10 @@ class Launcher(tk.Tk):
         self._button_row(page, "map_sticks", "Map sticks…", lambda: self.map_pad(["--sticks"]))
         self._button_row(page, "reset_map", "Reset", self.reset_map)
         self._button_row(page, "keymap", "Edit…", self.open_keymap_ui)
+        self._check_row(page, "mouse_camera", self.mouse_camera_var)
+        self._slider_row(page, "mouse_sens", self.mouse_sens_var, 20, 300)
+        self._check_row(page, "mouse_invert_x", self.mouse_invert_x_var)
+        self._check_row(page, "mouse_invert_y", self.mouse_invert_y_var)
 
     def _page_mods(self, page):
         self._group(page, "translation")
@@ -1033,7 +1055,11 @@ class Launcher(tk.Tk):
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
             audio_wav=self.audio_var.get() and self.wav_var.get(),
             gpu_index=selected_gpu_idx,
-            english_patch=self.english_var.get())
+            english_patch=self.english_var.get(),
+            mouse_camera=self.mouse_camera_var.get(),
+            mouse_sens=int(self.mouse_sens_var.get()),
+            mouse_invert_x=self.mouse_invert_x_var.get(),
+            mouse_invert_y=self.mouse_invert_y_var.get())
         save_config(self.cfg)
         write_ini(self._ini(), {
             "display_mode": self.cfg["display_mode"], "vsync": int(self.cfg["vsync"]),
@@ -1089,6 +1115,12 @@ class Launcher(tk.Tk):
             env["SPARTAN_MOUSE_AIM_STYLE"] = "0"  # 0: relative / free camera rotation
             sens = int(self.cfg.get("mouse_sens", 100))
             env["SPARTAN_MOUSE_AIM_SENSITIVITY"] = str(sens)
+            if self.cfg.get("mouse_invert_x", False):
+                env["SPARTAN_MOUSE_INVERT_X"] = "1"
+            if self.cfg.get("mouse_invert_y", False):
+                env["SPARTAN_MOUSE_INVERT_Y"] = "1"
+        else:
+            env["SPARTAN_MOUSE_LOCK"] = "0"
 
         return env
 
@@ -1727,8 +1759,10 @@ class Launcher(tk.Tk):
 
         cur_map = dict(DEFAULT_PC_KEYMAP)
         cur_map.update(self.cfg.get("keymap", {}))
-        mouse_cam_var = tk.BooleanVar(value=self.cfg.get("mouse_camera", True))
-        mouse_sens_var = tk.IntVar(value=self.cfg.get("mouse_sens", 100))
+        mouse_cam_var = tk.BooleanVar(value=self.mouse_camera_var.get() if hasattr(self, "mouse_camera_var") else self.cfg.get("mouse_camera", True))
+        mouse_sens_var = tk.IntVar(value=self.mouse_sens_var.get() if hasattr(self, "mouse_sens_var") else self.cfg.get("mouse_sens", 100))
+        mouse_inv_x_var = tk.BooleanVar(value=self.mouse_invert_x_var.get() if hasattr(self, "mouse_invert_x_var") else self.cfg.get("mouse_invert_x", False))
+        mouse_inv_y_var = tk.BooleanVar(value=self.mouse_invert_y_var.get() if hasattr(self, "mouse_invert_y_var") else self.cfg.get("mouse_invert_y", False))
 
         # Top Header
         top_frame = ttk.Frame(win, style="Panel.TFrame", padding=12)
@@ -1741,6 +1775,8 @@ class Launcher(tk.Tk):
         mouse_bar = ttk.Frame(top_frame, style="Panel.TFrame")
         mouse_bar.pack(fill="x", pady=(10, 0))
         ttk.Checkbutton(mouse_bar, text="Aktifkan Kamera Mouse (Mouse Look)", variable=mouse_cam_var).pack(side="left")
+        ttk.Checkbutton(mouse_bar, text="Invert X", variable=mouse_inv_x_var).pack(side="left", padx=(10, 0))
+        ttk.Checkbutton(mouse_bar, text="Invert Y", variable=mouse_inv_y_var).pack(side="left", padx=(6, 0))
 
         sens_frame = ttk.Frame(mouse_bar, style="Panel.TFrame")
         sens_frame.pack(side="right")
@@ -1885,6 +1921,8 @@ class Launcher(tk.Tk):
             cur_map.update(DEFAULT_PC_KEYMAP)
             mouse_cam_var.set(True)
             mouse_sens_var.set(100)
+            mouse_inv_x_var.set(False)
+            mouse_inv_y_var.set(False)
             sens_lbl.config(text="100%")
             for k, b in btn_widgets.items():
                 b.config(text=format_binding_display(cur_map.get(k, "")), bg="#2c2824", fg=GOLD)
@@ -1894,6 +1932,16 @@ class Launcher(tk.Tk):
             self.cfg["keymap"] = cur_map
             self.cfg["mouse_camera"] = mouse_cam_var.get()
             self.cfg["mouse_sens"] = int(mouse_sens_var.get())
+            self.cfg["mouse_invert_x"] = mouse_inv_x_var.get()
+            self.cfg["mouse_invert_y"] = mouse_inv_y_var.get()
+            if hasattr(self, "mouse_camera_var"):
+                self.mouse_camera_var.set(mouse_cam_var.get())
+            if hasattr(self, "mouse_sens_var"):
+                self.mouse_sens_var.set(int(mouse_sens_var.get()))
+            if hasattr(self, "mouse_invert_x_var"):
+                self.mouse_invert_x_var.set(mouse_inv_x_var.get())
+            if hasattr(self, "mouse_invert_y_var"):
+                self.mouse_invert_y_var.set(mouse_inv_y_var.get())
             save_config(self.cfg)
             win.destroy()
             messagebox.showinfo("Tersimpan", "Pengaturan kontrol Keyboard & Mouse berhasil disimpan!", parent=self)

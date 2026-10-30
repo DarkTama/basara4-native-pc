@@ -348,12 +348,17 @@ static int mouse_source(const char *name) {
 static SDL_AtomicInt wheel_ticks[2]; /* notches not yet played: 0 up, 1 down */
 static struct { int phase; uint64_t until; } wheel_pulse[2]; /* phase 0 idle, 1 pressed, 2 gap */
 static SDL_AtomicInt mouse_motion[2]; /* x, y moved since the last read, in 1/16 px (stick prompts) */
+
+void runtime_pad_accumulate_mouse(float xrel, float yrel) {
+    SDL_AddAtomicInt(&mouse_motion[0], (int)(xrel * 16.0f));
+    SDL_AddAtomicInt(&mouse_motion[1], (int)(yrel * 16.0f));
+}
+
 /* Runs on the window thread for every queued event (SDL_AddEventWatch). */
 static bool SDLCALL mouse_watch(void *userdata, SDL_Event *event) {
     (void)userdata;
     if (event->type==SDL_EVENT_MOUSE_MOTION) {
-        SDL_AddAtomicInt(&mouse_motion[0],(int)(event->motion.xrel*16.0f));
-        SDL_AddAtomicInt(&mouse_motion[1],(int)(event->motion.yrel*16.0f));
+        runtime_pad_accumulate_mouse(event->motion.xrel, event->motion.yrel);
         return true;
     }
     if (event->type!=SDL_EVENT_MOUSE_WHEEL) return true;
@@ -797,13 +802,7 @@ enum { AIM_HOLD_US=60000, AIM_STEP_MIN_US=1000, AIM_STEP_MAX_US=50000, AIM_RADIU
 static const float AIM_FULL_PX_PER_MS=1.2f;
 static struct { uint64_t last, moved; int x, y; bool held; float offset_x, offset_y; } aim;
 static void apply_mouse_aim(PadData *d) {
-    float rx=0.0f, ry=0.0f;
-    SDL_GetRelativeMouseState(&rx,&ry);
     float dx=SDL_SetAtomicInt(&mouse_motion[0],0)/16.0f, dy=SDL_SetAtomicInt(&mouse_motion[1],0)/16.0f;
-    if (rx!=0 || ry!=0) {
-        dx+=rx;
-        dy+=ry;
-    }
     uint64_t step=d->timestamp-aim.last;
     aim.last=d->timestamp;
     const char *mouse_lock=getenv("SPARTAN_MOUSE_LOCK");
@@ -832,7 +831,7 @@ static void apply_mouse_aim(PadData *d) {
         const float scale=127.0f*1000.0f*sensitivity/(AIM_FULL_PX_PER_MS*(float)step);
         float x=dx*scale, y=dy*scale;
         if (x!=0.0f) {
-            const float max_mag=x<0.0f ? 128.0f : 127.0f;
+            const float max_mag=128.0f;
             float mag=fabsf(x);
             if (mag>max_mag) mag=max_mag;
             float boosted=32.0f+mag*((max_mag-32.0f)/max_mag);
@@ -840,30 +839,36 @@ static void apply_mouse_aim(PadData *d) {
             x=(x>0.0f) ? boosted : -boosted;
         }
         if (y!=0.0f) {
-            const float max_mag=y<0.0f ? 128.0f : 127.0f;
+            const float max_mag=128.0f;
             float mag=fabsf(y);
             if (mag>max_mag) mag=max_mag;
             float boosted=32.0f+mag*((max_mag-32.0f)/max_mag);
             if (boosted>max_mag) boosted=max_mag;
             y=(y>0.0f) ? boosted : -boosted;
         }
-        aim.x=x>127 ? 127 : x<-128 ? -128 : (int)x;
-        aim.y=y>127 ? 127 : y<-128 ? -128 : (int)y;
+        aim.x=x>128 ? 128 : x<-128 ? -128 : (int)x;
+        aim.y=y>128 ? 128 : y<-128 ? -128 : (int)y;
         if (aim.x>0 && aim.x<32) aim.x=32;
         if (aim.x<0 && aim.x>-32) aim.x=-32;
         if (aim.y>0 && aim.y<32) aim.y=32;
         if (aim.y<0 && aim.y>-32) aim.y=-32;
         aim.moved=d->timestamp;
     }
+    const char *inv_x=getenv("SPARTAN_MOUSE_INVERT_X");
+    const bool invert_x=inv_x && !strcmp(inv_x,"1");
+    const char *inv_y=getenv("SPARTAN_MOUSE_INVERT_Y");
+    const bool invert_y=inv_y && !strcmp(inv_y,"1");
     if (aim.moved && d->timestamp-aim.moved<AIM_HOLD_US) {
-        d->right_x=(uint8_t)(128+aim.x);
-        d->right_y=(uint8_t)(128+aim.y);
+        const int rx=invert_x ? (128+aim.x) : (128-aim.x);
+        const int ry=invert_y ? (128-aim.y) : (128+aim.y);
+        d->right_x=(uint8_t)(rx<0 ? 0 : rx>255 ? 255 : rx);
+        d->right_y=(uint8_t)(ry<0 ? 0 : ry>255 ? 255 : ry);
     } else {
         aim.x=0; aim.y=0; aim.moved=0;
     }
     static int logged = 0;
-    if (logged < 5 && (d->right_x != 128 || d->right_y != 128)) {
-        printf("Runtime: mouse camera active right=(%u, %u)\n", d->right_x, d->right_y);
+    if (logged < 5 && (dx != 0 || dy != 0)) {
+        printf("Runtime: mouse camera active dx=%.1f dy=%.1f right=(%u, %u)\n", dx, dy, d->right_x, d->right_y);
         logged++;
     }
 }
