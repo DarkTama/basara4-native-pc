@@ -57,10 +57,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.menu_tab = i >= 0 && i <= 3 ? i : 0;
         return;
     }
-    const char* cheat_keys[] = {"cheat_health", "cheat_magic", "cheat_item", "cheat_rage", "cheat_orbs",
-                                "cheat_very_hard", "cheat_double_jumps"};
+    const char* cheat_keys[] = {"cheat_gold", "cheat_coins", "cheat_growth_points", "cheat_weapon_points", "cheat_weapon_rank"};
     for (unsigned cheat = 0; cheat < SPARTAN_CHEAT_COUNT; ++cheat) {
-        if (key == cheat_keys[cheat]) {
+        if (key == cheat_keys[cheat] || (cheat == 2 && key == "cheat_growth")) {
             v.cheats[cheat] = i != 0;
             return;
         }
@@ -341,11 +340,9 @@ void Save() {
     std::fprintf(file, "green_orb_multiplier=%.3f\n", v.green_orb_multiplier.load());
     std::fprintf(file, "blue_orb_multiplier=%.3f\n", v.blue_orb_multiplier.load());
     std::fprintf(file, "gold_orb_multiplier=%.3f\n", v.gold_orb_multiplier.load());
-    std::fprintf(file, "cheat_health=%d\ncheat_magic=%d\ncheat_item=%d\ncheat_rage=%d\ncheat_orbs=%d\n"
-                       "cheat_very_hard=%d\ncheat_double_jumps=%d\n",
+    std::fprintf(file, "cheat_gold=%d\ncheat_coins=%d\ncheat_growth_points=%d\ncheat_weapon_points=%d\ncheat_weapon_rank=%d\n",
                  int(v.cheats[0].load()), int(v.cheats[1].load()), int(v.cheats[2].load()),
-                 int(v.cheats[3].load()), int(v.cheats[4].load()),
-                 int(v.cheats[5].load()), int(v.cheats[6].load()));
+                 int(v.cheats[3].load()), int(v.cheats[4].load()));
     std::fprintf(file, "enemy_health_bar=%d\n", int(v.enemy_health_bar.load()));
     std::fprintf(file, "auto_qte=%d\n", int(v.auto_qte.load()));
     std::fprintf(file,

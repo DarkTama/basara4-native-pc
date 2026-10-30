@@ -330,6 +330,41 @@ void BasaraTab() {
                  "While you play, the mouse stays in the game window; this menu and other windows get it back.");
         ImGui::EndTable();
     }
+    Separator("Cheats (GoldHEN CUSA01159)");
+    if (BeginRows("##cheats")) {
+        const uint32_t supported = s.cheats_supported.load();
+        const bool gold_ok = (supported & (1u << BASARA4_CHEAT_GOLD)) != 0;
+        ImGui::BeginDisabled(!gold_ok);
+        CheckRow("Gold won't decrease", s.cheats[BASARA4_CHEAT_GOLD],
+                 gold_ok ? "Keeps your money intact (or maxes it) when purchasing in shop." : Unsupported);
+        ImGui::EndDisabled();
+
+        const bool coins_ok = (supported & (1u << BASARA4_CHEAT_COINS)) != 0;
+        ImGui::BeginDisabled(!coins_ok);
+        CheckRow("Special coin x99999", s.cheats[BASARA4_CHEAT_COINS],
+                 coins_ok ? "Sets special coins (小判) directly to 999,999." : Unsupported);
+        ImGui::EndDisabled();
+
+        const bool growth_ok = (supported & (1u << BASARA4_CHEAT_GROWTH_POINTS)) != 0;
+        ImGui::BeginDisabled(!growth_ok);
+        CheckRow("Growth points won't decrease", s.cheats[BASARA4_CHEAT_GROWTH_POINTS],
+                 growth_ok ? "Level up characters without consuming growth points." : Unsupported);
+        ImGui::EndDisabled();
+
+        const bool wp_ok = (supported & (1u << BASARA4_CHEAT_WEAPON_POINTS)) != 0;
+        ImGui::BeginDisabled(!wp_ok);
+        CheckRow("Weapon points won't decrease", s.cheats[BASARA4_CHEAT_WEAPON_POINTS],
+                 wp_ok ? "Enhance weapons without consuming weapon points." : Unsupported);
+        ImGui::EndDisabled();
+
+        const bool wr_ok = (supported & (1u << BASARA4_CHEAT_WEAPON_RANK)) != 0;
+        ImGui::BeginDisabled(!wr_ok);
+        CheckRow("Weapon rank points won't decrease", s.cheats[BASARA4_CHEAT_WEAPON_RANK],
+                 wr_ok ? "Upgrade weapon ranks without consuming rank points." : Unsupported);
+        ImGui::EndDisabled();
+
+        ImGui::EndTable();
+    }
     Separator("Keys");
     DisabledText("Insert, or R3 + L2: this menu.   F12: screenshot.   F8: open or close the trophy list.");
     Separator("About");
