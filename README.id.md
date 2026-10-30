@@ -65,7 +65,32 @@ Lima cheat gameplay (**Gold won't decrease**, **Special Coin x99999**, **Growth 
 ## Kontrol
 - **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).
 - **F12**: Mengambil screenshot ke folder `user\`.
-- Controller native XInput & SDL3 (Xbox, DualShock 4, DualSense, Switch Pro) serta gamepad DirectInput generik dipetakan otomatis melalui SDL GameControllerDB bawaan. Untuk gamepad yang belum dikenali, klik **Map controller** di launcher untuk kalibrasi tombol dan stik analog menggunakan `basara4-pad-mapper.exe`.
+- **Kontrol Keyboard & Mouse (KBM)**:
+  - **W, A, S, D**: Pergerakan karakter (emulasi Stik Kiri, P1).
+  - **Free Mouse Camera Look (Mouse Look)**: Pergerakan mouse memutar kamera 3D secara bebas via emulasi Stik Kanan (Right Stick), dengan penguncian kursor otomatis selama gameplay dan pelepasan kursor saat Alt-Tab atau game dijeda (pause).
+  - **Pengaturan Launcher / Keymap**: Toggle aktif/nonaktifkan Mouse Look, atur sensitivitas kamera mouse (20% – 300%, default 100%), serta opsi Invert X / Invert Y.
+  - **Pemetaan Tombol Default**:
+    - **Klik Kiri**: Serangan Biasa / Normal Attack (Kotak / Square)
+    - **Klik Kanan**: Special Skill 1 (Segitiga / Triangle)
+    - **Spasi**: Lompat / Jump (Silang / Cross)
+    - **Left Shift**: Tangkis / Guard / Dash / Evade (L1)
+    - **E**: Special Skill 2 (R1)
+    - **Q**: Special Skill 3 (R2)
+    - **F**: Basara Attack / Ultimate (Lingkaran / Circle)
+    - **R**: Sengoku Drive / Poise Boost (L2)
+    - **Tab**: Ejekan / Taunt / Provoke (Touchpad)
+    - **Enter**: Jeda / Menu Dalam Game (Options)
+    - **Tombol Panah (Atas, Bawah, Kiri, Kanan)**: Navigasi D-Pad
+    - **Z**: L3
+    - **C**: R3 / Lock-on
+- **Gamepad & Controller**: Controller native XInput & SDL3 (Xbox, DualShock 4, DualSense, Switch Pro) serta gamepad DirectInput generik dipetakan otomatis melalui SDL GameControllerDB bawaan. Untuk gamepad yang belum dikenali, klik **Map controller** di launcher untuk kalibrasi tombol dan stik analog menggunakan `basara4-pad-mapper.exe`.
+
+## Save Data & Starter Save 100%
+Lokasi penyimpanan save data berada di:
+```
+user\savedata\1\CUSA01159\CUSA011590000\BSR4_SUMERAGI.DAT
+```
+- **Starter Save Patcher (Level 1)**: Fitur patcher terencana yang dirancang untuk membuka seluruh senjata offline maupun DLC, item Net Basara Shop, inskripsi (inscriptions), serta koin maksimal, dengan tetap mempertahankan level karakter pada level 0/1 agar pemain tetap dapat menikmati tantangan dan progresi alami permainan.
 
 ## Membangun dari Source Code
 Prasyarat: Pasang MSYS2 (`winget install MSYS2.MSYS2`), buka shell **MSYS2 CLANG64** (bukan PowerShell: perintah `bash` di PowerShell akan membuka WSL), jalankan `pacman -Syu` terlebih dahulu, serta pastikan Windows Python 3.10+ terpasang.

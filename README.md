@@ -65,7 +65,32 @@ Five gameplay cheats (**Gold won't decrease**, **Special Coin x99999**, **Growth
 ## Controls
 - **Insert** (Keyboard) or **R3 + L2** (Gamepad): Opens the in-game overlay menu (FSR settings, anisotropic filtering, controller status, cheats).
 - **F12**: Captures a screenshot to `user\`.
-- Native XInput & SDL3 controllers (Xbox, DualShock 4, DualSense, Switch Pro) and generic DirectInput pads are mapped automatically via the bundled SDL GameControllerDB. For unrecognized controllers, click **Map controller** in the launcher to calibrate button and stick axes using `basara4-pad-mapper.exe`.
+- **Keyboard & Mouse (KBM) Controls**:
+  - **W, A, S, D**: Movement (Left Stick emulation, P1).
+  - **Free Mouse Camera Look (Mouse Look)**: Mouse movement freely rotates the 3D camera via Right Stick emulation, with automatic cursor grab during gameplay and cursor release on Alt-Tab or game pause.
+  - **Launcher / Keymap Settings**: Toggle Mouse Look on/off, adjust mouse camera sensitivity (20% – 300%, default 100%), and toggle Invert X / Invert Y axes.
+  - **Default Bindings**:
+    - **Left Click**: Normal Attack (Square)
+    - **Right Click**: Special Skill 1 (Triangle)
+    - **Space**: Jump (Cross)
+    - **Left Shift**: Guard / Dash / Evade (L1)
+    - **E**: Special Skill 2 (R1)
+    - **Q**: Special Skill 3 (R2)
+    - **F**: Basara Attack / Ultimate (Circle)
+    - **R**: Sengoku Drive / Poise Boost (L2)
+    - **Tab**: Taunt / Provoke (Touchpad)
+    - **Enter / Return**: Pause / In-Game Menu (Options)
+    - **Arrow Keys (Up, Down, Left, Right)**: D-Pad navigation
+    - **Z**: L3
+    - **C**: R3 / Lock-on
+- **Controllers & Gamepads**: Native XInput & SDL3 controllers (Xbox, DualShock 4, DualSense, Switch Pro) and generic DirectInput pads are mapped automatically via the bundled SDL GameControllerDB. For unrecognized controllers, click **Map controller** in the launcher to calibrate button and stick axes using `basara4-pad-mapper.exe`.
+
+## Save Data & 100% Starter Save
+Save data is stored at:
+```
+user\savedata\1\CUSA01159\CUSA011590000\BSR4_SUMERAGI.DAT
+```
+- **Starter Save Patcher (Level 1)**: A planned built-in patcher feature designed to unlock all offline and DLC weapons, Net Basara Shop items, inscriptions, and maximum coins while keeping character levels at 0/1 to preserve natural level-up progression and gameplay challenge.
 
 ## Building from Source
 Prerequisites: Install MSYS2 (`winget install MSYS2.MSYS2`), open the **MSYS2 CLANG64** shell (not PowerShell: `bash` in PowerShell starts WSL), run `pacman -Syu` first, and ensure Windows Python 3.10+ is installed.
