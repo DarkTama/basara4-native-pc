@@ -29,6 +29,10 @@ MINGW*|MSYS*)
     fi
     cp out/gpu/spartanport-probe.exe out/gpu/spartanport-gpu-capabilities.exe out/gpu/spartanport-play.exe out/
     echo "Built $PWD/out/spartanport-probe.exe"
+    if [[ ${1:-} == --test ]]; then
+        ninja -C out/gpu cheat-hooks-test
+        PATH="$PWD/bin:$PWD/out/gpu:$PATH" ./out/gpu/cheat-hooks-test.exe
+    fi
     exit 0
     ;;
 esac
@@ -119,4 +123,6 @@ if [[ ${1:-} == --test ]]; then
     out/isa-stub-test tests/data/isa_fixture.bin
     ninja -C out/gpu graphics-settings-test
     out/gpu/graphics-settings-test
+    ninja -C out/gpu cheat-hooks-test
+    out/gpu/cheat-hooks-test
 fi

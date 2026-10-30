@@ -5,55 +5,82 @@
 #include <string.h>
 #include "signature.h"
 
-enum { SPARTAN_CHEAT_HEALTH, SPARTAN_CHEAT_MAGIC, SPARTAN_CHEAT_ITEM, SPARTAN_CHEAT_RAGE,
-       SPARTAN_CHEAT_ORBS, SPARTAN_CHEAT_VERY_HARD, SPARTAN_CHEAT_DOUBLE_JUMPS, SPARTAN_CHEAT_COUNT };
+/* Basara 4 cheats ported by i7Exceed (Sumeragi Native+).
+ * Cheat codes and offsets by Q8Despair / GoldHEN Cheat Repository (CUSA01159 v01.02).
+ * Reference: https://github.com/GoldHEN/GoldHEN_Cheat_Repository/blob/main/json/CUSA01159_01.02.json */
+
+enum {
+    BASARA4_CHEAT_GOLD,
+    BASARA4_CHEAT_COINS,
+    BASARA4_CHEAT_GROWTH_POINTS,
+    BASARA4_CHEAT_WEAPON_POINTS,
+    BASARA4_CHEAT_WEAPON_RANK,
+    BASARA4_CHEAT_COUNT
+};
+
+#define SUMERAGI_CHEAT_GOLD BASARA4_CHEAT_GOLD
+#define SUMERAGI_CHEAT_COINS BASARA4_CHEAT_COINS
+#define SUMERAGI_CHEAT_GROWTH_POINTS BASARA4_CHEAT_GROWTH_POINTS
+#define SUMERAGI_CHEAT_WEAPON_POINTS BASARA4_CHEAT_WEAPON_POINTS
+#define SUMERAGI_CHEAT_WEAPON_RANK BASARA4_CHEAT_WEAPON_RANK
+#define SUMERAGI_CHEAT_COUNT BASARA4_CHEAT_COUNT
+
+#define SPARTAN_CHEAT_HEALTH BASARA4_CHEAT_GOLD
+#define SPARTAN_CHEAT_MAGIC BASARA4_CHEAT_COINS
+#define SPARTAN_CHEAT_ITEM BASARA4_CHEAT_GROWTH_POINTS
+#define SPARTAN_CHEAT_RAGE BASARA4_CHEAT_WEAPON_POINTS
+#define SPARTAN_CHEAT_ORBS BASARA4_CHEAT_WEAPON_RANK
+#define SPARTAN_CHEAT_COUNT BASARA4_CHEAT_COUNT
+
 typedef struct {
     uint32_t offset;
     unsigned id, length, replacement_length;
     unsigned char original[9], replacement[40];
     SpartanSignature site;  /* finds the hook in any build; offset is the reference build's */
 } SpartanCheatHook;
-/* Celogamez's CUSA01623 v01.02 cheats, adapted to the local executable's offsets.
- * https://github.com/GoldHEN/GoldHEN_Cheat_Repository/blob/main/json/CUSA01623_01.02.json */
+
 static const SpartanCheatHook spartanport_cheat_hooks[] = {
-    {0x5040e,SPARTAN_CHEAT_HEALTH,9,30,
-     {0xc4,0xc1,0x7a,0x11,0x85,0xcc,0x01,0,0},
-     {0x9c,0x41,0x80,0xbd,0x98,0x02,0,0,0,0x75,9,
-      0xc4,0xc1,0x7a,0x10,0x85,0xd0,0x01,0,0,0x9d,
-      0xc4,0xc1,0x7a,0x11,0x85,0xcc,0x01,0,0},
-     {"c4 c1 7a 11 85 cc 01 00 00 49 8b 45 00 4c 89 ef",0}},
-    {0x72cdc,SPARTAN_CHEAT_MAGIC,8,16,
-     {0xc5,0xfa,0x11,0x83,0xd0,0x01,0,0},
-     {0xc5,0xfa,0x10,0x83,0xd0,0x01,0,0,0xc5,0xfa,0x11,0x83,0xd0,0x01,0,0},
-     {"c5 fa 5f c2 c5 fa 5d c1 c5 fa 11 83 d0 01 00 00",8}},
-    {0x72d97,SPARTAN_CHEAT_ITEM,8,16,
-     {0xc5,0xfa,0x11,0x87,0xd4,0x01,0,0},
-     {0xc5,0xfa,0x10,0x87,0xd4,0x01,0,0,0xc5,0xfa,0x11,0x87,0xd4,0x01,0,0},
-     {"c5 fa 5f c2 c5 fa 5d c1 c5 fa 11 87 d4 01 00 00 c3",8}},
-    {0x6a9b8,SPARTAN_CHEAT_RAGE,8,10,
-     {0xc5,0xfa,0x11,0x8b,0xd8,0x01,0,0},
-     {0xc7,0x83,0xd8,0x01,0,0,0x28,0x6b,0x6e,0x4e},
-     {"80 8b 68 01 00 00 80 c5 fa 11 8b d8 01 00 00 c5 f8 2e e0 73 20",7}},
-    {0x6a6a0,SPARTAN_CHEAT_RAGE,8,10,
-     {0xc5,0xfa,0x11,0x8b,0xd8,0x01,0,0},
-     {0xc7,0x83,0xd8,0x01,0,0,0x28,0x6b,0x6e,0x4e},
-     {"c5 fa 11 8b d8 01 00 00 c5 fa 10 4d f4 c5 f8 2e c8",0}},
-    {0x6a9fc,SPARTAN_CHEAT_ORBS,8,10,
-     {0xc5,0xfa,0x11,0x87,0xe8,0x01,0,0},
-     {0xc7,0x87,0xe8,0x01,0,0,0xf0,0x23,0x74,0x49},
-     {"c5 fa 11 87 e8 01 00 00 48 8b 87 b0 01 00 00 a9 00 00 04 00",0}},
-    /* Override only the queried completion level, leaving stored progress untouched. */
-    {0xc77ea,SPARTAN_CHEAT_VERY_HARD,8,8,
-     {0xb8,3,0,0,0,0xf6,0xc1,8},
-     {0xb8,3,0,0,0,0x85,0xc0,0x90},
-     {"48 8b 08 b8 03 00 00 00 f6 c1 08 75 1b b8 02 00 00 00",3}},
-    /* Ignore the used-air-jump flag for Kratos, preserving every other movement check. */
-    {0x95d51,SPARTAN_CHEAT_DOUBLE_JUMPS,9,27,
-     {0x41,0xf6,0x84,0x24,0xac,4,0,0,4},
-     {0x41,0x80,0xbc,0x24,0x98,2,0,0,0,0x75,7,
-      0xa9,0,0,0,0,0xeb,9,
-      0x41,0xf6,0x84,0x24,0xac,4,0,0,4},
-     {"0f 84 ?? ?? ?? ?? 41 f6 84 24 ac 04 00 00 04 0f 85 ?? ?? ?? ??",6}}
+    /* 1. Gold Won't Decrease: original at 0x529a91 (fo 0x52da91) mov [rax+0xdc], ecx (6 bytes).
+     * Replacement: maxes wallet [rax+0xdc] = 0x09999999 and sets eax = 0x09999999 (15 bytes). */
+    {0x529a91, BASARA4_CHEAT_GOLD, 6, 15,
+     {0x89, 0x88, 0xdc, 0, 0, 0},
+     {0xc7, 0x80, 0xdc, 0, 0, 0, 0x99, 0x99, 0x99, 0x09, 0xb8, 0x99, 0x99, 0x99, 0x09},
+     {"41 2b 8e 70 07 00 00 41 0f 48 cf 89 88 dc 00 00 00", 11}},
+
+    /* 2. Special Coin x99999: original at 0x582b0 (fo 0x5c2b0) lock add [rdi+0x2e8], esi (7 bytes).
+     * Replacement: mov dword ptr [rdi+0x2e8], 999999 (0x000F423F) (10 bytes). */
+    {0x582b0, BASARA4_CHEAT_COINS, 7, 10,
+     {0xf0, 0x01, 0xb7, 0xe8, 0x02, 0, 0},
+     {0xc7, 0x87, 0xe8, 0x02, 0, 0, 0x3f, 0x42, 0x0f, 0},
+     {"f0 01 b7 e8 02 00 00 81 bf e8 02 00 00 40 42 0f 00", 0}},
+
+    /* 3a. Growth points won't decrease (Batch): original at 0x5028d4 sub [r13+0x6b4], eax (7 bytes).
+     * Replacement: maxes [r13+0x6b4] = 0x09999999 and sets eax = 0x09999999 (16 bytes). */
+    {0x5028d4, BASARA4_CHEAT_GROWTH_POINTS, 7, 16,
+     {0x41, 0x29, 0x85, 0xb4, 0x06, 0, 0},
+     {0x41, 0xc7, 0x85, 0xb4, 0x06, 0, 0, 0x99, 0x99, 0x99, 0x09, 0xb8, 0x99, 0x99, 0x99, 0x09},
+     {"49 8b 8d 20 06 00 00 41 8b 85 b8 06 00 00 41 29 85 b4 06 00 00", 14}},
+
+    /* 3b. Growth points won't decrease (Single): original at 0x5026d8 sub [r13+0x6b4], eax (7 bytes).
+     * Replacement: maxes [r13+0x6b4] = 0x09999999 and sets eax = 0x09999999 (16 bytes). */
+    {0x5026d8, BASARA4_CHEAT_GROWTH_POINTS, 7, 16,
+     {0x41, 0x29, 0x85, 0xb4, 0x06, 0, 0},
+     {0x41, 0xc7, 0x85, 0xb4, 0x06, 0, 0, 0x99, 0x99, 0x99, 0x09, 0xb8, 0x99, 0x99, 0x99, 0x09},
+     {"85 68 06 00 00 00 00 00 00 41 8b 85 b8 06 00 00 41 29 85 b4 06 00 00", 16}},
+
+    /* 4. Weapon points won't decrease: original at 0x560fc6 mov [rcx+0xe4], eax (6 bytes).
+     * Replacement: maxes [rcx+0xe4] = 0x00099999 and sets eax = 0x00099999 (15 bytes). */
+    {0x560fc6, BASARA4_CHEAT_WEAPON_POINTS, 6, 15,
+     {0x89, 0x81, 0xe4, 0, 0, 0},
+     {0xc7, 0x81, 0xe4, 0, 0, 0, 0x99, 0x99, 0x09, 0, 0xb8, 0x99, 0x99, 0x09, 0},
+     {"41 89 96 38 06 00 00 49 8b 0f 89 81 e4 00 00 00 41 8b b6 20 06 00 00", 10}},
+
+    /* 5. Weapon rank points won't decrease: original at 0x55e6a1 mov [rax+0xe8], edx (6 bytes).
+     * Replacement: maxes [rax+0xe8] = 0x00000099 and sets eax = 0x00000099 (15 bytes). */
+    {0x55e6a1, BASARA4_CHEAT_WEAPON_RANK, 6, 15,
+     {0x89, 0x90, 0xe8, 0, 0, 0},
+     {0xc7, 0x80, 0xe8, 0, 0, 0, 0x99, 0, 0, 0, 0xb8, 0x99, 0, 0, 0},
+     {"83 f9 02 41 0f 4c d7 89 90 e8 00 00 00 c4 c1 7a 10 8e c4 07 00 00", 7}}
 };
 #define SPARTAN_CHEAT_HOOK_COUNT (sizeof(spartanport_cheat_hooks)/sizeof(spartanport_cheat_hooks[0]))
 static inline int spartanport_cheat_signature_match(const SpartanCheatHook *hook,
