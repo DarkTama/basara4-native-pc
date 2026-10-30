@@ -8,6 +8,7 @@
  * no keyboard, no mouse aim, no QTE/dodge/combo helpers, no recording or
  * replay, so it can never double-trigger P1-only actions. The first SDL
  * gamepad found is P1, the second is P2; plug both in before launching.
+ * Set SPARTAN_COOP_PAD_TO_P2=1 to route a single gamepad to P2 (co-op with 1 gamepad + KBM).
  * This is untested against the real game (no game dump here): see
  * docs/COOP-LOCAL-2P.md for the build/test steps and the known unknowns.
  *
@@ -646,6 +647,21 @@ static void sample_gamepad(PadData *d, SDL_Gamepad *g) {
     }
 }
 
+/* Opt-in for single-controller co-op: routes the single gamepad to P2 so P1 can use KBM. */
+static int coop_pad_to_p2(void) {
+    const char *e=getenv("SPARTAN_COOP_PAD_TO_P2");
+    return e && !strcmp(e,"1");
+}
+
+static void note_single_gamepad_routing(int to_p2) {
+    static int logged=0;
+    if (!logged) {
+        logged=1;
+        if (to_p2) puts("Runtime: single gamepad routed to player 2 (SPARTAN_COOP_PAD_TO_P2)");
+        else puts("Runtime: single gamepad routed to player 1");
+    }
+}
+
 static void sample_host(PadData *d) {
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
@@ -657,12 +673,16 @@ static void sample_host(PadData *d) {
     if (spartanportgpu_overlay_captures_input()) { drop_wheel(); return; } /* settings menu open: neutral input */
     const bool *k=SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetKeyboardState(NULL) : NULL;
     load_button_maps();
-    /* If exactly 1 gamepad is connected and 2 players are active, route that gamepad to P2 only,
-     * leaving P1 exclusively on Keyboard & Mouse to prevent one gamepad controlling both players. */
+    /* Route gamepad input:
+     * - Default: Gamepad 1 drives P1 (along with Keyboard/Mouse).
+     * - Opt-in (SPARTAN_COOP_PAD_TO_P2=1): with exactly 1 gamepad, it routes to P2 instead,
+     *   leaving P1 on Keyboard & Mouse only. */
     int gamepad_count=0;
     SDL_JoystickID *gamepad_ids=SDL_GetGamepads(&gamepad_count);
     if (gamepad_ids) SDL_free(gamepad_ids);
-    if (gamepad_count>1 || (gamepad_count==1 && !opened[1])) {
+    const int to_p2=coop_pad_to_p2();
+    if (gamepad_count==1) note_single_gamepad_routing(to_p2);
+    if (gamepad_count>1 || (gamepad_count==1 && !to_p2)) {
         sample_gamepad(d,g);
     }
     /* The keyboard works with or without a gamepad: its buttons add to the pad's, and a stick
@@ -956,19 +976,25 @@ static void sample(PadData *d) {
 
 /* Local 2-player co-op (coop-local-2p): the game's original PS4 release is a
  * 1-2 player game, so this runtime exposes two pads.
- * Hybrid Controller x Keyboard+Mouse:
- *   - If only 1 gamepad is connected, Pad 1 uses Keyboard+Mouse (P1) and
- *     Pad 2 automatically uses that gamepad (P2), allowing Co-op with 1 Controller + KBM!
- *   - If 2 gamepads are connected:
+ * Gamepad routing:
+ *   - Default (1 gamepad): Gamepad 1 -> P1 (along with Keyboard/Mouse);
+ *     Pad 2 gets no gamepad.
+ *   - Default (2+ gamepads):
  *       Gamepad 1 -> P1 (along with Keyboard/Mouse)
  *       Gamepad 2 -> P2
+ *   - Opt-in 1-controller co-op (SPARTAN_COOP_PAD_TO_P2=1):
+ *     If exactly 1 gamepad is connected, Pad 1 uses Keyboard/Mouse only and
+ *     Pad 2 uses Gamepad 1, allowing co-op with 1 Controller + KBM.
  */
 static SDL_Gamepad *current_gamepad_for_p2(void) {
     int count=0;
     SDL_JoystickID *ids=SDL_GetGamepads(&count);
     if (ids) SDL_free(ids);
-    /* If exactly 1 gamepad is plugged in, assign it to P2 so P1 can use KBM */
-    if (count==1) return current_gamepad_for_slot(0);
+    const int to_p2=coop_pad_to_p2();
+    if (count==1) {
+        note_single_gamepad_routing(to_p2);
+        if (to_p2) return current_gamepad_for_slot(0);
+    }
     return current_gamepad_for_slot(1);
 }
 
