@@ -38,7 +38,7 @@ INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
 WINDOW_ICON = USER / "window_icon.bmp"
 CORE = BIN / "basara4-core.exe"
-VERSION = "1.0.6"
+VERSION = "1.1.0"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
@@ -221,7 +221,7 @@ import patches  # noqa: E402
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
-            "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": ""}
+            "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "", "pad_routing": "p1"}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -341,6 +341,67 @@ def enumerate_gpus():
 
 SYSTEM_GPUS = enumerate_gpus()
 
+
+def detect_connected_gamepads():
+    """Detects connected gamepads using bin/SDL3.dll via ctypes. Returns list of pad names."""
+    gamepads = []
+    sdl_dll = BIN / "SDL3.dll"
+    if not sdl_dll.is_file():
+        return gamepads
+    try:
+        import ctypes
+        sdl = ctypes.CDLL(str(sdl_dll))
+        SDL_INIT_GAMEPAD = 0x00002000
+        SDL_INIT_JOYSTICK = 0x00000200
+        if hasattr(sdl, "SDL_InitSubSystem"):
+            sdl.SDL_InitSubSystem.restype = ctypes.c_bool
+            sdl.SDL_InitSubSystem.argtypes = [ctypes.c_uint32]
+            sdl.SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)
+        if hasattr(sdl, "SDL_UpdateGamepads"):
+            sdl.SDL_UpdateGamepads()
+        if hasattr(sdl, "SDL_PumpEvents"):
+            sdl.SDL_PumpEvents()
+
+        if hasattr(sdl, "SDL_GetGamepads"):
+            sdl.SDL_GetGamepads.restype = ctypes.POINTER(ctypes.c_uint32)
+            sdl.SDL_GetGamepads.argtypes = [ctypes.POINTER(ctypes.c_int)]
+            count = ctypes.c_int(0)
+            pads = sdl.SDL_GetGamepads(ctypes.byref(count))
+            if pads and count.value > 0:
+                if hasattr(sdl, "SDL_GetGamepadNameForID"):
+                    sdl.SDL_GetGamepadNameForID.restype = ctypes.c_char_p
+                    sdl.SDL_GetGamepadNameForID.argtypes = [ctypes.c_uint32]
+                for i in range(count.value):
+                    name_bytes = sdl.SDL_GetGamepadNameForID(pads[i]) if hasattr(sdl, "SDL_GetGamepadNameForID") else None
+                    name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Controller {i + 1}"
+                    gamepads.append(name)
+                if hasattr(sdl, "SDL_free"):
+                    sdl.SDL_free(pads)
+
+        if not gamepads and hasattr(sdl, "SDL_GetJoysticks"):
+            sdl.SDL_GetJoysticks.restype = ctypes.POINTER(ctypes.c_uint32)
+            sdl.SDL_GetJoysticks.argtypes = [ctypes.POINTER(ctypes.c_int)]
+            jcount = ctypes.c_int(0)
+            joys = sdl.SDL_GetJoysticks(ctypes.byref(jcount))
+            if joys and jcount.value > 0:
+                if hasattr(sdl, "SDL_GetJoystickNameForID"):
+                    sdl.SDL_GetJoystickNameForID.restype = ctypes.c_char_p
+                    sdl.SDL_GetJoystickNameForID.argtypes = [ctypes.c_uint32]
+                for i in range(jcount.value):
+                    name_bytes = sdl.SDL_GetJoystickNameForID(joys[i]) if hasattr(sdl, "SDL_GetJoystickNameForID") else None
+                    name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Joystick {i + 1}"
+                    gamepads.append(name)
+                if hasattr(sdl, "SDL_free"):
+                    sdl.SDL_free(joys)
+
+        if hasattr(sdl, "SDL_QuitSubSystem"):
+            sdl.SDL_QuitSubSystem.argtypes = [ctypes.c_uint32]
+            sdl.SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)
+    except Exception:
+        pass
+    return gamepads
+
+
 DISPLAY_MODES_EN = [("Windowed", "windowed"), ("Borderless", "borderless"), ("Exclusive", "fullscreen")]
 DISPLAY_MODES_ID = [("Jendela", "windowed"), ("Tanpa Batas", "borderless"), ("Layar Penuh", "fullscreen")]
 
@@ -354,8 +415,19 @@ RESOLUTIONS_EN = [("1920 x 1080  (native)", "native"), ("1280 x 720", "720p"), (
 RESOLUTIONS_ID = [("1920 x 1080  (asli)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
                   ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
 
-UPSCALERS_EN = [("Off  (plain scaling)", "off"), ("FSR 1  (sharper)", "fsr1")]
-UPSCALERS_ID = [("Nonaktif  (skala standar)", "off"), ("FSR 1  (lebih tajam)", "fsr1")]
+UPSCALERS_EN = [("Off (Native 1080p)", "off"), ("FSR 1 (Spatial Sharpening)", "fsr1"),
+                ("FSR 3.1 (Temporal Reconstruction)", "fsr3"), ("DLSS (NVIDIA RTX)", "dlss")]
+UPSCALERS_ID = [("Nonaktif (Native 1080p)", "off"), ("FSR 1 (Penajaman Spasial)", "fsr1"),
+                ("FSR 3.1 (Rekonstruksi Temporal)", "fsr3"), ("DLSS (Khusus NVIDIA RTX)", "dlss")]
+
+PAD_ROUTINGS_EN = [
+    ("Player 1 (Default: Gamepad + Keyboard/Mouse)", "p1"),
+    ("Player 2 (Co-op: Gamepad ke P2, P1 pakai Keyboard+Mouse)", "p2"),
+]
+PAD_ROUTINGS_ID = [
+    ("Player 1 (Default: Gamepad + Keyboard/Mouse)", "p1"),
+    ("Player 2 (Co-op: Gamepad ke P2, P1 pakai Keyboard+Mouse)", "p2"),
+]
 
 ANISO_EN = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 ANISO_ID = [("Nonaktif", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
@@ -367,8 +439,12 @@ FPS_LIMIT_MAP = {
 }
 
 UPSCALER_MAP = {
+    "Off (Native 1080p)": "off", "Nonaktif (Native 1080p)": "off",
     "Off  (plain scaling)": "off", "Nonaktif  (skala standar)": "off", "Off": "off", "Nonaktif": "off",
-    "FSR 1  (sharper)": "fsr1", "FSR 1  (lebih tajam)": "fsr1", "fsr1": "fsr1", "off": "off"
+    "FSR 1 (Spatial Sharpening)": "fsr1", "FSR 1 (Penajaman Spasial)": "fsr1",
+    "FSR 1  (sharper)": "fsr1", "FSR 1  (lebih tajam)": "fsr1", "fsr1": "fsr1", "off": "off",
+    "FSR 3.1 (Temporal Reconstruction)": "fsr3", "FSR 3.1 (Rekonstruksi Temporal)": "fsr3", "fsr3": "fsr3",
+    "DLSS (NVIDIA RTX)": "dlss", "DLSS (Khusus NVIDIA RTX)": "dlss", "dlss": "dlss",
 }
 
 ANISO_MAP = {
@@ -403,14 +479,14 @@ PAGE_SUBTITLE_ID = {"display": "Diterapkan saat Anda menekan tombol PLAY berikut
 PAGE_HINT_EN = {
     "game": "The game image is made on the first start (about a minute).",
     "display": "In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
-    "controls": "Map controller: press each pad button when asked. Skip it if your pad already works.",
+    "controls": "Controller management, routing (P1 / P2 co-op), button mapping, and KBM settings.",
     "mods": "Import needs your own PS3 patch files. Cheats can also be toggled in game.",
     "tools": "Open log: the launcher and runtime log of the last run.",
 }
 PAGE_HINT_ID = {
     "game": "Game image dibuat saat pertama kali mulai (sekitar satu menit).",
     "display": "Menu dalam game: Insert, atau R3 + L2 pada stick (bisa diubah di sana juga).",
-    "controls": "Atur controller: tekan tombol stick saat diminta. Lewati jika stick sudah berfungsi.",
+    "controls": "Manajemen controller: deteksi gamepad, routing (P1 / P2 co-op), pemetaan tombol, dan KBM.",
     "mods": "Impor memerlukan file patch PS3 Anda sendiri. Cheat juga dapat diaktifkan di dalam game.",
     "tools": "Buka log: log launcher dan runtime dari sesi permainan terakhir.",
 }
@@ -428,12 +504,15 @@ ROW_EN = {
     "gpu": ("Graphics card", "Auto picks the discrete GPU when there is one."),
     "resolution": ("Window size", "The game draws at 1080p. Window size sets windowed mode."),
     "fps": ("Frame limit", "Above 60 turns off the game's own limiter. VSync still caps at monitor refresh."),
-    "upscale": ("Upscaling", "FSR 1 sharpens if the screen is above 1080p."),
+    "upscale": ("Upscaling", "FSR 1 spatial sharpening or FSR 3.1 temporal reconstruction / DLSS for higher clarity."),
     "aniso": ("Anisotropic", "Texture filtering: sharper at a slant, costs a little speed."),
     "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
     "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
-    "pad": ("Gamepad", "Custom mapping is made with the buttons below."),
-    "map_pad": ("Map controller", "Press each pad button when asked. Skip it if your pad already works."),
+    "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
+    "pad_routing": ("Gamepad Routing", "Assign gamepad to Player 1 (Default: Gamepad + Keyboard/Mouse) or Player 2 (Co-op)."),
+    "pad": ("Gamepad Mapping", "Custom controller mapping state (gamepad_mapping.txt vs default)."),
+    "pad_actions": ("Mapping Actions", "Configure gamepad buttons/sticks or reset back to default database."),
+    "map_pad": ("Map All Buttons", "Press each gamepad button when prompted in the mapper window."),
     "map_sticks": ("Map sticks only", "Maps only the two sticks; the buttons stay as they are."),
     "reset_map": ("Reset mapping", "Deletes the saved controller mapping (a .bak copy is kept)."),
     "keymap": ("Keyboard & Mouse controls", "Choose the key and mouse bindings and the mouse camera."),
@@ -466,12 +545,15 @@ ROW_ID = {
     "gpu": ("Kartu grafis (GPU)", "Otomatis memilih GPU diskrit jika tersedia."),
     "resolution": ("Ukuran jendela", "Game dirender pada 1080p. Ukuran jendela mengatur resolusi tampilan."),
     "fps": ("Batas FPS", "Di atas 60 mematikan pembatas bawaan game. VSync tetap membatasi ke refresh monitor."),
-    "upscale": ("Upscaling", "FSR 1 mempertajam tampilan jika resolusi di atas 1080p."),
+    "upscale": ("Upscaling", "FSR 1 penajaman spasial atau FSR 3.1 rekonstruksi temporal / DLSS untuk gambar lebih jernih."),
     "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
     "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
     "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
-    "pad": ("Gamepad / Controller", "Pemetaan kustom dibuat dengan tombol di bawah."),
-    "map_pad": ("Atur controller", "Tekan setiap tombol stick saat diminta. Lewati jika stick sudah berfungsi."),
+    "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Refresh untuk memindai ulang."),
+    "pad_routing": ("Penugasan Controller", "Arahkan gamepad ke Player 1 (Default: Gamepad + Keyboard/Mouse) atau Player 2 (Co-op)."),
+    "pad": ("Pemetaan Gamepad", "Status pemetaan controller kustom (gamepad_mapping.txt vs default)."),
+    "pad_actions": ("Aksi Pemetaan", "Konfigurasi tombol/analog stick controller atau reset ke database default."),
+    "map_pad": ("Atur Semua Tombol", "Tekan setiap tombol stick saat diminta di jendela mapper."),
     "map_sticks": ("Atur analog saja", "Hanya mengatur kedua analog stick; tombol lainnya tetap."),
     "reset_map": ("Reset pemetaan", "Menghapus pemetaan controller yang tersimpan (salinan .bak disimpan)."),
     "keymap": ("Kontrol Keyboard & Mouse", "Atur tombol keyboard, mouse, dan kamera mouse."),
@@ -509,8 +591,8 @@ UI_STRINGS_EN = {
     "rebuild": "Rebuild",
     "open": "Open",
     "on": "On",
-    "pad_custom": "Custom gamepad mapping in use.",
-    "pad_default": "No custom mapping: XInput, database and known pads work as they are.",
+    "pad_custom": "Custom Map active (gamepad_mapping.txt)",
+    "pad_default": "Default XInput / SDL Database active",
     "image_no_eboot": "No eboot.bin in this folder.",
     "image_ready": "Game image ready.",
     "image_needed": "The game image is made on the first start (about a minute); again if eboot.bin changes.",
@@ -548,8 +630,8 @@ UI_STRINGS_ID = {
     "rebuild": "Bangun Ulang",
     "open": "Buka",
     "on": "Aktif",
-    "pad_custom": "Pemetaan gamepad kustom sedang digunakan.",
-    "pad_default": "Tanpa pemetaan kustom: XInput, database dan stick umum langsung berfungsi.",
+    "pad_custom": "Custom Map aktif (gamepad_mapping.txt)",
+    "pad_default": "Default XInput / SDL Database aktif",
     "image_no_eboot": "Tidak ada eboot.bin di folder ini.",
     "image_ready": "Game image siap.",
     "image_needed": "Game image dibuat saat pertama kali mulai (sekitar satu menit); diperbarui jika eboot.bin berubah.",
@@ -576,11 +658,14 @@ DISPLAY_MODES = DISPLAY_MODES_EN
 FPS_LIMITS = FPS_LIMITS_EN
 RESOLUTIONS = RESOLUTIONS_EN
 UPSCALERS = UPSCALERS_EN
+PAD_ROUTINGS = PAD_ROUTINGS_EN
 ANISO = ANISO_EN
 ROW = ROW_EN
 NAV = NAV_EN
 PAGE_HINT = PAGE_HINT_EN
 PAGE_SUBTITLE = PAGE_SUBTITLE_EN
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse"}
 GROUP = GROUP_EN
 CHEAT_HINT = CHEAT_HINT_EN
 
@@ -835,6 +920,9 @@ class Launcher(tk.Tk):
         self.mouse_sens_var = tk.IntVar(value=self.cfg.get("mouse_sens", 100))
         self.mouse_invert_x_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_x", False))
         self.mouse_invert_y_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_y", False))
+        cur_routing = self.cfg.get("pad_routing", "p1")
+        initial_routing = next((n for n, v in PAD_ROUTINGS if v == cur_routing), PAD_ROUTINGS[0][0])
+        self.pad_routing_var = tk.StringVar(value=initial_routing)
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
 
         shell = tk.Frame(self, bg=BG)
@@ -943,6 +1031,9 @@ class Launcher(tk.Tk):
         self.pages[key].pack(fill="both", expand=True)
         self._light(None)
         self.hint.config(text=PAGE_HINT[key])
+        if key == "controls":
+            self._refresh_gamepads()
+            self._pad_text()
 
     # ---- settings rows ----
     def _light(self, bar):
@@ -1065,20 +1156,163 @@ class Launcher(tk.Tk):
         self._check_row(page, "rcas", self.rcas_var)
 
     def _page_controls(self, page):
-        def pad(holder):
+        canvas = tk.Canvas(page, bg=PANEL, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
+        content = tk.Frame(canvas, bg=PANEL)
+        content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        cwin = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def on_canvas_configure(e):
+            canvas.itemconfig(cwin, width=e.width)
+
+        canvas.bind("<Configure>", on_canvas_configure)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _bind_mw(w):
+            w.bind("<MouseWheel>", _on_mousewheel, add="+")
+            for c in w.winfo_children():
+                _bind_mw(c)
+
+        self._group(content, "controller")
+
+        # 1. Controller Detection & Live Status
+        def pad_detect(holder):
+            btn = ttk.Button(holder, text="Refresh / Deteksi Ulang", command=self._refresh_gamepads)
+            btn.pack(side="right", padx=(6, 0))
+            self.detected_pads_label = tk.Label(holder, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9),
+                                                justify="right", anchor="e")
+            self.detected_pads_label.pack(side="right", fill="x", expand=True)
+            self._refresh_gamepads()
+
+        self._row(content, "pad_detect", pad_detect, width=370)
+
+        # 2. Player Assignment (Option A: P1 / P2 / KBM Co-op)
+        self._combo_row(content, "pad_routing", self.pad_routing_var, [n for n, _ in PAD_ROUTINGS])
+
+        # 3. Controller Mapping & Visual Layout Indicators
+        def pad_status(holder):
             self.pad_label = tk.Label(holder, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=340,
                                       justify="right", anchor="e")
             self.pad_label.pack(side="right")
-        self._row(page, "pad", pad, width=None)
+
+        self._row(content, "pad", pad_status, width=None)
         self._pad_text()
-        self._button_row(page, "map_pad", "Map…", lambda: self.map_pad([]))
-        self._button_row(page, "map_sticks", "Map sticks…", lambda: self.map_pad(["--sticks"]))
-        self._button_row(page, "reset_map", "Reset", self.reset_map)
-        self._button_row(page, "keymap", "Edit…", self.open_keymap_ui)
-        self._check_row(page, "mouse_camera", self.mouse_camera_var)
-        self._slider_row(page, "mouse_sens", self.mouse_sens_var, 20, 300)
-        self._check_row(page, "mouse_invert_x", self.mouse_invert_x_var)
-        self._check_row(page, "mouse_invert_y", self.mouse_invert_y_var)
+
+        def pad_actions(holder):
+            ttk.Button(holder, text="Map All Buttons…", command=lambda: self.map_pad([])).pack(
+                side="left", padx=2, fill="x", expand=True)
+            ttk.Button(holder, text="Map Sticks Only…", command=lambda: self.map_pad(["--sticks"])).pack(
+                side="left", padx=2, fill="x", expand=True)
+            ttk.Button(holder, text="Reset Custom Mapping", command=self.reset_map).pack(
+                side="left", padx=2, fill="x", expand=True)
+
+        self._row(content, "pad_actions", pad_actions, width=380)
+
+        # Interactive Visual Layout Guide Card
+        card = tk.Frame(content, bg=FIELD, highlightbackground=EDGE, highlightthickness=1)
+        card.pack(fill="x", padx=10, pady=(8, 6))
+
+        top_bar = tk.Frame(card, bg=FIELD)
+        top_bar.pack(fill="x", padx=10, pady=(6, 4))
+        is_id = self.cfg.get("language") == "id"
+        guide_title = "🎮 Layout Aksi Controller" if is_id else "🎮 Controller Layout & Action Guide"
+        tk.Label(top_bar, text=guide_title, bg=FIELD, fg=GOLD, font=("Segoe UI Semibold", 9)).pack(side="left")
+
+        btn_ps = tk.Button(top_bar, text="PlayStation", font=("Segoe UI", 8), bd=0, padx=8, pady=2, cursor="hand2")
+        btn_xbox = tk.Button(top_bar, text="Xbox (XInput)", font=("Segoe UI", 8), bd=0, padx=8, pady=2, cursor="hand2")
+        btn_ps.pack(side="right", padx=2)
+        btn_xbox.pack(side="right", padx=2)
+
+        diag_frame = tk.Frame(card, bg=FIELD)
+        diag_frame.pack(fill="x", padx=10, pady=(2, 6))
+
+        if is_id:
+            xbox_data = [
+                (("LS", "Gerak Karakter"), ("RS", "Putar Kamera")),
+                (("D-Pad", "Perintah Sekutu"), ("X", "Serangan Biasa")),
+                (("LB", "Tangkis / Evade"), ("Y", "Skill Spesial 1")),
+                (("LT", "Sengoku Drive"), ("A", "Lompat / Konfirmasi")),
+                (("Back", "Ejekan (Taunt)"), ("B", "Serangan Basara")),
+                (("Start", "Menu Jeda / Pause"), ("RB / RT", "Skill 2 / Skill 3")),
+            ]
+            ps_data = [
+                (("LS / L3", "Gerak Karakter"), ("RS / R3", "Putar Kamera")),
+                (("D-Pad", "Perintah Sekutu"), ("Kotak (□)", "Serangan Biasa")),
+                (("L1", "Tangkis / Evade"), ("Segitiga (△)", "Skill Spesial 1")),
+                (("L2", "Sengoku Drive"), ("Silang (✕)", "Lompat / Konfirmasi")),
+                (("Touchpad", "Ejekan (Taunt)"), ("Lingkaran (◯)", "Serangan Basara")),
+                (("Options", "Menu Jeda / Pause"), ("R1 / R2", "Skill 2 / Skill 3")),
+            ]
+        else:
+            xbox_data = [
+                (("LS", "Move Character"), ("RS", "Camera Look")),
+                (("D-Pad", "Ally Orders"), ("X", "Normal Attack")),
+                (("LB", "Guard / Evade"), ("Y", "Special Skill 1")),
+                (("LT", "Sengoku Drive"), ("A", "Jump / Confirm")),
+                (("Back", "Taunt / Provoke"), ("B", "Basara Attack")),
+                (("Start", "Pause Menu"), ("RB / RT", "Skill 2 / Skill 3")),
+            ]
+            ps_data = [
+                (("LS / L3", "Move Character"), ("RS / R3", "Camera Look")),
+                (("D-Pad", "Ally Orders"), ("Square (□)", "Normal Attack")),
+                (("L1", "Guard / Evade"), ("Triangle (△)", "Special Skill 1")),
+                (("L2", "Sengoku Drive"), ("Cross (✕)", "Jump / Confirm")),
+                (("Touchpad", "Taunt / Provoke"), ("Circle (◯)", "Basara Attack")),
+                (("Options", "Pause Menu"), ("R1 / R2", "Skill 2 / Skill 3")),
+            ]
+
+        rows_widgets = []
+        for r in range(6):
+            f_l = tk.Frame(diag_frame, bg=FIELD)
+            f_l.grid(row=r, column=0, sticky="w", pady=1, padx=(0, 10))
+            b_l = tk.Label(f_l, text="", bg="#25211c", fg=GOLD, font=("Segoe UI", 8, "bold"), width=12, anchor="center")
+            b_l.pack(side="left")
+            a_l = tk.Label(f_l, text="", bg=FIELD, fg=FG, font=("Segoe UI", 8))
+            a_l.pack(side="left", padx=(4, 0))
+
+            f_r = tk.Frame(diag_frame, bg=FIELD)
+            f_r.grid(row=r, column=1, sticky="w", pady=1)
+            b_r = tk.Label(f_r, text="", bg="#25211c", fg=GOLD, font=("Segoe UI", 8, "bold"), width=12, anchor="center")
+            b_r.pack(side="left")
+            a_r = tk.Label(f_r, text="", bg=FIELD, fg=FG, font=("Segoe UI", 8))
+            a_r.pack(side="left", padx=(4, 0))
+
+            rows_widgets.append(((b_l, a_l), (b_r, a_r)))
+
+        def show_layout(mode):
+            data = xbox_data if mode == "xbox" else ps_data
+            for i, ((btn1, act1), (btn2, act2)) in enumerate(data):
+                (b_l, a_l), (b_r, a_r) = rows_widgets[i]
+                b_l.config(text=btn1)
+                a_l.config(text=act1)
+                b_r.config(text=btn2)
+                a_r.config(text=act2)
+            if mode == "xbox":
+                btn_xbox.config(bg=GOLD, fg=BG, font=("Segoe UI", 8, "bold"))
+                btn_ps.config(bg="#26211d", fg=MUTED, font=("Segoe UI", 8))
+            else:
+                btn_ps.config(bg=GOLD, fg=BG, font=("Segoe UI", 8, "bold"))
+                btn_xbox.config(bg="#26211d", fg=MUTED, font=("Segoe UI", 8))
+
+        btn_xbox.config(command=lambda: show_layout("xbox"))
+        btn_ps.config(command=lambda: show_layout("ps"))
+        show_layout("xbox")
+
+        # 4. Keyboard & Mouse Controls Settings
+        self._group(content, "kbm")
+        self._button_row(content, "keymap", "Edit Custom Keymap…", self.open_keymap_ui)
+        self._check_row(content, "mouse_camera", self.mouse_camera_var)
+        self._slider_row(content, "mouse_sens", self.mouse_sens_var, 20, 300)
+        self._check_row(content, "mouse_invert_x", self.mouse_invert_x_var)
+        self._check_row(content, "mouse_invert_y", self.mouse_invert_y_var)
+
+        _bind_mw(canvas)
+        _bind_mw(content)
 
     def _page_mods(self, page):
         self._group(page, "translation")
@@ -1210,8 +1444,18 @@ class Launcher(tk.Tk):
             self.rcas_var.set(ini["rcas"] == "1")
         res = ini.get("render_resolution", self.cfg["resolution"])
         self.res_var.set(next((n for n, v in RESOLUTIONS if v == res), RESOLUTIONS[0][0]))
-        fsr = ini.get("fsr1")
-        up = ("fsr1" if fsr == "1" else "off") if fsr is not None else self.cfg["upscale"]
+        upscaler_val = ini.get("upscaler")
+        fsr1_val = ini.get("fsr1")
+        if upscaler_val == "fsr3":
+            up = "fsr3"
+        elif upscaler_val == "dlss":
+            up = "dlss"
+        elif fsr1_val == "1":
+            up = "fsr1"
+        elif upscaler_val is not None or fsr1_val is not None:
+            up = "off"
+        else:
+            up = self.cfg.get("upscale", "off")
         self.up_var.set(next((n for n, v in UPSCALERS if v == up), UPSCALERS[0][0]))
         fps = int(self.cfg["fps_limit"])
         self.fps_var.set(next((n for n, v in FPS_LIMITS if v == fps), FPS_LIMITS[0][0]))
@@ -1248,19 +1492,41 @@ class Launcher(tk.Tk):
                     pass
 
     def _pad_text(self):
-        self.pad_label.config(text="Custom gamepad mapping in use." if MAPPING.exists()
-                              else "No custom mapping: XInput, database and known pads work as they are.")
+        if hasattr(self, "pad_label"):
+            is_id = self.cfg.get("language") == "id"
+            if MAPPING.exists():
+                txt = "Status: Pemetaan Kustom aktif (gamepad_mapping.txt)" if is_id else "Status: Custom mapping active (gamepad_mapping.txt)"
+                self.pad_label.config(text=txt, fg=GOLD)
+            else:
+                txt = "Status: Default XInput / SDL Database aktif" if is_id else "Status: Default XInput / SDL Database active"
+                self.pad_label.config(text=txt, fg=MUTED)
+
+    def _refresh_gamepads(self):
+        pads = detect_connected_gamepads()
+        is_id = self.cfg.get("language") == "id"
+        if pads:
+            pad_lines = [f"🎮 Controller {i + 1}: {name}" for i, name in enumerate(pads)]
+            text = " | ".join(pad_lines) if len(pad_lines) <= 2 else f"🎮 {len(pads)} Controllers: " + ", ".join(pads[:2]) + "..."
+            color = GOLD
+        else:
+            text = "🎮 Tidak ada controller terdeteksi (Keyboard & Mouse aktif)" if is_id else "🎮 No gamepad detected (Keyboard & Mouse active)"
+            color = MUTED
+        if hasattr(self, "detected_pads_label"):
+            self.detected_pads_label.config(text=text, fg=color)
 
     def _collect(self):
         selected_gpu_name = self.gpu_var.get()
         selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
+        routing_str = self.pad_routing_var.get() if hasattr(self, "pad_routing_var") else ""
+        routing_val = "p2" if "Player 2" in routing_str else "p1"
         self.cfg.update(
             game=self.game_var.get().strip(),
             game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
             dlc_folder=self.dlc_var.get().strip() if hasattr(self, "dlc_var") else "",
             display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
             rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
-            resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
+            resolution=dict(RESOLUTIONS)[self.res_var.get()],
+            upscale=dict(UPSCALERS).get(self.up_var.get(), "off"),
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
             audio_wav=self.audio_var.get() and self.wav_var.get(),
             gpu_index=selected_gpu_idx,
@@ -1268,13 +1534,26 @@ class Launcher(tk.Tk):
             mouse_camera=self.mouse_camera_var.get(),
             mouse_sens=int(self.mouse_sens_var.get()),
             mouse_invert_x=self.mouse_invert_x_var.get(),
-            mouse_invert_y=self.mouse_invert_y_var.get())
+            mouse_invert_y=self.mouse_invert_y_var.get(),
+            pad_routing=routing_val)
         save_config(self.cfg)
+
+        up_val = self.cfg.get("upscale", "off")
+        if up_val == "fsr1":
+            fsr1_val, upscaler_val = 1, "off"
+        elif up_val == "fsr3":
+            fsr1_val, upscaler_val = 0, "fsr3"
+        elif up_val == "dlss":
+            fsr1_val, upscaler_val = 0, "dlss"
+        else:
+            fsr1_val, upscaler_val = 0, "off"
+
         write_ini(self._ini(), {
             "display_mode": self.cfg["display_mode"], "vsync": int(self.cfg["vsync"]),
             "fps_limit": self.cfg["fps_limit"], "rcas": int(self.cfg["rcas"]),
             "anisotropy": self.cfg["anisotropy"], "render_resolution": self.cfg["resolution"],
-            "fsr1": int(self.cfg["upscale"] == "fsr1"),
+            "fsr1": fsr1_val,
+            "upscaler": upscaler_val,
             "gpu_id": self.cfg.get("gpu_index", -1),
             **{key: int(var.get()) for key, var in self.cheat_vars.items()}})
 
@@ -1303,6 +1582,10 @@ class Launcher(tk.Tk):
             env["SPARTAN_WINDOW_ICON"] = str(WINDOW_ICON)
         if MAPPING.exists():
             env["SDL_GAMECONTROLLERCONFIG_FILE"] = str(MAPPING)
+        if self.cfg.get("pad_routing") == "p2":
+            env["SPARTAN_COOP_PAD_TO_P2"] = "1"
+        else:
+            env.pop("SPARTAN_COOP_PAD_TO_P2", None)
         if self.cfg.get("audio_log"):  # one timestamped line per audio event, for bug reports
             env["SPARTAN_AUDIO_DEBUG"] = str(AUDIO_LOG)
         if self.cfg.get("audio_log") and self.cfg.get("audio_wav"):  # needs about 70 MB per minute
