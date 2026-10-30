@@ -43,6 +43,7 @@ from basara4_tex import (
     decode_bc3_to_rgba,
     deswizzle_bc3,
     get_swizzle_indices,
+    is_ui_text_texture,
     make_synthetic_tex_header,
     morton2d_8x8,
     parse_tex_header,
@@ -262,6 +263,131 @@ class TestTexBasics(unittest.TestCase):
         self.assertLessEqual(
             int(np.max(diff_bg)), 5, f"Magenta blue-green aberration detected on edge: max diff {np.max(diff_bg)}"
         )
+
+    def test_is_ui_text_texture_filter(self):
+        """Verifies whitelist and blacklist keyword filtering in is_ui_text_texture."""
+        # Non-text texture blacklists
+        self.assertFalse(is_ui_text_texture("ui/tex/jpn/id_face/id_face_000_ID_HQ"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/cp_face/cp_face_00"))
+        self.assertFalse(is_ui_text_texture("ui/tex/jpn/hiface/hiface_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/jpn/nenpyo_face/face_02"))
+        self.assertFalse(is_ui_text_texture("ui/tex/jpn/list_face/list_00"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/bust_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/stand_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/cutin_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/illust_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/cos_image_01"))
+        self.assertFalse(is_ui_text_texture("model/chr/body_01"))
+        self.assertFalse(is_ui_text_texture("model/chr/model_mesh"))
+        self.assertFalse(is_ui_text_texture("effect/eff01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/photo_01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/bg_main"))
+        self.assertFalse(is_ui_text_texture("stage/st01/stage_tex"))
+        self.assertFalse(is_ui_text_texture("stage/st01/st_m01"))
+        self.assertFalse(is_ui_text_texture("stage/st01/st_s01"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/map_minimap"))
+        self.assertFalse(is_ui_text_texture("ui/tex/cmn/pos_marker"))
+
+        # Whitelist UI text textures
+        self.assertTrue(is_ui_text_texture("ui/tex/jpn/id_name/id_name_000_ID_HQ"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/text_dialog"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/font_kor"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/msg_board"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/button_guide"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/rule_book"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/guide_dialog"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/wep_list"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/setup_menu"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/settei_opt"))
+
+        # Whitelist keyword overrides blacklist keyword
+        self.assertTrue(is_ui_text_texture("ui/tex/jpn/id_face_name"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/title_bg"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/stage_rule"))
+        self.assertTrue(is_ui_text_texture("ui/tex/cmn/model_text"))
+
+    def test_classify_path_filtering(self):
+        """Verifies that classify respects texture_path filter:
+        - ui/tex/jpn/id_face/id_face_000_ID_HQ is False (non_text_texture)
+        - ui/tex/jpn/id_name/id_name_000_ID_HQ is True (translated)
+        """
+        w3, h3 = 64, 64
+        w4, h4 = 128, 128
+
+        # Completely different textures that would classify as translated if inspected
+        im3 = Image.new("RGBA", (w3, h3), (0, 0, 0, 0))
+        for y in range(20, 44):
+            for x in range(20, 44):
+                im3.putpixel((x, y), (255, 255, 255, 255))
+
+        im4 = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
+
+        tex3 = make_synthetic_tex(w3, h3, im3, endian=">")
+        tex4 = make_synthetic_tex(w4, h4, im4, endian="<", tiled=True)
+
+        # Blacklisted portrait texture: must immediately return translated=False, reason="non_text_texture"
+        res_face = classify(tex3, tex4, texture_path="ui/tex/jpn/id_face/id_face_000_ID_HQ")
+        self.assertFalse(res_face["translated"])
+        self.assertEqual(res_face["reason"], "non_text_texture")
+
+        # Whitelisted text texture: passes filter and classifies based on visual differences
+        res_name = classify(tex3, tex4, texture_path="ui/tex/jpn/id_name/id_name_000_ID_HQ")
+        self.assertTrue(res_name["translated"])
+        self.assertIsNone(res_name["reason"])
+
+    def test_convert_ps3_to_ps4_gradient_alpha_preserved_without_holes(self):
+        """Verifies accurate magenta chroma-key purge and preservation of semi-transparent
+        alpha gradients without cutting low alpha (<= 16) or creating holes.
+        """
+        w3, h3 = 64, 64
+        w4, h4 = 128, 128
+
+        # Background has magenta chroma-key [123, 0, 123, 0] with alpha 0
+        im3 = Image.new("RGBA", (w3, h3), (123, 0, 123, 0))
+
+        # Soft gradient column with alpha values from 10 to 240 (including alpha <= 16)
+        # using character portrait / skin RGB tone [200, 160, 130]
+        for y in range(20, 44):
+            for x in range(24, 48):
+                # Gradient: x=24 has alpha=10 (<= 16), x=25 has alpha=20, etc.
+                alpha_val = int(10 + (x - 24) * 10)
+                alpha_val = min(255, max(1, alpha_val))
+                im3.putpixel((x, y), (200, 160, 130, alpha_val))
+
+        im4_dummy = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
+
+        ps3_tex = make_synthetic_tex(w3, h3, im3, endian=">")
+        ps4_tex = make_synthetic_tex(w4, h4, im4_dummy, endian="<", tiled=True)
+
+        converted = convert_ps3_to_ps4(ps3_tex, ps4_tex)
+        self.assertEqual(len(converted), len(ps4_tex))
+
+        # Decode converted PS4 texture back to RGBA
+        p4 = parse_tex_header(converted, endian="<")
+        deswz = deswizzle_bc3(converted[p4["pixel_offset"]:], w4, h4)
+        im_out = decode_bc3_to_rgba(deswz, w4, h4)
+        arr_out = np.array(im_out)
+
+        # 1. Background chroma-key magenta [123, 0, 123, 0] must be completely purged
+        bg_alpha = arr_out[:15, :15, 3]
+        bg_rgb = arr_out[:15, :15, :3]
+        self.assertTrue(np.all(bg_alpha == 0), f"Background alpha non-zero: {np.max(bg_alpha)}")
+        self.assertTrue(np.all(bg_rgb == 0), f"Background RGB non-zero: {np.max(bg_rgb)}")
+
+        # 2. Soft alpha gradient region: low-alpha pixels (e.g. corresponding to x=24 where alpha was 10)
+        # must NOT be zeroed out into holes!
+        # Upscaled x=24 maps to x=48..49 in PS4.
+        low_alpha_zone = arr_out[44:84, 48:50, 3]
+        self.assertTrue(np.all(low_alpha_zone > 0), f"Hole detected in low-alpha gradient: min={np.min(low_alpha_zone)}")
+        self.assertLessEqual(int(np.min(low_alpha_zone)), 30, f"Low-alpha gradient was crushed: min={np.min(low_alpha_zone)}")
+
+        # 3. Whole gradient area (x in 48..95, y in 44..84) must have positive alpha without holes
+        grad_zone_alpha = arr_out[44:84, 48:92, 3]
+        self.assertTrue(np.all(grad_zone_alpha > 0), f"Holes found in gradient alpha: zeros={np.count_nonzero(grad_zone_alpha == 0)}")
+
+        # 4. RGB in gradient zone must have skin tone preserved (not zeroed out)
+        grad_zone_rgb = arr_out[44:84, 48:92, :3]
+        self.assertTrue(np.all(grad_zone_rgb > 0), "RGB was zeroed out in gradient zone")
 
     def test_classify_scores(self):
         w3, h3 = 64, 64

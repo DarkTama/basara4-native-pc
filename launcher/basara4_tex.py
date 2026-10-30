@@ -211,10 +211,63 @@ def swizzle_bc3(linear_payload: bytes, w: int, h: int) -> bytes:
     return tiled_blocks.tobytes()
 
 
+WHITELIST_KEYWORDS = (
+    "name",
+    "text",
+    "font",
+    "msg",
+    "title",
+    "button",
+    "rule",
+    "guide",
+    "wep",
+    "setup",
+    "settei",
+)
+
+BLACKLIST_KEYWORDS = (
+    "face",
+    "bust",
+    "stand",
+    "cutin",
+    "illust",
+    "body",
+    "model",
+    "effect",
+    "cos_image",
+    "hiface",
+    "nenpyo_face",
+    "id_face",
+    "cp_face",
+    "list_face",
+    "photo",
+    "bg",
+    "stage",
+    "st_m",
+    "st_s",
+    "map",
+    "pos",
+)
+
+
+def is_ui_text_texture(path: str) -> bool:
+    """Checks whether a texture path represents UI text rather than portrait/3D/model/stage art."""
+    if not path:
+        return True
+    p = path.lower()
+    if any(kw in p for kw in WHITELIST_KEYWORDS):
+        return True
+    if any(kw in p for kw in BLACKLIST_KEYWORDS):
+        return False
+    return True
+
+
 def classify(
     ps3_tex: bytes,
     ps4_tex: bytes,
     threshold: float = 12.0,
+    texture_path: Optional[str] = None,
+    path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Classifies whether the PS3 texture contains an English translation compared
     to the native PS4 original.
@@ -228,6 +281,18 @@ def classify(
       - ps3_dims: (w, h)
       - ps4_dims: (w, h)
     """
+    t_path = texture_path if texture_path is not None else path
+    if t_path is not None and not is_ui_text_texture(t_path):
+        return {
+            "translated": False,
+            "score": 0.0,
+            "rgb_diff": 0.0,
+            "changed_pixels": 0,
+            "reason": "non_text_texture",
+            "ps3_dims": (0, 0),
+            "ps4_dims": (0, 0),
+        }
+
     try:
         h3 = parse_tex_header(ps3_tex, endian=">")
         h4 = parse_tex_header(ps4_tex, endian="<")
@@ -443,20 +508,24 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     im3 = decode_bc3_to_rgba(ps3_payload, w3, h3_px)
     arr3 = np.array(im3, dtype=np.float32)
 
-    # 2. Halo Purging:
-    # Before resizing, for any pixel where alpha <= 16 or magenta chroma key
-    # (abs(R - 123) <= 15 and abs(B - 123) <= 15 and G <= 25), set RGB and Alpha to 0
-    # to eliminate magenta fringe bleeding during Lanczos interpolation.
-    halo_mask = (
-        (arr3[:, :, 3] <= 16)
-        | (
-            (np.abs(arr3[:, :, 0] - 123) <= 15)
-            & (np.abs(arr3[:, :, 2] - 123) <= 15)
-            & (arr3[:, :, 1] <= 25)
-        )
+    # 2. Chroma-key Magenta Purge & Anti-bleed:
+    # Do NOT cut alpha <= 16 blindly! Soft alpha gradients must be preserved.
+    # Specifically target chroma-key magenta:
+    r3 = arr3[:, :, 0]
+    g3 = arr3[:, :, 1]
+    b3 = arr3[:, :, 2]
+    a3 = arr3[:, :, 3]
+
+    magenta_mask = (
+        (a3 == 0)
+        & (np.abs(r3 - 123) <= 12)
+        & (np.abs(b3 - 123) <= 12)
+        & (g3 <= 20)
     )
-    arr3[halo_mask, :3] = 0.0
-    arr3[halo_mask, 3] = 0.0
+    arr3[magenta_mask, :3] = 0.0
+
+    # For anti-bleed: only apply zeroing to RGB where alpha == 0 (clean unpremultiplied zero)
+    arr3[a3 == 0, :3] = 0.0
 
     # 3. Premultiply alpha before resize to eliminate color halos
     alpha3 = arr3[:, :, 3] / 255.0
@@ -475,11 +544,6 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     rgb_unpre = np.clip(np.round(arr_resized[:, :, :3] / alpha_norm[..., None]), 0, 255)
 
     # 6. Sharpness Enhancement (Remaster Pipeline):
-    # S-curve contrast boost on alpha channel (Hermite smoothstep S-curve)
-    a = np.clip(alpha_res / 255.0, 0.0, 1.0)
-    a_sharp = np.clip(3.0 * (a ** 2) - 2.0 * (a ** 3), 0.0, 1.0)
-    alpha_res = a_sharp * 255.0
-
     # Subtle unsharp mask on RGB where alpha > 32 to produce crisp vector-like text edges
     im_rgb = Image.fromarray(rgb_unpre.astype(np.uint8), mode="RGB")
     im_rgb_sharp = im_rgb.filter(ImageFilter.UnsharpMask(radius=1.0, percent=125, threshold=2))
@@ -493,12 +557,9 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     im_alpha_nearest = orig_alpha_im.resize((w4, h4_px), resample=nearest)
     zero_mask = (np.array(im_alpha_nearest) == 0)
     alpha_res[zero_mask] = 0.0
-    rgb_unpre[zero_mask] = 0.0
 
-    # 8. For texels where resized alpha < 8, zero RGB to suppress outline noise
-    low_alpha = (alpha_res < 8)
-    alpha_res[low_alpha] = 0.0
-    rgb_unpre[low_alpha] = 0.0
+    # For anti-bleed: only apply zeroing to RGB where alpha == 0 (clean unpremultiplied zero)
+    rgb_unpre[alpha_res == 0] = 0.0
 
     final_rgba = np.dstack([rgb_unpre, alpha_res]).astype(np.uint8)
 

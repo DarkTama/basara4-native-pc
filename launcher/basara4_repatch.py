@@ -31,6 +31,7 @@ try:
         convert_ps3_to_ps4,
         decode_bc3_to_rgba,
         deswizzle_bc3,
+        is_ui_text_texture,
         parse_tex_header,
         swizzle_bc3,
     )
@@ -45,6 +46,7 @@ except ImportError:
         convert_ps3_to_ps4,
         decode_bc3_to_rgba,
         deswizzle_bc3,
+        is_ui_text_texture,
         parse_tex_header,
         swizzle_bc3,
     )
@@ -331,6 +333,7 @@ def repatch(
             "tiling_unsupported": 0,
             "unmatched_ps4": 0,
             "decode_error": 0,
+            "non_text_texture": 0,
         },
         "translated_size_histogram": {},
     }
@@ -442,32 +445,35 @@ def repatch(
                 cached = tex_cache.get(pair_key)
 
                 if cached is None:
-                    h3 = _peek_header(e3.raw_data, ">")
-                    h4 = _peek_header(e4.raw_data, "<")
-                    if not h3 or not h4:
-                        cached = {"translated": False, "reason": "decode_error"}
-                    elif h3["fmt"] != 42 or h4["fmt"] != 42:
-                        cached = {"translated": False, "reason": "fmt_unsupported"}
-                    elif h3["mips"] != 1 or h4["mips"] != 1:
-                        cached = {"translated": False, "reason": "mips_unsupported"}
+                    if not is_ui_text_texture(e3.path):
+                        cached = {"translated": False, "reason": "non_text_texture"}
                     else:
-                        d3 = e3.decompress()
-                        d4 = e4.decompress()
-                        cls = classify(d3, d4, threshold=threshold)
-                        if cls["translated"]:
-                            conv = convert_ps3_to_ps4(d3, d4)
-                            cached = {
-                                "translated": True,
-                                "converted": conv,
-                                "cls": cls,
-                                "ps4_dims": cls.get("ps4_dims", (h4["w"], h4["h"])),
-                            }
+                        h3 = _peek_header(e3.raw_data, ">")
+                        h4 = _peek_header(e4.raw_data, "<")
+                        if not h3 or not h4:
+                            cached = {"translated": False, "reason": "decode_error"}
+                        elif h3["fmt"] != 42 or h4["fmt"] != 42:
+                            cached = {"translated": False, "reason": "fmt_unsupported"}
+                        elif h3["mips"] != 1 or h4["mips"] != 1:
+                            cached = {"translated": False, "reason": "mips_unsupported"}
                         else:
-                            cached = {
-                                "translated": False,
-                                "reason": cls.get("reason", "not_translated"),
-                                "cls": cls,
-                            }
+                            d3 = e3.decompress()
+                            d4 = e4.decompress()
+                            cls = classify(d3, d4, threshold=threshold, texture_path=e3.path)
+                            if cls["translated"]:
+                                conv = convert_ps3_to_ps4(d3, d4)
+                                cached = {
+                                    "translated": True,
+                                    "converted": conv,
+                                    "cls": cls,
+                                    "ps4_dims": cls.get("ps4_dims", (h4["w"], h4["h"])),
+                                }
+                            else:
+                                cached = {
+                                    "translated": False,
+                                    "reason": cls.get("reason", "not_translated"),
+                                    "cls": cls,
+                                }
                     tex_cache[pair_key] = cached
 
                 if cached["translated"]:
@@ -614,6 +620,8 @@ def build_contact_sheets(
             e4 = a4.get_entry(e3.path + "_ps4") or a4.get_entry(e3.path)
             if not e4:
                 continue
+            if not is_ui_text_texture(e3.path):
+                continue
 
             h3 = _peek_header(e3.raw_data, ">")
             h4 = _peek_header(e4.raw_data, "<")
@@ -622,7 +630,7 @@ def build_contact_sheets(
 
             d3 = e3.decompress()
             d4 = e4.decompress()
-            cls = classify(d3, d4, threshold=12.0)
+            cls = classify(d3, d4, threshold=12.0, texture_path=e3.path)
 
             name = e3.path.replace("\\", "/").split("/")[-1]
             if cls["translated"] and len(translated_samples) < 48:
