@@ -100,7 +100,7 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Sengoku Basara 4 PC $TAG" \
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Sengoku Basara 4 PC $TAG" \
               --notes "Release $TAG. Download \`basara4-windows.zip\`, extract it, and run \`Sengoku Basara 4.exe\`. See README.md for requirements and instructions."
           fi
           gh release upload "$TAG" dist/basara4-windows.zip dist/basara4-windows.zip.sha256 --clobber
