@@ -29,6 +29,10 @@ try:
 except OSError:
     pass
 BIN, OUT, USER, SCRIPTS = ROOT / "bin", ROOT / "out", ROOT / "user", ROOT / "scripts"
+DATA = ROOT / "data"
+TRANSLATION_DB = DATA / "en_translation_db.json"
+PATCH_DIR = ROOT / "mods" / "english_patch"
+OVERLAY_DIR = USER / "app0_overlay"
 CONFIG = USER / "launcher.json"
 INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
@@ -204,10 +208,14 @@ except ImportError:  # still works, just without artwork
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
+import basara4_translation  # noqa: E402
+import basara4_overlay  # noqa: E402
+import basara4_repatch  # noqa: E402
 
 DEFAULTS = {"game": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
-            "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100}
+            "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "english_patch": False,
+            "ps3_patch_source": ""}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -343,6 +351,53 @@ def load_config():
 def save_config(cfg):
     USER.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
+def patch_needs_rebuild(game: Path, db_path: Path, patch_dir: Path) -> bool:
+    manifest_file = patch_dir / "manifest.json"
+    if not manifest_file.is_file():
+        return True
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+
+    # If patch was imported from PS3 patch, do not clobber it with DB rebuild
+    if manifest.get("mode") == "ps3_import":
+        return False
+
+    # Check DB sha256
+    try:
+        db_bytes = db_path.read_bytes()
+        db_hash = hashlib.sha256(db_bytes).hexdigest()
+        if manifest.get("db_sha256") != db_hash:
+            return True
+    except OSError:
+        return True
+
+    # Check written_arcs source arc size/mtime
+    written_arcs = manifest.get("written_arcs", [])
+    if not written_arcs:
+        return True
+
+    _, rom_dir = basara4_translation.resolve_game_paths(game)
+    for entry in written_arcs:
+        rel = entry.get("relative_path")
+        if not rel:
+            return True
+        src_arc = rom_dir / rel
+        if not src_arc.is_file():
+            return True
+        st = src_arc.stat()
+        if entry.get("source_size") != st.st_size:
+            return True
+        if abs(entry.get("source_mtime", 0) - st.st_mtime) > 1e-4:
+            return True
+        out_arc = patch_dir / "nativePS4" / "rom" / rel
+        if not out_arc.is_file():
+            return True
+
+    return False
 
 
 def read_ini(path):
@@ -586,6 +641,7 @@ class Launcher(tk.Tk):
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)
+        self.english_var = tk.BooleanVar(value=self.cfg.get("english_patch", False))
 
         chk_frame = ttk.Frame(opts, style="Panel.TFrame")
         chk_frame.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 4))
@@ -594,10 +650,19 @@ class Launcher(tk.Tk):
         ttk.Checkbutton(chk_frame, text="Audio debug log", variable=self.audio_var, command=self._audio_toggled).pack(side="left", padx=(0, 16))
         ttk.Checkbutton(chk_frame, text="+ WAV capture (up to 3 GB)", variable=self.wav_var, command=self._wav_toggled).pack(side="left")
 
-        # Baris 4: Keterangan / Tips
+        # Baris 4: English Patch toggle & Rebuild button
+        patch_frame = ttk.Frame(opts, style="Panel.TFrame")
+        patch_frame.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 4))
+        ttk.Checkbutton(patch_frame, text="English Translation Patch (PS3 v0.85 Port)", variable=self.english_var).pack(side="left", padx=(0, 12))
+        self.import_patch_btn = ttk.Button(patch_frame, text="Import PS3 English Patch…", command=self.on_import_ps3_patch)
+        self.import_patch_btn.pack(side="left", padx=(0, 8))
+        self.rebuild_patch_btn = ttk.Button(patch_frame, text="Rebuild Translation Patch", command=self.on_rebuild_patch)
+        self.rebuild_patch_btn.pack(side="left")
+
+        # Baris 5: Keterangan / Tips
         ttk.Label(opts, text="The game draws at 1080p. Window size sets windowed mode. FSR 1 sharpens if screen > 1080p.\n"
                              "Above 60 turns off internal frame limiter. VSync caps rate at monitor refresh.",
-                  style="Muted.TLabel", wraplength=600).grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+                  style="Muted.TLabel", wraplength=600).grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
         r += 1
         ttk.Label(right, text="In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
                   style="Muted.TLabel").grid(row=r, column=0, columnspan=3, sticky="w", pady=(2, 0))
@@ -709,7 +774,8 @@ class Launcher(tk.Tk):
             resolution=dict(RESOLUTIONS)[self.res_var.get()], upscale=dict(UPSCALERS)[self.up_var.get()],
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
             audio_wav=self.audio_var.get() and self.wav_var.get(),
-            gpu_index=selected_gpu_idx)
+            gpu_index=selected_gpu_idx,
+            english_patch=self.english_var.get())
         save_config(self.cfg)
         write_ini(self._ini(), {
             "display_mode": self.cfg["display_mode"], "vsync": int(self.cfg["vsync"]),
@@ -798,6 +864,128 @@ class Launcher(tk.Tk):
         threading.Thread(target=self._prepare_then_launch, args=(game, exe), daemon=True).start()
         self.after(200, self._wait_prepare)
 
+    def on_import_ps3_patch(self):
+        if self.busy or self.proc:
+            return
+        game = Path(self.cfg["game"]) if self.cfg.get("game") else None
+        if not game or not (game / "eboot.bin").is_file():
+            messagebox.showerror("Cannot import patch", "Choose the game folder (the one with eboot.bin) first.")
+            return
+
+        initial_dir = self.cfg.get("ps3_patch_source") or str(ROOT / "mods")
+        src_dir = filedialog.askdirectory(title="Select the PS3 (BLJM61248) English patch folder", initialdir=initial_dir)
+        if not src_dir:
+            return
+
+        self.cfg["ps3_patch_source"] = src_dir
+        save_config(self.cfg)
+        self._run_ps3_repatch(Path(src_dir), game)
+
+    def _run_ps3_repatch(self, src_path: Path, game: Path):
+        self.import_patch_btn.config(state="disabled")
+        self.rebuild_patch_btn.config(state="disabled")
+        self.status.config(text="Importing PS3 English patch (GMD + TEX)…")
+
+        def _worker():
+            err = None
+            res = None
+            try:
+                def _prog(cur, tot, msg):
+                    self.after(0, lambda c=cur, t=tot, m=msg: self.status.config(
+                        text=f"Importing PS3 patch… {c}/{t} ({m[:30]})"
+                    ))
+                res = basara4_repatch.repatch(
+                    src_path, game, PATCH_DIR, progress=_prog
+                )
+                if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
+                    basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+            except Exception as e:
+                err = str(e)
+
+            def _done():
+                self.import_patch_btn.config(state="normal")
+                self.rebuild_patch_btn.config(state="normal")
+                if err:
+                    self.status.config(text=f"PS3 patch import failed: {err}")
+                    messagebox.showerror("PS3 Patch Import Failed", err, parent=self)
+                else:
+                    self.status.config(text="PS3 English patch imported successfully.")
+                    s = res["stats"] if res else {}
+                    v = res["verification"] if res else {}
+                    summary = (
+                        f"PS3 English patch imported successfully!\n\n"
+                        f"Verification: {v.get('total_matched', 0)} files matched\n"
+                        f"Archives patched: {s.get('arcs_written', 0)}\n"
+                        f"GMD strings replaced: {s.get('gmd_strings_replaced', 0)}\n"
+                        f"Textures translated: {s.get('textures_translated', 0)}\n"
+                        f"Textures kept (native): {s.get('textures_kept', 0)}\n"
+                        f"Elapsed: {s.get('elapsed_seconds', 0)}s\n"
+                        f"Output location: {PATCH_DIR}"
+                    )
+                    messagebox.showinfo("PS3 Patch Import Complete", summary, parent=self)
+
+            self.after(0, _done)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def on_rebuild_patch(self):
+        if self.busy or self.proc:
+            return
+        game = Path(self.cfg["game"]) if self.cfg.get("game") else None
+        if not game or not (game / "eboot.bin").is_file():
+            messagebox.showerror("Cannot build patch", "Choose the game folder (the one with eboot.bin) first.")
+            return
+
+        ps3_src = self.cfg.get("ps3_patch_source")
+        if ps3_src and Path(ps3_src).exists():
+            self._run_ps3_repatch(Path(ps3_src), game)
+            return
+
+        if not TRANSLATION_DB.is_file():
+            messagebox.showerror(
+                "Cannot build patch",
+                'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.',
+                parent=self,
+            )
+            return
+        self.rebuild_patch_btn.config(state="disabled")
+        self.status.config(text="Building English patch…")
+
+        def _worker():
+            err = None
+            stats = None
+            try:
+                def _prog(cur, tot, msg):
+                    self.after(0, lambda c=cur, t=tot: self.status.config(text=f"Building English patch… {c + 1}/{t}"))
+                stats = basara4_translation.build_patch(
+                    game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                )
+                if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
+                    basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+            except Exception as e:
+                err = str(e)
+
+            def _done():
+                self.rebuild_patch_btn.config(state="normal")
+                if err:
+                    self.status.config(text=f"English patch build failed: {err}")
+                    messagebox.showerror("English Patch Build Failed", err, parent=self)
+                else:
+                    self.status.config(text="English patch built successfully.")
+                    s = stats.get("stats", {}) if stats else {}
+                    summary = (
+                        f"English translation patch built successfully!\n\n"
+                        f"Archives patched: {s.get('arcs_written', 0)} / {s.get('arcs_found', 0)}\n"
+                        f"GMD files modified: {s.get('gmds_modified', 0)}\n"
+                        f"Strings replaced: {s.get('strings_replaced', 0)}\n"
+                        f"Output location: {PATCH_DIR}"
+                    )
+                    messagebox.showinfo("English Patch Complete", summary, parent=self)
+
+            self.after(0, _done)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _progress(self, text):
         self.pending_text = text
 
@@ -817,14 +1005,45 @@ class Launcher(tk.Tk):
             else:
                 self.cfg["fps_limit"] = 60
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
-        self.pending = (error, game, exe, patch_args, notice)
+
+        app0 = game
+        if not error and self.cfg.get("english_patch"):
+            manifest_file = PATCH_DIR / "manifest.json"
+            is_ps3_import = False
+            if manifest_file.is_file():
+                try:
+                    manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                    is_ps3_import = (manifest_data.get("mode") == "ps3_import")
+                except (OSError, ValueError):
+                    pass
+
+            if is_ps3_import:
+                try:
+                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                except Exception as e:
+                    error = f"Failed to build English patch: {e}"
+            elif TRANSLATION_DB.is_file():
+                try:
+                    if patch_needs_rebuild(game, TRANSLATION_DB, PATCH_DIR):
+                        def _prog(cur, tot, msg):
+                            self._progress(f"Building English patch… {cur + 1}/{tot}")
+                        basara4_translation.build_patch(
+                            game, TRANSLATION_DB, PATCH_DIR, progress=_prog
+                        )
+                    app0 = basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
+                except Exception as e:
+                    error = f"Failed to build English patch: {e}"
+            else:
+                error = 'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.'
+
+        self.pending = (error, game, exe, patch_args, notice, app0)
 
     def _wait_prepare(self):
         if self.pending is None:
             self.status.config(text=getattr(self, "pending_text", "Starting…"))
             self.after(200, self._wait_prepare)
             return
-        error, game, exe, patch_args, notice = self.pending
+        error, game, exe, patch_args, notice, app0 = self.pending
         self.busy = False
         if error:
             self.play.config(state="normal")
@@ -856,7 +1075,7 @@ class Launcher(tk.Tk):
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
-             "--app0", str(game), "--user", str(USER), "--no-game-hooks"] + extra_args + patch_args,
+             "--app0", str(app0), "--user", str(USER), "--no-game-hooks"] + extra_args + patch_args,
             env=self._env(), cwd=str(USER), stdout=log, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
         if self.cfg.get("audio_wav"):  # a one-session option: the next start has it off again
             self.cfg["audio_wav"] = False
@@ -1439,4 +1658,6 @@ class Launcher(tk.Tk):
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     Launcher(play_now="--play" in sys.argv).mainloop()

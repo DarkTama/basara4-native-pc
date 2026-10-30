@@ -57,6 +57,13 @@ stay intact; the Basara 4 build does not use it (`--no-game-hooks`).
 Files that come from these projects keep their original headers. Where this project changed them, the
 change is described in the file or in the commit history.
 
+## English Translation Patch Credits
+
+The English translation patch for Sengoku Basara 4 Sumeragi is ported and integrated by this project:
+
+- **Mystechry / MikoMango**: PS3 (BLJM61248) English patch v0.85 and Matabe fix, providing the original English translations for menus, UI, weapons, and skills.
+- **indrasundanese**: PS4 patch reference and archive layout research.
+
 ## License
 
 GNU General Public License, version 2 or (at your option) any later version. See `LICENSE`.

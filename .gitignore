@@ -5,6 +5,7 @@ game/
 eboot.bin
 *.lnk
 out/
+/bin/
 __pycache__/
 user/
 *.mp4
@@ -40,3 +41,13 @@ CHANGELOG*.md
 RELEASE_NOTES*.md
 RELEASING.md
 
+_ps3_source/
+mods/
+game/
+*.arc
+*.gmd
+
+AGENT_SPEC.md
+.agent_briefs/
+data/en_translation_db.json
+data/mismatched_gmd_report.json

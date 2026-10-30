@@ -68,7 +68,7 @@ def main():
     pyi = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--name", NAME,
            "--icon", LAUNCHER / "basara4.ico", "--paths", LAUNCHER, "--add-data", f"{LAUNCHER / 'basara4.ico'};.",
            "--distpath", work / "dist", "--workpath", work / "build", "--specpath", work]
-    for module in STDLIB + ["iced_x86"]:
+    for module in STDLIB + ["iced_x86", "etcpak", "numpy", "PIL", "concurrent.futures", "multiprocessing"]:
         pyi += ["--hidden-import", module]
     pyi.append(LAUNCHER / "basara4_launcher.py")
     run(*pyi)
@@ -96,8 +96,24 @@ def main():
         shutil.copy2(REPO / "scripts" / name, scripts / name)
     shutil.rmtree(target / "launcher", ignore_errors=True)
     (target / "launcher").mkdir()
-    for name in ("basara4_launcher.py", "basara4_patches.py", "basara4.ico"):
+    for name in (
+        "basara4_launcher.py",
+        "basara4_patches.py",
+        "basara4_translation.py",
+        "basara4_translation_extract.py",
+        "basara4_tex.py",
+        "basara4_repatch.py",
+        "basara4_overlay.py",
+        "gmdarc.py",
+        "basara4.ico",
+    ):
         shutil.copy2(LAUNCHER / name, target / "launcher" / name)
+
+    # translation patch manifest
+    data_dir = target / "data"
+    data_dir.mkdir(exist_ok=True)
+    if (REPO / "data" / "ps3_patch_manifest.json").is_file():
+        shutil.copy2(REPO / "data" / "ps3_patch_manifest.json", data_dir / "ps3_patch_manifest.json")
 
     # documents
     for doc in ("NOTICE.md", "LICENSE"):

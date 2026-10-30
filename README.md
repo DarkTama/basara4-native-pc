@@ -37,6 +37,7 @@ The game's original x86-64 code executes directly on your PC's CPU without emula
 - [Launcher Settings](#launcher-settings)
 - [In-Game Menu & Hotkeys](#in-game-menu--hotkeys)
 - [Controller Support](#controller-support)
+- [English Translation Patch](#english-translation-patch)
 - [How It Works (Technical Architecture)](#how-it-works-technical-architecture)
 - [Building from Source](#building-from-source)
 - [Troubleshooting & Logs](#troubleshooting--logs)
@@ -117,6 +118,36 @@ Place your decrypted PS4 game dump folder (which contains `eboot.bin`, `sce_modu
 
 - **Native XInput & SDL3**: Xbox One / Series, DualShock 4, DualSense, and Nintendo Switch Pro controllers are recognized automatically.
 - **Generic / DirectInput Gamepads**: Click **Map controller** in the launcher to calibrate button and stick axes using `basara4-pad-mapper.exe`. Mapping values are saved to `user\gamepad_mapping.txt`.
+
+---
+
+## English Translation Patch
+
+The launcher includes integrated support for the community **English Translation Patch (PS3 v0.85 Port + Matabe Fix)**.
+
+> **Note**: This repository contains **no translated text or assets**. Users must supply the fan English translation patch for the Japanese PS3 release **BLJM61248** (v0.85 + Matabe fix).
+
+### Recommended Flow
+1. Obtain the fan English translation patch for PS3 release **BLJM61248** (v0.85 and optional Matabe fix, containing `patch 0.85/rom` and `matabe fix/pl035`).
+2. Open the launcher, click **"Import PS3 English Patch…"**, and select your PS3 (BLJM61248) patch folder (or `.zip` file).
+3. The repatcher verifies the patch files against a known hash manifest (`data/ps3_patch_manifest.json`), extracts GMD string tables live, converts and upscales translated UI textures to native PS4 format, and generates repacked archives in `mods/english_patch/`.
+4. Toggle the **"English Translation Patch (PS3 v0.85 Port)"** checkbox anytime. When enabled, a launch-time sparse overlay (`user/app0_overlay`) is automatically created using NTFS junctions and hard links without modifying your original game files.
+
+### Coverage & Asset Details
+- **Menus & UI Text**: Game menus, options, battle preparation, pause screens, and item/weapon descriptions are fully translated via GMD message tables.
+- **UI Textures**: Atlases and graphical text (title logos, button prompts, HUD headers, mode banners) are converted from PS3 BC3/DXT5 and upscaled to native PS4 resolution with premultiplied alpha Lanczos filtering and atlas edge bleeding suppression.
+- **Native PS4 Quality Kept**: Textures that were untranslated in the PS3 patch are detected via bimodal alpha comparison and kept at their original, sharper PS4 native quality.
+- **Stage Dialogue Note**: Stage battle banter and story dialogue (`nativePS4/rom/st/`) were never translated in the original PS3 community patch and remain in Japanese.
+
+### CLI & Developer Tools
+- **PS3 Patch Repatcher (CLI)**:
+  ```bash
+  python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch
+  ```
+- **Developer Extraction Tool** (developer/debug tool to inspect or extract translation DB from PS3 BLJM61248 patch files):
+  ```bash
+  python tools/extract_ps3_translation.py
+  ```
 
 ---
 
@@ -222,6 +253,7 @@ This project is built upon open-source foundations and prior reverse-engineering
 | **shadPS4** | **shadPS4 Team** | Translated GPU core, shader translation to SPIR-V/Vulkan, NID table (`aerolib`) | GPL-2.0+ |
 | **LibAtrac9** | **Alexander Barney** | ATRAC9 decompression library | MIT |
 | **GPU Rendering Fixes** | **cuesta4** | Blend and depth/stencil emulation fixes in video core | GPL-2.0+ |
+| **English Translation** | **Mystechry / MikoMango** & **indrasundanese** | PS3 (BLJM61248) v0.85 English translation patch & PS4 patch reference | Community |
 | **FSR-Vulkan** | **FireBurn** / AMD | FidelityFX Super Resolution Vulkan integration | MIT |
 | **Libraries** | Various Authors | SDL3, Dear ImGui, Vulkan Memory Allocator, sirit, xbyak, miniz | Respective licenses |
 
