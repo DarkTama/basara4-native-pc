@@ -97,6 +97,7 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
     pyi = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--name", NAME,
            "--icon", LAUNCHER / "basara4.ico", "--paths", LAUNCHER, "--add-data", f"{LAUNCHER / 'basara4.ico'};.",
+           "--collect-data", "archspec",
            "--distpath", work / "dist", "--workpath", work / "build", "--specpath", work]
     for module in STDLIB + ["iced_x86", "etcpak", "numpy", "PIL", "concurrent.futures", "multiprocessing"]:
         pyi += ["--hidden-import", module]
