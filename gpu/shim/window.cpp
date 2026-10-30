@@ -124,6 +124,7 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
         SpartanSettings::Get().display_mode = SpartanGraphics::Borderless;
     }
     ApplyDisplayMode(SpartanSettings::Get().display_mode);
+    has_focus = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
     // spartanport: the game has no mouse; the in-game menu draws its own cursor (SpartanOverlay::SetOpen).
     SDL_HideCursor();
     int w = 0, h = 0;
@@ -250,6 +251,14 @@ bool WindowSDL::PollEvents() {
             }
             break;
         }
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            has_focus = true;
+            UpdateMouseLock();
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            has_focus = false;
+            UpdateMouseLock();
+            break;
         case SDL_EVENT_QUIT:
         case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
             is_open = false;
@@ -263,6 +272,7 @@ bool WindowSDL::PollEvents() {
     }
     if (window) {
         const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+        has_focus = (flags & SDL_WINDOW_INPUT_FOCUS) != 0;
         const bool min = (flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED)) != 0;
         const bool was_min = is_minimized.exchange(min, std::memory_order_acq_rel);
         if (was_min && !min) {
@@ -274,22 +284,37 @@ bool WindowSDL::PollEvents() {
             }
         }
     }
+    UpdateMouseLock();
+    return is_open;
+}
+
+void WindowSDL::UpdateMouseLock() {
     // spartanport: while the game has the mouse it stays in the window (relative mode: hidden, no edges,
     // so a click cannot land on another monitor); the menu, the save list, a text dialog,
     // another window or the game's pause menu (the pause key) get it back. Taken back, it starts
     // at the window's centre; let go by the pause key, the system cursor shows.
     const bool paused = mouse_paused.load(std::memory_order_relaxed);
     const bool lock = SpartanSettings::Get().mouse_lock.load(std::memory_order_relaxed) && !text_active && !paused &&
-                      !SpartanOverlay::CapturesInput() && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
+                      !SpartanOverlay::CapturesInput() && (has_focus || (window && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)));
     if (lock != mouse_locked) {
         if (lock) SDL_WarpMouseInWindow(window, width / 2.0f, height / 2.0f);
-        if (SDL_SetWindowRelativeMouseMode(window, lock)) mouse_locked = lock;
+        SDL_SetWindowMouseGrab(window, lock);
+        if (!SDL_SetWindowRelativeMouseMode(window, lock)) {
+            LOG_WARNING(Frontend, "Failed to set relative mouse mode: {}", SDL_GetError());
+        }
+        mouse_locked = lock;
+        if (lock) {
+            SDL_HideCursor();
+            cursor_shown = false;
+        } else {
+            SDL_ShowCursor();
+            cursor_shown = true;
+        }
     }
-    if (const bool show = paused && !mouse_locked; show != cursor_shown) {
+    if (const bool show = !lock; show != cursor_shown) {
         show ? SDL_ShowCursor() : SDL_HideCursor();
         cursor_shown = show;
     }
-    return is_open;
 }
 
 bool WindowSDL::IsMinimized() const {
