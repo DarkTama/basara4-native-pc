@@ -11,7 +11,7 @@ import struct
 from typing import Any, Optional
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 # Global precomputed swizzle index cache: (w, h) -> (lin_to_tiled, tiled_to_lin)
 _SWIZZLE_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
@@ -214,7 +214,7 @@ def swizzle_bc3(linear_payload: bytes, w: int, h: int) -> bytes:
 def classify(
     ps3_tex: bytes,
     ps4_tex: bytes,
-    threshold: float = 40.0,
+    threshold: float = 12.0,
 ) -> dict[str, Any]:
     """Classifies whether the PS3 texture contains an English translation compared
     to the native PS4 original.
@@ -223,6 +223,7 @@ def classify(
       - translated: bool
       - score: float (mean alpha difference over mask)
       - rgb_diff: float (mean RGB difference over mask)
+      - changed_pixels: int (count of significantly changed pixels)
       - reason: Optional[str] (skip reason if not translated or unsupported)
       - ps3_dims: (w, h)
       - ps4_dims: (w, h)
@@ -235,6 +236,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": f"header_error: {e}",
             "ps3_dims": (0, 0),
             "ps4_dims": (0, 0),
@@ -249,6 +251,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": "fmt_unsupported",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -260,6 +263,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": "mips_unsupported",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -270,6 +274,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": "size_mismatch",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -282,6 +287,7 @@ def classify(
                 "translated": False,
                 "score": 0.0,
                 "rgb_diff": 0.0,
+                "changed_pixels": 0,
                 "reason": "size_mismatch",
                 "ps3_dims": (w3, h3_px),
                 "ps4_dims": (w4, h4_px),
@@ -295,6 +301,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": "tiling_unsupported",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -308,6 +315,7 @@ def classify(
                 "translated": False,
                 "score": 0.0,
                 "rgb_diff": 0.0,
+                "changed_pixels": 0,
                 "reason": "tiling_unsupported",
                 "ps3_dims": (w3, h3_px),
                 "ps4_dims": (w4, h4_px),
@@ -317,6 +325,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": "tiling_unsupported",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -332,6 +341,7 @@ def classify(
             "translated": False,
             "score": 0.0,
             "rgb_diff": 0.0,
+            "changed_pixels": 0,
             "reason": f"decode_error: {e}",
             "ps3_dims": (w3, h3_px),
             "ps4_dims": (w4, h4_px),
@@ -344,20 +354,64 @@ def classify(
     arr3 = np.array(im3)
     arr4 = np.array(im4_down)
 
-    # mask = PS4 alpha > 32
-    mask = arr4[:, :, 3] > 32
+    # Purge transparent chroma-key magenta and low-alpha texels before comparison
+    # so transparent metadata does not cause false-positive RGB differences
+    purge3 = (
+        (arr3[:, :, 3] <= 16)
+        | (
+            (np.abs(arr3[:, :, 0].astype(int) - 123) <= 15)
+            & (np.abs(arr3[:, :, 2].astype(int) - 123) <= 15)
+            & (arr3[:, :, 1] <= 25)
+        )
+    )
+    arr3_clean = arr3.copy()
+    arr3_clean[purge3, :3] = 0
+    arr3_clean[purge3, 3] = 0
+
+    purge4 = (
+        (arr4[:, :, 3] <= 16)
+        | (
+            (np.abs(arr4[:, :, 0].astype(int) - 123) <= 15)
+            & (np.abs(arr4[:, :, 2].astype(int) - 123) <= 15)
+            & (arr4[:, :, 1] <= 25)
+        )
+    )
+    arr4_clean = arr4.copy()
+    arr4_clean[purge4, :3] = 0
+    arr4_clean[purge4, 3] = 0
+
+    mask = (arr4_clean[:, :, 3] > 32) | (arr3_clean[:, :, 3] > 32)
+    diff_a = np.abs(arr3_clean[:, :, 3].astype(float) - arr4_clean[:, :, 3].astype(float))
+    diff_rgb_channels = np.abs(arr3_clean[:, :, :3].astype(float) - arr4_clean[:, :, :3].astype(float))
+    diff_rgb_mean = np.mean(diff_rgb_channels, axis=-1)
+
     if np.any(mask):
-        score = float(np.mean(np.abs(arr3[mask, 3].astype(float) - arr4[mask, 3].astype(float))))
-        rgb_diff = float(np.mean(np.abs(arr3[mask, :3].astype(float) - arr4[mask, :3].astype(float))))
+        score = float(np.mean(diff_a[mask]))
+        rgb_diff = float(np.mean(diff_rgb_channels[mask]))
     else:
         score = 0.0
         rgb_diff = 0.0
 
-    is_translated = (score >= threshold)
+    # Count significantly changed pixels (alpha diff > 40 or mean RGB diff > 40 on visible pixels)
+    vis_mask = (arr3_clean[:, :, 3] > 16) | (arr4_clean[:, :, 3] > 16)
+    changed_mask = (diff_a > 40.0) | ((diff_rgb_mean > 40.0) & vis_mask)
+    changed_pixel_count = int(np.count_nonzero(changed_mask))
+
+    total_pixels = w3 * h3_px
+    ratio = changed_pixel_count / max(1, total_pixels)
+
+    # Dual condition: global score >= threshold OR localized changed pixel cluster
+    is_translated = bool(
+        (score >= threshold)
+        or (changed_pixel_count >= 250 and score >= 2.0)
+        or (changed_pixel_count >= 250 and ratio >= 0.0005 and score >= 0.5)
+    )
+
     return {
         "translated": is_translated,
         "score": score,
         "rgb_diff": rgb_diff,
+        "changed_pixels": changed_pixel_count,
         "reason": None if is_translated else "not_translated",
         "ps3_dims": (w3, h3_px),
         "ps4_dims": (w4, h4_px),
@@ -367,6 +421,7 @@ def classify(
 def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     """Converts a translated PS3 BC3 texture to the matching PS4 format.
     Upscales to PS4 resolution using premultiplied Lanczos interpolation,
+    applies halo purging and remaster sharpening (Hermite S-curve and unsharp mask),
     applies alpha cleanup to avoid atlas neighbour bleed, compresses to BC3
     using etcpak, tiles (swizzles) into PS4 order, and splices into the original
     PS4 header bytes.
@@ -388,33 +443,62 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     im3 = decode_bc3_to_rgba(ps3_payload, w3, h3_px)
     arr3 = np.array(im3, dtype=np.float32)
 
-    # 2. Premultiply alpha before resize to eliminate color halos
+    # 2. Halo Purging:
+    # Before resizing, for any pixel where alpha <= 16 or magenta chroma key
+    # (abs(R - 123) <= 15 and abs(B - 123) <= 15 and G <= 25), set RGB and Alpha to 0
+    # to eliminate magenta fringe bleeding during Lanczos interpolation.
+    halo_mask = (
+        (arr3[:, :, 3] <= 16)
+        | (
+            (np.abs(arr3[:, :, 0] - 123) <= 15)
+            & (np.abs(arr3[:, :, 2] - 123) <= 15)
+            & (arr3[:, :, 1] <= 25)
+        )
+    )
+    arr3[halo_mask, :3] = 0.0
+    arr3[halo_mask, 3] = 0.0
+
+    # 3. Premultiply alpha before resize to eliminate color halos
     alpha3 = arr3[:, :, 3] / 255.0
     rgb_pre = (arr3[:, :, :3] * alpha3[..., None]).astype(np.uint8)
     rgba_pre = np.dstack([rgb_pre, arr3[:, :, 3].astype(np.uint8)])
 
-    # 3. Lanczos resize
+    # 4. Lanczos resize
     lanczos = getattr(Image.Resampling, "LANCZOS", getattr(Image, "LANCZOS", None))
     im_pre = Image.fromarray(rgba_pre, mode="RGBA")
     im_resized = im_pre.resize((w4, h4_px), resample=lanczos)
     arr_resized = np.array(im_resized, dtype=np.float32)
 
-    # 4. Unpremultiply
+    # 5. Unpremultiply
     alpha_res = arr_resized[:, :, 3]
     alpha_norm = np.maximum(alpha_res / 255.0, 1e-6)
     rgb_unpre = np.clip(np.round(arr_resized[:, :, :3] / alpha_norm[..., None]), 0, 255)
 
-    # 5. Zero-alpha mask: wherever PS3 source alpha (nearest-upscaled) is 0, force output alpha to 0
+    # 6. Sharpness Enhancement (Remaster Pipeline):
+    # S-curve contrast boost on alpha channel (Hermite smoothstep S-curve)
+    a = np.clip(alpha_res / 255.0, 0.0, 1.0)
+    a_sharp = np.clip(3.0 * (a ** 2) - 2.0 * (a ** 3), 0.0, 1.0)
+    alpha_res = a_sharp * 255.0
+
+    # Subtle unsharp mask on RGB where alpha > 32 to produce crisp vector-like text edges
+    im_rgb = Image.fromarray(rgb_unpre.astype(np.uint8), mode="RGB")
+    im_rgb_sharp = im_rgb.filter(ImageFilter.UnsharpMask(radius=1.0, percent=125, threshold=2))
+    arr_rgb_sharp = np.array(im_rgb_sharp, dtype=np.float32)
+    vis_mask = alpha_res > 32
+    rgb_unpre[vis_mask] = arr_rgb_sharp[vis_mask]
+
+    # 7. Zero-alpha mask: wherever PS3 source alpha (nearest-upscaled) is 0, force output alpha to 0
     nearest = getattr(Image.Resampling, "NEAREST", getattr(Image, "NEAREST", None))
     orig_alpha_im = Image.fromarray(arr3[:, :, 3].astype(np.uint8), mode="L")
     im_alpha_nearest = orig_alpha_im.resize((w4, h4_px), resample=nearest)
     zero_mask = (np.array(im_alpha_nearest) == 0)
-    alpha_res[zero_mask] = 0
-    rgb_unpre[zero_mask] = 0
+    alpha_res[zero_mask] = 0.0
+    rgb_unpre[zero_mask] = 0.0
 
-    # 6. For texels where resized alpha < 8, zero RGB to suppress outline noise
+    # 8. For texels where resized alpha < 8, zero RGB to suppress outline noise
     low_alpha = (alpha_res < 8)
-    rgb_unpre[low_alpha] = 0
+    alpha_res[low_alpha] = 0.0
+    rgb_unpre[low_alpha] = 0.0
 
     final_rgba = np.dstack([rgb_unpre, alpha_res]).astype(np.uint8)
 

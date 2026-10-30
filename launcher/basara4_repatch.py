@@ -258,7 +258,7 @@ def repatch(
     progress: Optional[Callable[[int, int, str], None]] = None,
     tex: bool = True,
     gmd: bool = True,
-    threshold: float = 40.0,
+    threshold: float = 12.0,
     prefer_ps4_english: bool = False,
     workers: Optional[int] = None,
     manifest_path: Optional[Union[str, Path]] = None,
@@ -622,7 +622,7 @@ def build_contact_sheets(
 
             d3 = e3.decompress()
             d4 = e4.decompress()
-            cls = classify(d3, d4, threshold=40.0)
+            cls = classify(d3, d4, threshold=12.0)
 
             name = e3.path.replace("\\", "/").split("/")[-1]
             if cls["translated"] and len(translated_samples) < 48:
@@ -743,8 +743,8 @@ def main():
     parser.add_argument(
         "--threshold",
         type=float,
-        default=40.0,
-        help="Classification score threshold for translated textures (default: 40)",
+        default=12.0,
+        help="Classification score threshold for translated textures (default: 12)",
     )
     parser.add_argument(
         "--prefer-ps4",

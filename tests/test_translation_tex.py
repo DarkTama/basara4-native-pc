@@ -215,6 +215,54 @@ class TestTexBasics(unittest.TestCase):
         self.assertTrue(np.all(left_half_alpha == 0), f"Max alpha in zero region: {np.max(left_half_alpha)}")
         self.assertTrue(np.all(left_half_rgb == 0), f"Max RGB in zero region: {np.max(left_half_rgb)}")
 
+    def test_convert_ps3_to_ps4_magenta_halo_purged(self):
+        """Verifies that chroma key magenta background [123, 0, 123, 0] does not bleed
+        into upscaled font edges or background.
+        """
+        w3, h3 = 64, 64
+        w4, h4 = 128, 128
+
+        # PS3 texture with magenta chroma key background [123, 0, 123, 0]
+        # and a white foreground element [255, 255, 255, 255]
+        im3 = Image.new("RGBA", (w3, h3), (123, 0, 123, 0))
+        for y in range(20, 44):
+            for x in range(20, 44):
+                im3.putpixel((x, y), (255, 255, 255, 255))
+
+        im4_dummy = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
+
+        ps3_tex = make_synthetic_tex(w3, h3, im3, endian=">")
+        ps4_tex = make_synthetic_tex(w4, h4, im4_dummy, endian="<", tiled=True)
+
+        converted = convert_ps3_to_ps4(ps3_tex, ps4_tex)
+        self.assertEqual(len(converted), len(ps4_tex))
+
+        # Decode converted PS4 texture back to RGBA
+        p4 = parse_tex_header(converted, endian="<")
+        deswz = deswizzle_bc3(converted[p4["pixel_offset"]:], w4, h4)
+        im_out = decode_bc3_to_rgba(deswz, w4, h4)
+        arr_out = np.array(im_out)
+
+        # 1. Background pixels (far from text) should be strictly 0 (no magenta [123, 0, 123])
+        bg_alpha = arr_out[:15, :15, 3]
+        bg_rgb = arr_out[:15, :15, :3]
+        self.assertTrue(np.all(bg_alpha == 0), f"Background alpha non-zero: {np.max(bg_alpha)}")
+        self.assertTrue(np.all(bg_rgb == 0), f"Background RGB non-zero: {np.max(bg_rgb)}")
+
+        # 2. Text boundary edge pixels (0 < alpha < 250): verify no magenta bleed
+        # In pure white foreground, R == G == B. Magenta bleed would cause R > G and B > G.
+        edge_mask = (arr_out[:, :, 3] > 0) & (arr_out[:, :, 3] < 250)
+        self.assertTrue(np.any(edge_mask), "Should have antialiased edge pixels")
+        edge_pixels = arr_out[edge_mask]
+        diff_rg = np.abs(edge_pixels[:, 0].astype(int) - edge_pixels[:, 1].astype(int))
+        diff_bg = np.abs(edge_pixels[:, 2].astype(int) - edge_pixels[:, 1].astype(int))
+        self.assertLessEqual(
+            int(np.max(diff_rg)), 5, f"Magenta red-green aberration detected on edge: max diff {np.max(diff_rg)}"
+        )
+        self.assertLessEqual(
+            int(np.max(diff_bg)), 5, f"Magenta blue-green aberration detected on edge: max diff {np.max(diff_bg)}"
+        )
+
     def test_classify_scores(self):
         w3, h3 = 64, 64
         w4, h4 = 128, 128
@@ -248,6 +296,45 @@ class TestTexBasics(unittest.TestCase):
         cls_diff = classify(tex3_b, tex4_a, threshold=40.0)
         self.assertTrue(cls_diff["translated"])
         self.assertGreater(cls_diff["score"], 40.0)
+
+    def test_classify_localized_text_box(self):
+        """Verifies that a mock texture with a localized 20x20 text box (differing alpha)
+        on a large 512x512 canvas correctly classifies as translated.
+        """
+        w3, h3 = 512, 512
+        w4, h4 = 1024, 1024
+
+        im3 = Image.new("RGBA", (w3, h3), (0, 0, 0, 0))
+        im4 = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
+
+        # Shared large UI panel (200x200 px in PS3, 400x400 in PS4) to simulate realistic atlas
+        for y in range(200, 400):
+            for x in range(200, 400):
+                im3.putpixel((x, y), (60, 60, 60, 255))
+        for y in range(400, 800):
+            for x in range(400, 800):
+                im4.putpixel((x, y), (60, 60, 60, 255))
+
+        # Localized 20x20 text box in PS3 with differing alpha (translated text snippet)
+        for y in range(100, 120):
+            for x in range(100, 120):
+                im3.putpixel((x, y), (255, 255, 255, 255))
+
+        tex3 = make_synthetic_tex(w3, h3, im3, endian=">")
+        tex4 = make_synthetic_tex(w4, h4, im4, endian="<", tiled=True)
+
+        res = classify(tex3, tex4)
+        self.assertTrue(res["translated"], f"Expected translated=True, got {res}")
+        self.assertGreaterEqual(res["changed_pixels"], 250)
+
+        # Verify identical texture without the localized box classifies as not_translated
+        im3_same = im3.copy()
+        for y in range(100, 120):
+            for x in range(100, 120):
+                im3_same.putpixel((x, y), (0, 0, 0, 0))
+        tex3_same = make_synthetic_tex(w3, h3, im3_same, endian=">")
+        res_same = classify(tex3_same, tex4)
+        self.assertFalse(res_same["translated"], f"Expected translated=False for identical canvas, got {res_same}")
 
 
 class TestManifestVerification(unittest.TestCase):
