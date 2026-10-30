@@ -20,11 +20,28 @@ Repositori ini adalah fork dari Basara 4 PC karya Razz ([razzconnect/basara4-nat
 - **RAM**: 8 GB RAM
 - **Penyimpanan**: Ruang kosong ~20 GB
 - **File Game**: Salinan dump legal dari Sengoku Basara 4 Sumeragi (`CUSA01159`)
+
 Linux tidak didukung secara native; menjalankan build Windows melalui Proton/Wine belum diuji.
+
+## Menyiapkan File Game
+Dump game dari konsol PlayStation 4 milik Anda sendiri menggunakan panduan dumping konsol yang terpercaya. Launcher memerlukan folder dump yang telah diekstrak dan didekripsi, bukan file `.pkg`.
+
+Simpan base game, update, dan add-on dalam tiga folder terpisah—jangan pernah menggabungkannya secara manual:
+```
+CUSA01159/            base game: eboot.bin, sce_module/, sce_sys/param.sfo, nativePS4/...
+CUSA01159-patch/      update opsional, misal v01.02
+<DLC root>/CUSA01159/<entitlement>/   add-on opsional, satu folder per add-on
+```
+- **Syarat update**: Folder update wajib memiliki `eboot.bin` dan `sce_sys/param.sfo` sendiri dengan `TITLE_ID` yang sesuai (`CUSA01159`).
+- **Syarat DLC**: Setiap folder add-on di bawah `<DLC root>/CUSA01159/<entitlement>/` wajib memiliki `sce_sys/param.sfo` dengan `CATEGORY` bernilai `ac` (add-on content), `TITLE_ID` yang sesuai, serta akhiran `CONTENT_ID` yang cocok dengan nama folder.
+
+Jangan salin file update ke dalam folder base game. Arahkan pengaturan di halaman **Game** launcher ke masing-masing folder (**Game folder**, **Game update folder**, dan **DLC folder**). Dump asli Anda tidak akan diubah; launcher membuat tampilan gabungan read-only secara otomatis.
+
+Untuk memverifikasi dump, pastikan `eboot.bin` dan `sce_sys/param.sfo` ada. Saat folder dipilih, indikator status pada halaman Game akan mengonfirmasi: status image game menampilkan **"Game image ready."** (atau **"Will be prepared on first run."**), update menampilkan **"Update v01.02 found"**, dan DLC menampilkan **"<N> add-ons found"**.
 
 ## Cara Pasang & Memainkan
 1. Unduh `basara4-windows.zip` dari https://github.com/DarkTama/basara4-native-pc/releases lalu ekstrak.
-2. Salin folder dump game PS4 Anda ke dalam `game\`, atau klik tombol **Browse** di launcher untuk memilih lokasinya.
+2. Salin folder dump game PS4 Anda ke dalam `game\`, atau klik tombol **Browse** di launcher untuk memilih lokasinya. Atur **Game update folder** dan **DLC folder** pada halaman Game jika memiliki update atau add-on.
 3. Jalankan **`Sengoku Basara 4.exe`**, pilih pengaturan Anda, dan klik **PLAY**. Peluncuran pertama akan menyiapkan image binary ke `out\` (memakan waktu sekitar 30–60 detik); peluncuran berikutnya langsung instan.
 4. Untuk langsung bermain dengan konfigurasi tersimpan tanpa membuka GUI launcher, jalankan **`Play Sengoku Basara 4.cmd`**.
 
@@ -36,16 +53,19 @@ Repositori ini **tidak menyertakan teks terjemahan atau aset game**. Pengguna wa
 3. Repatcher akan memverifikasi file patch dengan manifes hash (`data/ps3_patch_manifest.json`), mengekstrak tabel teks GMD, mengonversi tekstur UI ke format native PS4, dan mengemas ulang arsip ke `mods/english_patch/`.
 4. Centang opsi **"English Translation Patch (PS3 v0.85 Port)"** kapan saja untuk menerapkan patch via overlay sparse (`user/app0_overlay`) tanpa mengubah file asli game.
 
-Percakapan saat bertarung dan dialog cerita tidak pernah diterjemahkan dalam patch PS3 asli sehingga tetap berbahasa Jepang.
+Jika folder update game diatur, patch akan dibangun dari file versi update secara otomatis. Percakapan saat bertarung dan dialog cerita tidak pernah diterjemahkan dalam patch PS3 asli sehingga tetap berbahasa Jepang.
 
 ```bash
 python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch
 ```
 
+## Cheat
+Lima cheat gameplay (Uang Maksimal, Koin, Poin Pengembangan, Poin Senjata, Rank Senjata) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
+
 ## Kontrol
-- **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller).
+- **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).
 - **F12**: Mengambil screenshot ke folder `user\`.
-- Controller native XInput & SDL3 (Xbox, DualShock 4, DualSense, Switch Pro) dikenali secara otomatis. Untuk gamepad generik / DirectInput, klik **Map controller** di launcher untuk kalibrasi tombol dan stik analog menggunakan `basara4-pad-mapper.exe`.
+- Controller native XInput & SDL3 (Xbox, DualShock 4, DualSense, Switch Pro) serta gamepad DirectInput generik dipetakan otomatis melalui SDL GameControllerDB bawaan. Untuk gamepad yang belum dikenali, klik **Map controller** di launcher untuk kalibrasi tombol dan stik analog menggunakan `basara4-pad-mapper.exe`.
 
 ## Membangun dari Source Code
 Prasyarat: MSYS2 dengan environment CLANG64 dan Python 3.10+ di Windows.
@@ -73,6 +93,11 @@ bash build.sh
 python packaging/basara4/make_package.py --out dist/basara4-windows
 ```
 
+Tool arsip MT Framework dan teks GMD:
+```bash
+python tools/arc_tool.py list|extract|repack|gmd ...
+```
+
 ## Log
 - `user\last_run.log`: Log diagnostik runtime utama (inisialisasi, kompilasi shader GPU, crash traceback).
 - `user\prepare.log`: Output dari tahap persiapan dan relokasi image.
@@ -84,6 +109,9 @@ python packaging/basara4/make_package.py --out dist/basara4-windows
 - **Supermedo & deadinside28** - bloodborne_pc
 - **shadPS4 team** - GPU core
 - **Mystechry / MikoMango & indrasundanese** - PS3 English patch
+- **i7Exceed** - Port hook cheat Basara 4, overlay update game, dan mounting DLC lokal
+- **Q8Despair / GoldHEN Cheat Repository** - Data patch cheat
+- **supalii** - Perbaikan build
 
 Pemberitahuan dan lisensi lengkap: [NOTICE.md](NOTICE.md).
 

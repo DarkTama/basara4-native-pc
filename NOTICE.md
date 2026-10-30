@@ -41,6 +41,10 @@ Copyright (C) 2026 DarkTama, released under the GNU GPL v2 or later.
 
 - PS3 English patch import and repatcher: launcher/basara4_repatch.py, launcher/basara4_translation.py, launcher/basara4_translation_extract.py, launcher/basara4_tex.py (UI texture conversion), launcher/gmdarc.py and tools/gmdarc.py (MT Framework ARC/GMD), tools/extract_ps3_translation.py, tools/make_ps3_patch_manifest.py, data/ps3_patch_manifest.json (hash manifest, no translated text).
 - English patch toggle in the launcher, served through a sparse app0 overlay (launcher/basara4_overlay.py, launcher/basara4_launcher.py).
+- Standalone ARC tool for MT Framework archives and GMD text: tools/arc_tool.py.
+- Launcher redesign with navigation rail layout, ruled settings rows, and hint bar: launcher/basara4_launcher.py.
+- Launcher wiring for game update and DLC folders: launcher/basara4_launcher.py.
+- GameControllerDB loading for generic DirectInput gamepads: src/runtime_pad.c.
 - Tests: tests/test_translation*.py.
 
 ## What this project is built on
@@ -57,6 +61,10 @@ other people's work and keep their licenses and copyright notices:
 | GoW III rendering fixes in the video core (blend, depth/stencil, image aliasing) | cuesta4 | GPL-2.0-or-later |
 | **LibAtrac9** | Alexander Barney | MIT |
 | FFmpeg, SDL3, Dear ImGui, sirit, magic_enum, miniz, xbyak, Vulkan Memory Allocator, FSR-Vulkan, AMD FidelityFX SDK, MSYS2 / LLVM | their authors | their own licenses (see `third_party/`) |
+| **Sumeragi Native+**: Basara 4 cheat hook port (`src/cheat_hook.h`, `tests/test_cheat_hooks.cpp`), separate game update overlay and local DLC manifest/mounting (`scripts/game_update.py`, `scripts/dlc.py`, `scripts/mods.py`, `scripts/patches.py`, add-on parts of `src/runtime_content.c`) | i7Exceed (https://github.com/i7Exceed/sumeragi-native-plus) | GPL-2.0-or-later |
+| Cheat patch data (`json/CUSA01159_01.02.json`) | Q8Despair / GoldHEN Cheat Repository (https://github.com/GoldHEN/GoldHEN_Cheat_Repository) | GPL-3.0 |
+| Build fixes (`build.sh` core name, `vk_graphics_pipeline.cpp` Vulkan-Hpp result handling, commit fc32f44) | supalii (https://github.com/razzconnect/basara4-native-pc/pull/4) | GPL-2.0-or-later |
+| **SDL_GameControllerDB**: vendored as `data/gamecontrollerdb.txt` with `data/gamecontrollerdb.LICENSE` | mdqinc and contributors (https://github.com/mdqinc/SDL_GameControllerDB) | zlib |
 
 The rest of the repository (the upstream launcher `launcher/spartanport_*.py`, the God of War III patches,
 cheat and multiplier hooks, `docs/`) is SpartanPort's and is kept unchanged so the history and credit
@@ -76,4 +84,5 @@ The English translation patch for Sengoku Basara 4 Sumeragi is ported and integr
 
 GNU General Public License, version 2 or (at your option) any later version. See `LICENSE`.
 Anyone who receives a build of this project is entitled to its source code, including these changes.
+The cheat data comes from a GPL-3.0 repository, so a build that includes it is distributed under GPL-3.0 terms (this project's "or later" clause allows that).
 "Sengoku Basara" is a trademark of Capcom. This project is not affiliated with Capcom or Sony Interactive Entertainment.
