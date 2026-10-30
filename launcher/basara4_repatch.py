@@ -296,6 +296,14 @@ def repatch(
             ps4_arcs_map[rel] = p
             ps4_arcs_lower[rel.lower()] = p
 
+    if not ps4_arcs_map:
+        raise ValueError(f"No .arc files found in PS4 game directory ({rom_dir}).")
+
+    # Identify candidate arcs (only those present on both sides)
+    candidate_rels = sorted(set(ps3_arcs_map.keys()) & set(ps4_arcs_map.keys()))
+    if not candidate_rels:
+        raise ValueError("No common .arc files found between PS3 patch and PS4 game.")
+
     # Live GMD extraction
     pool: list[str] = []
     archives_db: dict[str, Any] = {}
@@ -332,8 +340,6 @@ def repatch(
 
     written_arcs_manifest: list[dict[str, Any]] = []
 
-    # Identify candidate arcs (only those present on both sides)
-    candidate_rels = sorted(set(ps3_arcs_map.keys()) & set(ps4_arcs_map.keys()))
     total_candidates = len(candidate_rels)
 
     # Progress helper

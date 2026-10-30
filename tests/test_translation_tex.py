@@ -430,6 +430,67 @@ class TestRepatchEndToEnd(unittest.TestCase):
             self.assertEqual(e_unrel.raw_data, comp_unrelated)
             self.assertEqual(e_unrel.flags, unrelated_flags)
 
+    def test_repatch_raises_when_no_ps4_arcs(self):
+        with tempfile.TemporaryDirectory() as td_raw:
+            td = Path(td_raw)
+            ps3_dir = td / "ps3" / "USRDIR" / "nativePS3" / "rom" / "ui"
+            ps3_dir.mkdir(parents=True)
+            dummy_arc = ps3_dir / "title.arc"
+            dummy_arc.write_bytes(b"dummy")
+
+            manifest_file = td / "manifest.json"
+            h_ps3 = hashlib.sha256(b"dummy").hexdigest()
+            manifest_file.write_text(
+                json.dumps({"patches": {"0.85": {"ui/title.arc": h_ps3}, "matabe_fix": {}}}),
+                encoding="utf-8",
+            )
+
+            empty_ps4 = td / "ps4" / "CUSA01159"
+            (empty_ps4 / "eboot.bin").parent.mkdir(parents=True)
+            (empty_ps4 / "eboot.bin").write_bytes(b"dummy")
+            (empty_ps4 / "nativePS4" / "rom").mkdir(parents=True)
+
+            out_dir = td / "out"
+            out_arc = out_dir / "nativePS4" / "rom" / "ui" / "existing.arc"
+            out_arc.parent.mkdir(parents=True)
+            out_arc.write_bytes(b"important_existing_patch")
+
+            with self.assertRaises(ValueError) as ctx:
+                repatch(ps3_source=td / "ps3", game_dir=empty_ps4, out_dir=out_dir, manifest_path=manifest_file)
+            self.assertIn("No .arc files found in PS4 game directory", str(ctx.exception))
+            self.assertTrue(out_arc.is_file(), "Existing patch file must not be deleted on empty PS4 arcs")
+
+    def test_repatch_raises_when_no_common_candidate_arcs(self):
+        with tempfile.TemporaryDirectory() as td_raw:
+            td = Path(td_raw)
+            ps3_dir = td / "ps3" / "USRDIR" / "nativePS3" / "rom" / "ui"
+            ps3_dir.mkdir(parents=True)
+            dummy_arc = ps3_dir / "ps3_only.arc"
+            dummy_arc.write_bytes(b"dummy")
+
+            manifest_file = td / "manifest.json"
+            h_ps3 = hashlib.sha256(b"dummy").hexdigest()
+            manifest_file.write_text(
+                json.dumps({"patches": {"0.85": {"ui/ps3_only.arc": h_ps3}, "matabe_fix": {}}}),
+                encoding="utf-8",
+            )
+
+            ps4_dir = td / "ps4" / "CUSA01159"
+            ps4_rom = ps4_dir / "nativePS4" / "rom" / "ui"
+            ps4_rom.mkdir(parents=True)
+            (ps4_dir / "eboot.bin").write_bytes(b"dummy")
+            (ps4_rom / "ps4_only.arc").write_bytes(b"dummy")
+
+            out_dir = td / "out"
+            out_arc = out_dir / "nativePS4" / "rom" / "ui" / "existing.arc"
+            out_arc.parent.mkdir(parents=True)
+            out_arc.write_bytes(b"important_existing_patch")
+
+            with self.assertRaises(ValueError) as ctx:
+                repatch(ps3_source=td / "ps3", game_dir=ps4_dir, out_dir=out_dir, manifest_path=manifest_file)
+            self.assertIn("No common .arc files found", str(ctx.exception))
+            self.assertTrue(out_arc.is_file(), "Existing patch file must not be deleted on empty candidate set")
+
 
 if __name__ == "__main__":
     unittest.main()

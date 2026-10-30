@@ -575,7 +575,7 @@ class Launcher(tk.Tk):
         s.map("TRadiobutton", background=[("active", PANEL)], foreground=[("active", GOLD)])
         s.map("TCheckbutton", background=[("active", PANEL)], foreground=[("active", GOLD)],
               indicatorbackground=[("active", FIELD)])
-        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 6), borderwidth=1,
+        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 2), borderwidth=1,
                     bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622")
         edge = [("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
         s.map("TButton", background=[("active", "#3a342e"), ("disabled", "#1c1916")],
@@ -744,7 +744,7 @@ class Launcher(tk.Tk):
         if bar is not None:
             bar.config(bg=GOLD)
 
-    def _row(self, page, key, make, width=250, sub=False, stack=False):
+    def _row(self, page, key, make, width=250, sub=False, stack=False, height=30):
         """One ruled row: label left, the control `make(holder)` right. Hovering or focusing it shows its hint."""
         label, hint = ROW[key]
         row = tk.Frame(page, bg=PANEL)
@@ -761,7 +761,7 @@ class Launcher(tk.Tk):
         else:
             holder.grid(row=0, column=2, sticky="e", padx=(0, 10))
         if width and not stack:
-            holder.config(width=width, height=30)
+            holder.config(width=width, height=height)
             holder.pack_propagate(False)
         make(holder)
         tk.Frame(row, bg=RULE, height=1).grid(row=2, column=0, columnspan=3, sticky="ew")
@@ -807,7 +807,7 @@ class Launcher(tk.Tk):
             button.pack(fill="both", expand=True)
             if attr:
                 setattr(self, attr, button)
-        self._row(page, key, make)
+        self._row(page, key, make, height=34)
 
     def _page_game(self, page):
         def folder(holder):
@@ -1170,33 +1170,60 @@ class Launcher(tk.Tk):
 
         self.cfg["ps3_patch_source"] = src_dir
         save_config(self.cfg)
-        effective_game = self._get_effective_game(game)
-        self._run_ps3_repatch(Path(src_dir), effective_game)
+        self._run_ps3_repatch(Path(src_dir), game)
 
     def _run_ps3_repatch(self, src_path: Path, game: Path):
-        self.import_patch_btn.config(state="disabled")
-        self.rebuild_patch_btn.config(state="disabled")
+        self.busy = True
+        self.play.config(state="disabled")
+        if hasattr(self, "import_patch_btn"):
+            self.import_patch_btn.config(state="disabled")
+        if hasattr(self, "rebuild_patch_btn"):
+            self.rebuild_patch_btn.config(state="disabled")
         self.status.config(text="Importing PS3 English patch (GMD + TEX)…")
 
         def _worker():
             err = None
             res = None
+            view = None
             try:
+                update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+                effective_game = game
+                if update_dir:
+                    update_path = Path(update_dir)
+                    if update_path.is_dir() and (update_path / "eboot.bin").is_file():
+                        self.after(0, lambda: self.status.config(text="Applying game update…"))
+                        view = game_update.create_view(game, update_path, OUT)
+                        effective_game = view
+
+                self.after(0, lambda: self.status.config(text="Importing PS3 English patch (GMD + TEX)…"))
                 def _prog(cur, tot, msg):
                     self.after(0, lambda c=cur, t=tot, m=msg: self.status.config(
                         text=f"Importing PS3 patch… {c}/{t} ({m[:30]})"
                     ))
                 res = basara4_repatch.repatch(
-                    src_path, game, PATCH_DIR, progress=_prog
+                    src_path, effective_game, PATCH_DIR, progress=_prog
                 )
-                if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
-                    basara4_overlay.build_overlay(game, PATCH_DIR, OVERLAY_DIR)
-            except Exception as e:
+                if OVERLAY_DIR.exists():
+                    try:
+                        basara4_overlay._safe_remove_tree(OVERLAY_DIR)
+                    except Exception:
+                        pass
+            except BaseException as e:
                 err = str(e)
+            finally:
+                if view:
+                    try:
+                        game_update.remove_view(view)
+                    except Exception:
+                        pass
 
             def _done():
-                self.import_patch_btn.config(state="normal")
-                self.rebuild_patch_btn.config(state="normal")
+                self.busy = False
+                self.play.config(state="normal")
+                if hasattr(self, "import_patch_btn"):
+                    self.import_patch_btn.config(state="normal")
+                if hasattr(self, "rebuild_patch_btn"):
+                    self.rebuild_patch_btn.config(state="normal")
                 if err:
                     self.status.config(text=f"PS3 patch import failed: {err}")
                     messagebox.showerror("PS3 Patch Import Failed", err, parent=self)
@@ -1228,10 +1255,9 @@ class Launcher(tk.Tk):
             messagebox.showerror("Cannot build patch", "Choose the game folder (the one with eboot.bin) first.")
             return
 
-        effective_game = self._get_effective_game(game)
         ps3_src = self.cfg.get("ps3_patch_source")
         if ps3_src and Path(ps3_src).exists():
-            self._run_ps3_repatch(Path(ps3_src), effective_game)
+            self._run_ps3_repatch(Path(ps3_src), game)
             return
 
         if not TRANSLATION_DB.is_file():
@@ -1241,25 +1267,55 @@ class Launcher(tk.Tk):
                 parent=self,
             )
             return
-        self.rebuild_patch_btn.config(state="disabled")
+        self.busy = True
+        self.play.config(state="disabled")
+        if hasattr(self, "import_patch_btn"):
+            self.import_patch_btn.config(state="disabled")
+        if hasattr(self, "rebuild_patch_btn"):
+            self.rebuild_patch_btn.config(state="disabled")
         self.status.config(text="Building English patch…")
 
         def _worker():
             err = None
             stats = None
+            view = None
             try:
+                update_dir = self.cfg.get("game_update", "").strip() if isinstance(self.cfg.get("game_update"), str) else ""
+                effective_game = game
+                if update_dir:
+                    update_path = Path(update_dir)
+                    if update_path.is_dir() and (update_path / "eboot.bin").is_file():
+                        self.after(0, lambda: self.status.config(text="Applying game update…"))
+                        view = game_update.create_view(game, update_path, OUT)
+                        effective_game = view
+
+                self.after(0, lambda: self.status.config(text="Building English patch…"))
                 def _prog(cur, tot, msg):
-                    self.after(0, lambda c=cur, t=tot: self.status.config(text=f"Building English patch… {c + 1}/{t}"))
+                    self.after(0, lambda c=cur, t=tot: self.status.config(text=f"Building English patch… {c + 1}/{tot}"))
                 stats = basara4_translation.build_patch(
                     effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                 )
-                if self.cfg.get("english_patch") or OVERLAY_DIR.exists():
-                    basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
-            except Exception as e:
+                if OVERLAY_DIR.exists():
+                    try:
+                        basara4_overlay._safe_remove_tree(OVERLAY_DIR)
+                    except Exception:
+                        pass
+            except BaseException as e:
                 err = str(e)
+            finally:
+                if view:
+                    try:
+                        game_update.remove_view(view)
+                    except Exception:
+                        pass
 
             def _done():
-                self.rebuild_patch_btn.config(state="normal")
+                self.busy = False
+                self.play.config(state="normal")
+                if hasattr(self, "import_patch_btn"):
+                    self.import_patch_btn.config(state="normal")
+                if hasattr(self, "rebuild_patch_btn"):
+                    self.rebuild_patch_btn.config(state="normal")
                 if err:
                     self.status.config(text=f"English patch build failed: {err}")
                     messagebox.showerror("English Patch Build Failed", err, parent=self)
