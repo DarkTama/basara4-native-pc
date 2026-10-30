@@ -42,6 +42,7 @@ VERSION = "1.0.6"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
+FORK_ACCENT = "#e0a952"
 GITHUB_REPO = f"{FORK}/basara4-native-pc"
 
 
@@ -531,7 +532,7 @@ class Launcher(tk.Tk):
         self.user_stopped = False
         self.pending = None
         self.play_now = play_now
-        self.title(f"Sengoku Basara 4 Sumeragi  \u00b7  {BRAND} by {AUTHOR}")
+        self.title("Sengoku Basara 4 Sumeragi - Basara 4 PC")
         self.configure(bg=BG)
         self.geometry("1000x620")
         self.resizable(False, False)
@@ -654,10 +655,14 @@ class Launcher(tk.Tk):
         self.check_btn.pack(fill="x")
         credit = tk.Frame(bottom, bg=PANEL, cursor="hand2")  # clicking it opens the credits
         credit.pack(pady=(10, 0))
-        for text, color, font in ((f"{BRAND} by ", MUTED, FONT_SMALL), (AUTHOR, RAZZ, ("Segoe UI", 8, "bold italic")),
-                                  (f" · fork by {FORK}", MUTED, FONT_SMALL)):
-            tk.Label(credit, text=text, bg=PANEL, fg=color, font=font, bd=0, padx=0).pack(side="left")
-        for widget in [credit] + credit.winfo_children():
+        c_line1 = tk.Frame(credit, bg=PANEL)
+        c_line1.pack()
+        tk.Label(c_line1, text=f"{BRAND} ", bg=PANEL, fg=FG, font=FONT_SMALL, bd=0).pack(side="left")
+        tk.Label(c_line1, text=f"({FORK} Fork)", bg=PANEL, fg=FORK_ACCENT, font=("Segoe UI", 8, "bold"), bd=0).pack(side="left")
+        c_line2 = tk.Frame(credit, bg=PANEL)
+        c_line2.pack(pady=(1, 0))
+        tk.Label(c_line2, text=f"\u00b7 Original port by {AUTHOR}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "italic"), bd=0).pack(side="left")
+        for widget in [credit, c_line1, c_line2] + c_line1.winfo_children() + c_line2.winfo_children():
             widget.bind("<Button-1>", lambda _e: self.show_credits())
 
         if self.cover:
@@ -1074,7 +1079,7 @@ class Launcher(tk.Tk):
         env["PATH"] = str(BIN) + os.pathsep + env.get("PATH", "")
         env["SPARTAN_GPU_USER_DIR"] = str(USER)
         env["SPARTAN_CONFIG"] = str(self._ini())
-        env["SPARTAN_WINDOW_TITLE"] = f"Sengoku Basara 4 Sumeragi - {BRAND} by {AUTHOR}"
+        env["SPARTAN_WINDOW_TITLE"] = "Sengoku Basara 4 Sumeragi - Basara 4 PC"
         gpu_idx = self.cfg.get("gpu_index", -1)
         if gpu_idx != -1:
             env["SPARTAN_GPU_ID"] = str(gpu_idx)
@@ -1506,7 +1511,7 @@ class Launcher(tk.Tk):
         except OSError:
             text = "Credits are in NOTICE.md."
         win = tk.Toplevel(self)
-        win.title(f"{BRAND} - credits")
+        win.title(f"{BRAND} ({FORK} Fork) \u00b7 Original port by {AUTHOR} - Credits")
         win.configure(bg=BG)
         win.geometry("640x460")
         box = tk.Text(win, bg=PANEL, fg=FG, wrap="word", relief="flat", padx=14, pady=12, font=("Segoe UI", 10))

@@ -378,7 +378,7 @@ void BasaraTab() {
                           int(elf.AppVer().size()), elf.AppVer().data());
         }
         InfoRow("Game", text);
-        InfoRow("Runtime", "Basara 4 PC \xC2\xB7 by Razz");
+        InfoRow("Runtime", "Basara 4 PC (DarkTama Fork)");
         InfoRow("Built on", "SpartanPort (GPL-2.0+) \xC2\xB7 shadPS4 video core");
         ImGui::EndTable();
     }
@@ -554,7 +554,7 @@ void Menu() {
                              ImGuiCond_Appearing);
     bool keep_open = true;
     static const std::string heading =
-        std::string("Sengoku Basara 4 Sumeragi  \xC2\xB7  Basara 4 PC by Razz") +
+        std::string("Sengoku Basara 4 Sumeragi  \xC2\xB7  Basara 4 PC") +
         PadText("  (Insert / R3+L2)", "  (Insert / RS+LT)", "  (Insert / RS+ZL)");
     if (!ImGui::Begin(heading.c_str(), &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();

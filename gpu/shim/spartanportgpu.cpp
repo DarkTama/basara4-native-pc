@@ -232,7 +232,7 @@ extern "C" int spartanportgpu_init(const SpartanGpuConfig* config) {
     Core::Emulator::FillElfInfo(*config);
     // The window carries the project name; the dump's own title stays in ElfInfo (above).
     const char* title_env = std::getenv("SPARTAN_WINDOW_TITLE");
-    const std::string title = title_env && title_env[0] ? title_env : "Basara 4 PC - by Razz";
+    const std::string title = title_env && title_env[0] ? title_env : "Sengoku Basara 4 Sumeragi - Basara 4 PC";
     const s32 width = config->width, height = config->height;
     g_window_thread = std::thread([title, width, height] {
         Common::SetCurrentThreadName("spartanport:window");
