@@ -8,6 +8,13 @@ typedef int32_t (ABI *Init)(const void *,void *);
 typedef int32_t (ABI *Param)(uint32_t,int32_t *);
 typedef int32_t (ABI *List)(uint32_t,void *,uint32_t,uint32_t *);
 #define GET(t,n) ((t)runtime_content_resolve(n))
+int runtime_file_mount(const char *guest_prefix, const char *host_path) {
+    (void)guest_prefix; (void)host_path;
+    return 0;
+}
+void runtime_file_unmount(const char *guest_prefix) {
+    (void)guest_prefix;
+}
 int main(int argc,char **argv) {
     Module load=GET(Module,"g8cM39EUZ6o#libSceSysmodule");
     Module loaded=GET(Module,"fMP5NHUOaMk#libSceSysmodule");

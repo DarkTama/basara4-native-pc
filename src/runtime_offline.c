@@ -202,12 +202,13 @@ static ABI int32_t pthread_cancel_guest(void *thread) {
     return ORBIS_OK;
 }
 
-/* ---- AppContent: base game only, temporary data on /temp0 (user/temp0) ---- */
+/* ---- AppContent: add-ons, temporary data on /temp0 (user/temp0) ---- */
 static ABI int32_t addcont_mount(uint32_t label, const void *entitlement, char *mount_point) {
-    if (label>7 || !entitlement || !mount_point) return APP_CONTENT_PARAMETER;
-    return APP_CONTENT_NOT_FOUND; /* no add-on content is installed */
+    return runtime_content_addcont_mount(label, entitlement, mount_point);
 }
-static ABI int32_t addcont_unmount(const char *mount_point) { return mount_point ? ORBIS_OK : APP_CONTENT_PARAMETER; }
+static ABI int32_t addcont_unmount(const char *mount_point) {
+    return runtime_content_addcont_unmount(mount_point);
+}
 static ABI int32_t temp_mount2(uint32_t option, char *mount_point) {
     (void)option; /* FORMAT would wipe user/temp0: the game recreates what it needs anyway */
     if (!mount_point) return APP_CONTENT_PARAMETER;

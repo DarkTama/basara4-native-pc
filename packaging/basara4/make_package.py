@@ -27,7 +27,8 @@ STDLIB = ["argparse", "base64", "collections", "ctypes", "ctypes.wintypes", "has
           "textwrap", "binascii", "zipfile", "functools", "dataclasses", "typing", "enum", "string", "traceback",
           "stat", "errno", "copy", "contextlib", "datetime", "fnmatch", "glob", "operator", "xml.etree.ElementTree",
           "uuid", "codecs", "array", "bisect", "heapq", "runpy", "importlib.util", "urllib", "urllib.request", "ssl"]
-PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py"]
+PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py",
+                   "game_update.py", "mods.py", "patches.py", "dlc.py"]
 
 
 def run(*cmd, **kw):

@@ -901,13 +901,14 @@ int main(int argc, char **argv) {
 #endif
     int cpu_only = 0, strict_imports = 0, check_imports = 0, game_hooks = 1, cheats_enabled = 0;
     unsigned timeout_seconds = 10;
-    const char *content_profile=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *isa_file=NULL, *pause_menu=NULL;
+    const char *content_profile=NULL, *addons_file=NULL, *app0=NULL, *user_dir=NULL, *patch_file=NULL, *isa_file=NULL, *pause_menu=NULL;
     const char *mounts[8]; int mount_count=0;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--cpu-only")) cpu_only = 1;
         else if (!strcmp(argv[i], "--strict-imports")) strict_imports = 1;
         else if (!strcmp(argv[i], "--check-imports")) check_imports = 1;
         else if (!strcmp(argv[i], "--content-profile") && i+1<argc) content_profile=argv[++i];
+        else if (!strcmp(argv[i], "--addons") && i+1<argc) addons_file=argv[++i];
         else if (!strcmp(argv[i], "--app0") && i+1<argc) app0=argv[++i];
         else if (!strcmp(argv[i], "--user") && i+1<argc) user_dir=argv[++i];
         else if (!strcmp(argv[i], "--patches") && i+1<argc) patch_file=argv[++i];
@@ -925,9 +926,10 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
     }
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--cheats] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
+        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--addons file] [--app0 dir] [--user dir] [--patches file] [--cheats] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
         return 1;
     }
+    if (!addons_file) addons_file = getenv("SPARTAN_ADDONS");
     if (!cpu_supported(missing, sizeof missing)) return 20;
     if (cpu_missing_sets) printf("CPU: missing %s\n", missing);
     /* SPARTAN_ISA_REWRITE=0 never rewrites, =1 rewrites every site; by default the sets the CPU lacks. */
@@ -953,6 +955,17 @@ int main(int argc, char **argv) {
             values[i]=(uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
         }
         runtime_content_configure(values);
+    }
+    if (addons_file) {
+        char id[16] = "";
+        if (app0) {
+            char sfo[4096];
+            snprintf(sfo, sizeof(sfo), "%s/sce_sys/param.sfo", app0);
+            sfo_value(sfo, "TITLE_ID", id, sizeof(id), NULL);
+        }
+        if (runtime_content_configure_addons(addons_file, id[0] ? id : NULL) != 0) {
+            fail("invalid or rejected add-on manifest");
+        }
     }
     if (app0) {
         runtime_file_configure(app0, user_dir ? user_dir : "user");
