@@ -6,7 +6,8 @@ Builds the Windows folder that is handed to players, from this repository.
   python packaging/basara4/make_package.py --out D:/Games/basara4-windows --update
 
 Needs: MSYS2 CLANG64 (build.sh already run, so out/gpu/basara4-core.exe exists), and
-`python -m pip install pyinstaller` on the Windows Python that runs this script.
+`python -m pip install pyinstaller pillow numpy etcpak iced-x86==1.21.0` on the Windows
+Python that runs this script. The launcher must be closed while packaging.
 
 --update refreshes the programs of an existing folder and leaves game\\, user\\ and out\\ alone.
 Without it the folder must not exist yet; empty game\\, user\\ and out\\ folders are created.
@@ -29,6 +30,31 @@ STDLIB = ["argparse", "base64", "collections", "ctypes", "ctypes.wintypes", "has
           "uuid", "codecs", "array", "bisect", "heapq", "runpy", "importlib.util", "urllib", "urllib.request", "ssl"]
 PREPARE_SCRIPTS = ["prepare.py", "link_libc.py", "link_modules.py", "content_profile.py", "isa_rewrite.py",
                    "game_update.py", "mods.py", "patches.py", "dlc.py"]
+REQUIRED_PACKAGES = ["iced_x86", "etcpak", "numpy", "PIL", "PyInstaller"]
+
+
+def check_dependencies(modules=REQUIRED_PACKAGES):
+    missing = []
+    for mod in modules:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        sys.exit(
+            f"Missing required Python module(s): {', '.join(missing)}\n"
+            f"Run: python -m pip install pyinstaller pillow numpy etcpak iced-x86==1.21.0"
+        )
+
+
+def check_launcher_not_running(target):
+    exe = target / f"{NAME}.exe"
+    if exe.is_file():
+        try:
+            with open(exe, "r+b"):
+                pass
+        except OSError:
+            sys.exit("Close Sengoku Basara 4 (the launcher) and run again.")
 
 
 def run(*cmd, **kw):
@@ -59,6 +85,9 @@ def main():
     if args.update and not target.is_dir():
         sys.exit(f"{target} does not exist")
 
+    check_launcher_not_running(target)
+    check_dependencies()
+
     # the controller mapper (SDL3 console program)
     msys(args.msys2, "clang tools/gamepad_mapper.c $(pkg-config --cflags sdl3) -lSDL3 -mconsole "
                      "-o out/basara4-pad-mapper.exe")
@@ -76,8 +105,12 @@ def main():
     built = work / "dist" / NAME
 
     target.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(target / "_internal", ignore_errors=True)
-    shutil.copytree(built / "_internal", target / "_internal")
+    check_launcher_not_running(target)
+    internal = target / "_internal"
+    shutil.rmtree(internal, ignore_errors=True)
+    if internal.exists():
+        sys.exit("Close Sengoku Basara 4 (the launcher) and run again.")
+    shutil.copytree(built / "_internal", internal)
     shutil.copy2(built / f"{NAME}.exe", target / f"{NAME}.exe")
 
     # runtime, mapper and the DLLs they load

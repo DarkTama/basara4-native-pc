@@ -79,7 +79,7 @@ pacman -S --needed git patch \
 ```
 
 ```powershell
-python -m pip install pyinstaller pillow
+python -m pip install pyinstaller pillow numpy etcpak iced-x86==1.21.0
 ```
 
 Build steps:
@@ -90,6 +90,7 @@ git submodule update --init --recursive
 bash build.sh
 ```
 
+Package the game (the package must be built with the launcher closed):
 ```powershell
 python packaging/basara4/make_package.py --out dist/basara4-windows
 ```
