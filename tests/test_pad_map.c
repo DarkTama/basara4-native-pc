@@ -147,7 +147,7 @@ int main(void) {
     item.timestamp+=16000;
     glide.motion.xrel=10.0f; glide.motion.yrel=-5.0f; mouse_watch(NULL,&glide);
     apply_mouse_aim(&item);                                   /* right and up, partly tilted without BTN_L2 */
-    assert(item.right_x>128 && item.right_x<255 && item.right_y<128 && item.right_y>0);
+    assert(item.right_x<128 && item.right_x>0 && item.right_y<128 && item.right_y>0);
     const uint8_t tilt=item.right_x;
     item.right_x=item.right_y=128; item.timestamp+=16000;     /* a gap between mouse reports */
     apply_mouse_aim(&item);
@@ -159,11 +159,42 @@ int main(void) {
     glide.motion.xrel=-400.0f; glide.motion.yrel=0; mouse_watch(NULL,&glide);
     item.timestamp+=16000;
     apply_mouse_aim(&item);                                   /* fast to the left: full tilt without BTN_L2 */
-    assert(item.right_x==0 && item.right_y==128);
+    assert(item.right_x==255 && item.right_y==128);
     item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US; /* stopped: returns to 128 */
     apply_mouse_aim(&item);
     assert(item.right_x==128 && item.right_y==128);
     assert(aim.x==0 && aim.y==0 && aim.moved==0);
+
+    /* Direct runtime_pad_accumulate_mouse call (from window thread) */
+    runtime_pad_accumulate_mouse(10.0f, -5.0f);
+    item.timestamp+=16000;
+    apply_mouse_aim(&item);
+    assert(item.right_x<128 && item.right_y<128);
+    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US;
+    apply_mouse_aim(&item);
+    assert(item.right_x==128 && item.right_y==128);
+
+    /* Inverted axes (SPARTAN_MOUSE_INVERT_X=1 and SPARTAN_MOUSE_INVERT_Y=1) */
+    _putenv("SPARTAN_MOUSE_INVERT_X=1");
+    _putenv("SPARTAN_MOUSE_INVERT_Y=1");
+    runtime_pad_accumulate_mouse(10.0f, -5.0f);
+    item.timestamp+=16000;
+    apply_mouse_aim(&item);
+    assert(item.right_x>128 && item.right_y>128);
+    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US;
+    apply_mouse_aim(&item);
+    assert(item.right_x==128 && item.right_y==128);
+    _putenv("SPARTAN_MOUSE_INVERT_X=0");
+    _putenv("SPARTAN_MOUSE_INVERT_Y=0");
+
+    /* Deadzone boost: small mouse movement rotates camera with magnitude >= 32 */
+    runtime_pad_accumulate_mouse(1.0f, 1.0f);
+    item.timestamp+=16000;
+    apply_mouse_aim(&item);
+    assert(item.right_x<=128-32 && item.right_y>=128+32);
+    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US;
+    apply_mouse_aim(&item);
+    assert(item.right_x==128 && item.right_y==128);
 
     /* Absolute: offset from centre, kept while mouse rests, without L2. */
     aim_style=1;

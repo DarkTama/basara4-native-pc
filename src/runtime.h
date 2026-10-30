@@ -111,6 +111,7 @@ void runtime_pad_report(void);
 /* probe --gamepad: prints one "Gamepad:" line for the first pad found (returns 1) or none (0). */
 int runtime_pad_describe(void);
 void runtime_pad_load_mappings(void);
+void runtime_pad_accumulate_mouse(float xrel, float yrel);
 uintptr_t runtime_rtc_resolve(const char *name);
 const char *runtime_file_user_dir(void);
 void runtime_savedata_configure(const char *title);

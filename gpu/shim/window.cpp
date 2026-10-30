@@ -11,6 +11,8 @@
 #include "spartanport_graphics.h"
 #include "spartanport_settings.h"
 
+extern "C" void runtime_pad_accumulate_mouse(float xrel, float yrel);
+
 namespace Frontend {
 
 // spartanport: set by the pause key (any thread), cleared by it or a click in the window.
@@ -265,6 +267,11 @@ bool WindowSDL::PollEvents() {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             mouse_paused = false; // a click in the window takes the mouse back
+            break;
+        case SDL_EVENT_MOUSE_MOTION:
+            if (mouse_locked && !SpartanOverlay::CapturesInput()) {
+                runtime_pad_accumulate_mouse(event.motion.xrel, event.motion.yrel);
+            }
             break;
         default:
             break;
