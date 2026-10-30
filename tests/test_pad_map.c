@@ -133,38 +133,44 @@ int main(void) {
     menu.buttons=CLICK_RIGHT; note_pause_key(&menu);
     assert(pause_keys==2);
 
-    /* L2 aim: the right stick follows the mouse's movement while L2 is held, then lets go. */
+    /* Free mouse camera look: right stick follows mouse movement immediately without L2. */
+    _putenv("SPARTAN_MOUSE_LOCK=0");
     SDL_Event glide={0};
     glide.type=SDL_EVENT_MOUSE_MOTION;
     PadData item={0};
     item.right_x=item.right_y=128; item.timestamp=50000000;
     glide.motion.xrel=500.0f; mouse_watch(NULL,&glide);
-    apply_mouse_aim(&item);                                   /* no L2: untouched, motion dropped */
+    apply_mouse_aim(&item);                                   /* SPARTAN_MOUSE_LOCK=0: bypassed, motion dropped */
     assert(item.right_x==128 && item.right_y==128);
-    item.buttons=BTN_L2; item.timestamp+=16000;
+    _putenv("SPARTAN_MOUSE_LOCK=1");
+
+    item.timestamp+=16000;
     glide.motion.xrel=10.0f; glide.motion.yrel=-5.0f; mouse_watch(NULL,&glide);
-    apply_mouse_aim(&item);                                   /* right and up, partly tilted */
+    apply_mouse_aim(&item);                                   /* right and up, partly tilted without BTN_L2 */
     assert(item.right_x>128 && item.right_x<255 && item.right_y<128 && item.right_y>0);
     const uint8_t tilt=item.right_x;
     item.right_x=item.right_y=128; item.timestamp+=16000;     /* a gap between mouse reports */
     apply_mouse_aim(&item);
     assert(item.right_x==tilt);
-    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US; /* stopped: the stick is let go */
+    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US; /* stopped: returns to neutral 128 */
     apply_mouse_aim(&item);
     assert(item.right_x==128 && item.right_y==128);
+    assert(aim.x==0 && aim.y==0 && aim.moved==0);
     glide.motion.xrel=-400.0f; glide.motion.yrel=0; mouse_watch(NULL,&glide);
     item.timestamp+=16000;
-    apply_mouse_aim(&item);                                   /* fast to the left: full tilt */
+    apply_mouse_aim(&item);                                   /* fast to the left: full tilt without BTN_L2 */
     assert(item.right_x==0 && item.right_y==128);
+    item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US; /* stopped: returns to 128 */
+    apply_mouse_aim(&item);
+    assert(item.right_x==128 && item.right_y==128);
+    assert(aim.x==0 && aim.y==0 && aim.moved==0);
 
-    /* Absolute: the offset from where the mouse was at the L2 press, kept while the mouse rests. */
+    /* Absolute: offset from centre, kept while mouse rests, without L2. */
     aim_style=1;
-    item.buttons=0; item.timestamp+=16000;
-    apply_mouse_aim(&item);                                   /* L2 released: forget the centre */
-    item.buttons=BTN_L2; item.right_x=item.right_y=128;
+    item.right_x=item.right_y=128;
     glide.motion.xrel=100.0f; glide.motion.yrel=0; mouse_watch(NULL,&glide);
     item.timestamp+=16000;
-    apply_mouse_aim(&item);                                   /* half way to full tilt */
+    apply_mouse_aim(&item);                                   /* half way to full tilt without L2 */
     assert(item.right_x==128+63 && item.right_y==128);
     item.right_x=item.right_y=128; item.timestamp+=AIM_HOLD_US*4;
     apply_mouse_aim(&item);                                   /* resting: still pointing there */

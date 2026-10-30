@@ -785,14 +785,14 @@ static void replay_sample(PadData *d) {
     d->left_x=s->axes[0]; d->left_y=s->axes[1]; d->right_x=s->axes[2]; d->right_y=s->axes[3];
     d->l2=s->l2; d->r2=s->r2;
 }
-/* L2 aim (the items, e.g. the Head of Helios' light), in the menu's right stick style.
- * Relative: while L2 is held, moving the mouse pushes the right stick the way it moves, as far as
+/* Mouse camera look (Right Stick camera control), in the menu's right stick style.
+ * Relative: moving the mouse pushes the right stick the way it moves, as far as
  * it moves fast (full tilt at AIM_FULL_PX_PER_MS); when the mouse stops the stick is left alone
  * again. A direction holds AIM_HOLD_US after the last movement, over the gaps between mouse reports.
- * Absolute: where the mouse was when L2 was pressed is the centre, and the stick points from it to
- * where the mouse is (full tilt AIM_RADIUS_PX away at 100 %; the offset stops there, so coming back
- * works at once). The menu's sensitivity divides both distances. Reads after the stick prompts, so a
- * prompt drawn with the mouse comes first. */
+ * Absolute: relative to the centre, the stick points from it to where the mouse is (full tilt
+ * AIM_RADIUS_PX away at 100 %; the offset stops there, so coming back works at once).
+ * The menu's sensitivity divides both distances. Reads after the stick prompts, so a
+ * prompt drawn with the mouse comes first. Mouse camera can be disabled via SPARTAN_MOUSE_LOCK=0. */
 enum { AIM_HOLD_US=40000, AIM_STEP_MIN_US=1000, AIM_STEP_MAX_US=50000, AIM_RADIUS_PX=200 };
 static const float AIM_FULL_PX_PER_MS=1.2f;
 static struct { uint64_t last, moved; int x, y; bool held; float offset_x, offset_y; } aim;
@@ -800,10 +800,15 @@ static void apply_mouse_aim(PadData *d) {
     const float dx=SDL_SetAtomicInt(&mouse_motion[0],0)/16.0f, dy=SDL_SetAtomicInt(&mouse_motion[1],0)/16.0f;
     uint64_t step=d->timestamp-aim.last;
     aim.last=d->timestamp;
-    if (!(d->buttons & BTN_L2)) { aim.moved=0; aim.held=false; return; }
-    if (!aim.held) { aim.held=true; aim.offset_x=aim.offset_y=0; }  /* a new press: the centre is here */
+    const char *mouse_lock=getenv("SPARTAN_MOUSE_LOCK");
+    if (mouse_lock && !strcmp(mouse_lock,"0")) {
+        aim.x=0; aim.y=0; aim.moved=0; aim.held=false;
+        aim.offset_x=0; aim.offset_y=0;
+        return;
+    }
     const float sensitivity=spartanportgpu_mouse_aim_sensitivity()/100.0f;
     if (spartanportgpu_mouse_aim_style()==1) {
+        if (!aim.held) { aim.held=true; aim.offset_x=aim.offset_y=0; }
         const float radius=AIM_RADIUS_PX/sensitivity;
         aim.offset_x+=dx; aim.offset_y+=dy;
         const float length=sqrtf(aim.offset_x*aim.offset_x+aim.offset_y*aim.offset_y);
@@ -814,6 +819,8 @@ static void apply_mouse_aim(PadData *d) {
         }
         return;
     }
+    aim.held=false;
+    aim.offset_x=aim.offset_y=0;
     if (dx!=0 || dy!=0) {
         step=step<AIM_STEP_MIN_US ? AIM_STEP_MIN_US : step>AIM_STEP_MAX_US ? AIM_STEP_MAX_US : step;
         const float scale=127.0f*1000.0f*sensitivity/(AIM_FULL_PX_PER_MS*(float)step);
@@ -825,6 +832,8 @@ static void apply_mouse_aim(PadData *d) {
     if (aim.moved && d->timestamp-aim.moved<AIM_HOLD_US) {
         d->right_x=(uint8_t)(128+aim.x);
         d->right_y=(uint8_t)(128+aim.y);
+    } else {
+        aim.x=0; aim.y=0; aim.moved=0;
     }
 }
 
