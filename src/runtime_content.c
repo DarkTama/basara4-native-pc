@@ -71,21 +71,33 @@ static RuntimeAddon addons[MAX_ADDONS];
 static uint32_t addon_count = 0;
 static ActiveMountSlot active_mounts[MAX_MOUNT_SLOTS];
 static unsigned mounts_count = 0;
+static char addon_reject_reason[128] = "unknown error";
+
+const char *runtime_content_addon_reject_reason(void) {
+    return addon_reject_reason;
+}
 
 int runtime_content_configure_addons(const char *path, const char *expected_title_id) {
-    if (!path) return -1;
+    addon_count = 0;
+    if (!path) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "no path specified");
+        return -1;
+    }
     FILE *f = fopen(path, "rb");
     if (!f) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "cannot open add-on manifest %s", path);
         fprintf(stderr, "Runtime: cannot open add-on manifest %s\n", path);
         return -1;
     }
     unsigned char header[32];
     if (fread(header, 1, sizeof(header), f) != sizeof(header)) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "manifest too short");
         fprintf(stderr, "Runtime: add-on manifest too short\n");
         fclose(f);
         return -1;
     }
     if (memcmp(header, "B4ADD001", 8) != 0) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "invalid add-on manifest magic");
         fprintf(stderr, "Runtime: invalid add-on manifest magic\n");
         fclose(f);
         return -1;
@@ -94,6 +106,7 @@ int runtime_content_configure_addons(const char *path, const char *expected_titl
     memcpy(&version, header + 8, 4);
     memcpy(&count, header + 12, 4);
     if (version != 1) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "unsupported add-on manifest version %u", version);
         fprintf(stderr, "Runtime: unsupported add-on manifest version %u\n", version);
         fclose(f);
         return -1;
@@ -102,22 +115,26 @@ int runtime_content_configure_addons(const char *path, const char *expected_titl
     memcpy(manifest_title, header + 16, 15);
     manifest_title[15] = 0;
     if (expected_title_id && expected_title_id[0] && strcmp(manifest_title, expected_title_id) != 0) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "manifest title ID '%s' mismatch with game '%s'",
+                manifest_title, expected_title_id);
         fprintf(stderr, "Runtime: add-on manifest title ID '%s' mismatch with game '%s'\n",
                 manifest_title, expected_title_id);
         fclose(f);
         return -1;
     }
     if (count > MAX_ADDONS) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "manifest has %u entries, max is %u", count, MAX_ADDONS);
         fprintf(stderr, "Runtime: add-on manifest has %u entries, max is %u\n", count, MAX_ADDONS);
         fclose(f);
         return -1;
     }
-    addon_count = 0;
     for (uint32_t i = 0; i < count; ++i) {
         unsigned char entry[544];
         if (fread(entry, 1, sizeof(entry), f) != sizeof(entry)) {
+            snprintf(addon_reject_reason, sizeof(addon_reject_reason), "truncated add-on manifest entry %u", i);
             fprintf(stderr, "Runtime: truncated add-on manifest entry %u\n", i);
             fclose(f);
+            addon_count = 0;
             return -1;
         }
         memcpy(&addons[i].service_label, entry, 4);
@@ -129,8 +146,10 @@ int runtime_content_configure_addons(const char *path, const char *expected_titl
         addon_count++;
     }
     if (fgetc(f) != EOF) {
+        snprintf(addon_reject_reason, sizeof(addon_reject_reason), "trailing data in add-on manifest");
         fprintf(stderr, "Runtime: trailing data in add-on manifest\n");
         fclose(f);
+        addon_count = 0;
         return -1;
     }
     fclose(f);

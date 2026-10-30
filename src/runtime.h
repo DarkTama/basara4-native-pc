@@ -48,6 +48,7 @@ unsigned runtime_sema_waiters(uint32_t id);
 uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
 int runtime_content_configure_addons(const char *path, const char *expected_title_id);
+const char *runtime_content_addon_reject_reason(void);
 const char *runtime_content_get_addon_path(uint32_t service_label, const char *entitlement_label);
 int runtime_content_allocate_mount_slot(const char *entitlement_label, char *guest_path, size_t guest_size);
 void runtime_content_release_mount_slot(int slot);

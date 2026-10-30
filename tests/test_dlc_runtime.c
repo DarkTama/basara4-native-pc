@@ -95,16 +95,19 @@ int main(void) {
     snprintf(bad_manifest, sizeof(bad_manifest), "%s/bad_magic.bin", tmpdir);
     write_test_manifest(bad_manifest, "BADMAGIC", 1, "CUSA01159", 0, NULL);
     assert(runtime_content_configure_addons(bad_manifest, "CUSA01159") == -1);
+    assert(strstr(runtime_content_addon_reject_reason(), "magic") != NULL);
 
     char bad_ver_manifest[512];
     snprintf(bad_ver_manifest, sizeof(bad_ver_manifest), "%s/bad_ver.bin", tmpdir);
     write_test_manifest(bad_ver_manifest, "B4ADD001", 99, "CUSA01159", 0, NULL);
     assert(runtime_content_configure_addons(bad_ver_manifest, "CUSA01159") == -1);
+    assert(strstr(runtime_content_addon_reject_reason(), "version") != NULL);
 
     char bad_title_manifest[512];
     snprintf(bad_title_manifest, sizeof(bad_title_manifest), "%s/bad_title.bin", tmpdir);
     write_test_manifest(bad_title_manifest, "B4ADD001", 1, "CUSA99999", 0, NULL);
     assert(runtime_content_configure_addons(bad_title_manifest, "CUSA01159") == -1);
+    assert(strstr(runtime_content_addon_reject_reason(), "mismatch") != NULL);
 
     /* 2. Test valid manifest with 2 DLCs */
     static ManifestEntry entries[2];

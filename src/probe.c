@@ -957,14 +957,18 @@ int main(int argc, char **argv) {
         runtime_content_configure(values);
     }
     if (addons_file) {
-        char id[16] = "";
-        if (app0) {
-            char sfo[4096];
-            snprintf(sfo, sizeof(sfo), "%s/sce_sys/param.sfo", app0);
-            sfo_value(sfo, "TITLE_ID", id, sizeof(id), NULL);
-        }
-        if (runtime_content_configure_addons(addons_file, id[0] ? id : NULL) != 0) {
-            fail("invalid or rejected add-on manifest");
+        FILE *mf = fopen(addons_file, "rb");
+        if (mf) {
+            fclose(mf);
+            char id[16] = "";
+            if (app0) {
+                char sfo[4096];
+                snprintf(sfo, sizeof(sfo), "%s/sce_sys/param.sfo", app0);
+                sfo_value(sfo, "TITLE_ID", id, sizeof(id), NULL);
+            }
+            if (runtime_content_configure_addons(addons_file, id[0] ? id : NULL) != 0) {
+                printf("Runtime: add-on manifest ignored: %s\n", runtime_content_addon_reject_reason());
+            }
         }
     }
     if (app0) {
