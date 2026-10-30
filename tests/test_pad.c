@@ -24,6 +24,7 @@ static bool SDLCALL record_rumble(void *userdata, uint16_t low, uint16_t high) {
     rumble_high=high;
     return true;
 }
+const char *runtime_file_user_dir(void) { return "user"; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;

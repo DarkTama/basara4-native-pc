@@ -1,0 +1,2 @@
+https://github.com/mdqinc/SDL_GameControllerDB (commit 22a98f6339abf4b6ca6cb061443a70e4f7ab252d)
+Refresh: curl -sLo data/gamecontrollerdb.txt https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/gamecontrollerdb.txt && curl -sLo data/gamecontrollerdb.LICENSE https://raw.githubusercontent.com/mdqinc/SDL_GameControllerDB/master/LICENSE

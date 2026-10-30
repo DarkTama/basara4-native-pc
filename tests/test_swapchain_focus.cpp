@@ -17,6 +17,8 @@
 #include "sdl_window.h"
 
 // Stubs for overlay functions referenced by WindowSDL when linked in tests
+extern "C" void runtime_pad_load_mappings(void) {}
+
 namespace SpartanOverlay {
     bool HandleEvent(const SDL_Event&) { return false; }
     void UpdateTextInput(SDL_Window*) {}
