@@ -12,12 +12,14 @@ on:
       tag:
         description: Release to attach the zip to; a new tag makes a test pre-release. Empty builds only.
         required: false
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
 
 concurrency:
-  group: windows-zip-${{ inputs.tag || github.ref }}
+  group: windows-zip-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +45,7 @@ jobs:
           update: true
           install: git patch
           pacboy: >-
-            toolchain:p cmake:p ninja:p pkgconf:p python:p libmpg123:p
+            toolchain:p cmake:p ninja:p pkgconf:p python:p mpg123:p
             vulkan-headers:p vulkan-loader:p vulkan-memory-allocator:p glslang:p
             sdl3:p fmt:p boost:p robin-map:p xxhash:p ffmpeg:p zydis:p
             spirv-tools:p spirv-headers:p spirv-cross:p
@@ -84,7 +86,7 @@ jobs:
 
   publish:
     needs: smoke
-    if: inputs.tag != ''
+    if: inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -95,10 +97,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Windows test build $TAG" \
-              --notes "Windows test build from \`${GITHUB_SHA::7}\`. Download \`basara4-windows.zip\`, extract it and run \`Sengoku Basara 4.exe\`. Not a final release: please report in the linked issue whether it opens and runs."
+            gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Sengoku Basara 4 PC $TAG" \
+              --notes "Release $TAG. Download \`basara4-windows.zip\`, extract it, and run \`Sengoku Basara 4.exe\`. See README.md for requirements and instructions."
           fi
           gh release upload "$TAG" dist/basara4-windows.zip dist/basara4-windows.zip.sha256 --clobber
