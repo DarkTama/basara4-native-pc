@@ -53,7 +53,7 @@ This repository contains **no translated text or assets**. Users must supply the
 3. The repatcher verifies patch files against a known hash manifest (`data/ps3_patch_manifest.json`), extracts GMD string tables, converts UI textures to native PS4 format, and repacks archives in `mods/english_patch/`.
 4. Toggle the **"English Translation Patch (PS3 v0.85 Port)"** checkbox anytime to apply via a sparse overlay (`user/app0_overlay`) without modifying original game files.
 
-When a game update folder is set, the patch is built from the updated files. Stage battle banter and story dialogue were never translated in the original PS3 community patch and remain in Japanese.
+When a game update folder is set, the patch is built from the updated files. Stage battle banter and story dialogue were never translated in the original PS3 community patch and remain in Japanese. Some menu headers and stat labels also remain in Japanese for now; see docs/ENGLISH-PATCH-STATUS.md.
 
 ```bash
 python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch

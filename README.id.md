@@ -53,7 +53,7 @@ Repositori ini **tidak menyertakan teks terjemahan atau aset game**. Pengguna wa
 3. Repatcher akan memverifikasi file patch dengan manifes hash (`data/ps3_patch_manifest.json`), mengekstrak tabel teks GMD, mengonversi tekstur UI ke format native PS4, dan mengemas ulang arsip ke `mods/english_patch/`.
 4. Centang opsi **"English Translation Patch (PS3 v0.85 Port)"** kapan saja untuk menerapkan patch via overlay sparse (`user/app0_overlay`) tanpa mengubah file asli game.
 
-Jika folder update game diatur, patch akan dibangun dari file versi update secara otomatis. Percakapan saat bertarung dan dialog cerita tidak pernah diterjemahkan dalam patch PS3 asli sehingga tetap berbahasa Jepang.
+Jika folder update game diatur, patch akan dibangun dari file versi update secara otomatis. Percakapan saat bertarung dan dialog cerita tidak pernah diterjemahkan dalam patch PS3 asli sehingga tetap berbahasa Jepang. Beberapa judul menu dan label status juga masih berbahasa Jepang untuk saat ini; lihat docs/ENGLISH-PATCH-STATUS.md.
 
 ```bash
 python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch
