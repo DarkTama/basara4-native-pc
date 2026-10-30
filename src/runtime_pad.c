@@ -793,11 +793,17 @@ static void replay_sample(PadData *d) {
  * AIM_RADIUS_PX away at 100 %; the offset stops there, so coming back works at once).
  * The menu's sensitivity divides both distances. Reads after the stick prompts, so a
  * prompt drawn with the mouse comes first. Mouse camera can be disabled via SPARTAN_MOUSE_LOCK=0. */
-enum { AIM_HOLD_US=40000, AIM_STEP_MIN_US=1000, AIM_STEP_MAX_US=50000, AIM_RADIUS_PX=200 };
+enum { AIM_HOLD_US=60000, AIM_STEP_MIN_US=1000, AIM_STEP_MAX_US=50000, AIM_RADIUS_PX=200 };
 static const float AIM_FULL_PX_PER_MS=1.2f;
 static struct { uint64_t last, moved; int x, y; bool held; float offset_x, offset_y; } aim;
 static void apply_mouse_aim(PadData *d) {
-    const float dx=SDL_SetAtomicInt(&mouse_motion[0],0)/16.0f, dy=SDL_SetAtomicInt(&mouse_motion[1],0)/16.0f;
+    float rx=0.0f, ry=0.0f;
+    SDL_GetRelativeMouseState(&rx,&ry);
+    float dx=SDL_SetAtomicInt(&mouse_motion[0],0)/16.0f, dy=SDL_SetAtomicInt(&mouse_motion[1],0)/16.0f;
+    if (rx!=0 || ry!=0) {
+        dx+=rx;
+        dy+=ry;
+    }
     uint64_t step=d->timestamp-aim.last;
     aim.last=d->timestamp;
     const char *mouse_lock=getenv("SPARTAN_MOUSE_LOCK");
@@ -824,9 +830,29 @@ static void apply_mouse_aim(PadData *d) {
     if (dx!=0 || dy!=0) {
         step=step<AIM_STEP_MIN_US ? AIM_STEP_MIN_US : step>AIM_STEP_MAX_US ? AIM_STEP_MAX_US : step;
         const float scale=127.0f*1000.0f*sensitivity/(AIM_FULL_PX_PER_MS*(float)step);
-        const float x=dx*scale, y=dy*scale;
+        float x=dx*scale, y=dy*scale;
+        if (x!=0.0f) {
+            const float max_mag=x<0.0f ? 128.0f : 127.0f;
+            float mag=fabsf(x);
+            if (mag>max_mag) mag=max_mag;
+            float boosted=32.0f+mag*((max_mag-32.0f)/max_mag);
+            if (boosted>max_mag) boosted=max_mag;
+            x=(x>0.0f) ? boosted : -boosted;
+        }
+        if (y!=0.0f) {
+            const float max_mag=y<0.0f ? 128.0f : 127.0f;
+            float mag=fabsf(y);
+            if (mag>max_mag) mag=max_mag;
+            float boosted=32.0f+mag*((max_mag-32.0f)/max_mag);
+            if (boosted>max_mag) boosted=max_mag;
+            y=(y>0.0f) ? boosted : -boosted;
+        }
         aim.x=x>127 ? 127 : x<-128 ? -128 : (int)x;
         aim.y=y>127 ? 127 : y<-128 ? -128 : (int)y;
+        if (aim.x>0 && aim.x<32) aim.x=32;
+        if (aim.x<0 && aim.x>-32) aim.x=-32;
+        if (aim.y>0 && aim.y<32) aim.y=32;
+        if (aim.y<0 && aim.y>-32) aim.y=-32;
         aim.moved=d->timestamp;
     }
     if (aim.moved && d->timestamp-aim.moved<AIM_HOLD_US) {
@@ -834,6 +860,11 @@ static void apply_mouse_aim(PadData *d) {
         d->right_y=(uint8_t)(128+aim.y);
     } else {
         aim.x=0; aim.y=0; aim.moved=0;
+    }
+    static int logged = 0;
+    if (logged < 5 && (d->right_x != 128 || d->right_y != 128)) {
+        printf("Runtime: mouse camera active right=(%u, %u)\n", d->right_x, d->right_y);
+        logged++;
     }
 }
 

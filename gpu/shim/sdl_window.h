@@ -49,7 +49,9 @@ private:
     int display_mode = -1; ///< applied SpartanSettings display mode (window thread)
     bool mouse_locked = false; ///< relative mouse mode on (window thread)
     bool cursor_shown = false; ///< the system cursor is visible (window thread)
+    bool has_focus = true;     ///< window has input focus (window thread)
     void ApplyDisplayMode(int mode);
+    void UpdateMouseLock();
     int text_state{};
     std::string text, text_prompt, base_title;
     void UpdateTextTitle();
