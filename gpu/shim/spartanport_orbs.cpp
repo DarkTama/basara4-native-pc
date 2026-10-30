@@ -9,8 +9,8 @@ extern "C" float __attribute__((sysv_abi)) spartanport_orbs_gain(void* player, f
     float balance;
     std::memcpy(&balance, static_cast<unsigned char*>(player) + 0x1e8, sizeof(balance));
     const auto& settings = SpartanSettings::Get();
-    if ((settings.cheats_supported.load() & (1u << SPARTAN_CHEAT_ORBS)) &&
-        settings.cheats[SPARTAN_CHEAT_ORBS].load()) {
+    if ((settings.cheats_supported.load() & (1u << BASARA4_CHEAT_WEAPON_RANK)) &&
+        settings.cheats[BASARA4_CHEAT_WEAPON_RANK].load()) {
         return requested;
     }
     return SpartanOrbs::Scale(balance, requested, SpartanSettings::Get().red_orb_multiplier.load());

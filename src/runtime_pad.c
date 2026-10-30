@@ -57,10 +57,12 @@ enum {
     /* Host-only sources, never shown to the game: a click on one side of the touchpad from a
      * button or key without a touch surface (play_click turns them into a touch and a click). */
     CLICK_LEFT=0x40000000, CLICK_RIGHT=0x80000000,
-    /* Host-only actions of the keyboard map: dodge tilts the right stick (apply_dodge); rage and
-     * grab press two buttons together (apply_combos). */
-    DODGE=0x20000000, RAGE=0x10000000, GRAB=0x08000000,
+    /* Host-only actions of the keyboard map: dodge tilts the right stick (apply_dodge); drive and
+     * special press two buttons together (apply_combos). */
+    DODGE=0x20000000, DRIVE=0x10000000, SPECIAL=0x08000000,
 };
+#define RAGE DRIVE
+#define GRAB SPECIAL
 typedef struct { uint16_t x, y; uint8_t id, reserve[3]; } PadTouch;
 typedef struct {
     uint32_t buttons;
@@ -106,7 +108,7 @@ static uint16_t touch_axis(float v, int max) {
 
 /* A click without a touch surface (Back/View, Tab, Backspace, the pad file) is played like a
  * finger: the touch is reported CLICK_LEAD_US before the button, the button stays at least
- * CLICK_HOLD_US, and the touch lingers CLICK_TAIL_US after the release. SpartanPort opens
+ * CLICK_HOLD_US, and the touch lingers CLICK_TAIL_US after the release. The game opens
  * photo mode on the release of a left click with the finger still down, and ignores a touch
  * that comes and goes with the button. The side is chosen when the click starts and kept: the
  * right source with L1 held is a left click (photo mode on pads without a touchpad). */
@@ -302,7 +304,7 @@ static const struct { const char *name; uint32_t ps; } ps_names[]={
     {"l1",BTN_L1}, {"r1",BTN_R1}, {"l2",BTN_L2}, {"r2",BTN_R2}, {"l3",BTN_L3}, {"r3",BTN_R3},
     {"options",BTN_OPTIONS}, {"touchpad",CLICK_LEFT}, {"touchpad_left",CLICK_LEFT}, {"touchpad_right",CLICK_RIGHT},
     {"up",BTN_UP}, {"down",BTN_DOWN}, {"left",BTN_LEFT}, {"right",BTN_RIGHT},
-    {"dodge",DODGE}, {"rage",RAGE}, {"grab",GRAB},
+    {"dodge",DODGE}, {"drive",DRIVE}, {"special",SPECIAL}, {"rage",DRIVE}, {"grab",SPECIAL},
 };
 typedef struct { int source; uint32_t ps; } ButtonSource;
 typedef struct { ButtonSource entries[48]; size_t count; } ButtonMap;
@@ -902,15 +904,15 @@ static void note_pause_key(const PadData *d) {
     held=pause;
 }
 
-/* One source for two buttons pressed in the same read (SPARTAN_KEY_MAP "rage=<key>", "grab=<key>"):
- * L3 + R3 for Rage of Sparta, L1 + Circle for the grab. */
+/* One source for two buttons pressed in the same read (SPARTAN_KEY_MAP "drive=<key>", "special=<key>"):
+ * L3 + R3 for Drive, L1 + Circle for Special. */
 static void apply_combos(PadData *d) {
-    static const struct { uint32_t action, buttons; } combos[]={{RAGE,BTN_L3|BTN_R3},{GRAB,BTN_L1|BTN_CIRCLE}};
+    static const struct { uint32_t action, buttons; } combos[]={{DRIVE,BTN_L3|BTN_R3},{SPECIAL,BTN_L1|BTN_CIRCLE}};
     for (size_t i=0;i<sizeof(combos)/sizeof(*combos);++i)
         if (d->buttons & combos[i].action) d->buttons=(d->buttons & ~combos[i].action) | combos[i].buttons;
 }
 
-/* Dodge (SPARTAN_KEY_MAP "dodge=<key>"): SpartanPort evades toward where the right stick is pushed.
+/* Dodge (SPARTAN_KEY_MAP "dodge=<key>"): evades toward where the right stick is pushed.
  * While the dodge source is held the right stick points where the left stick does (WASD), at full
  * tilt, or straight back (toward the camera) when standing still; a tap holds it DODGE_MIN_US so
  * the game sees it. */
@@ -934,7 +936,7 @@ static void apply_dodge(PadData *d) {
 }
 
 /* R3 + L1 + R1 goes through the engine frame rates live (60 for spots that break at a higher
- * rate). The three stay hidden from the game until each one is released: a stray R1 grabs. */
+ * rate). The three stay hidden from the game until each one is released. */
 enum { ENGINE_FPS_COMBO=BTN_R3|BTN_L1|BTN_R1 };
 static uint32_t engine_fps_hidden;
 static bool engine_fps_held;

@@ -109,18 +109,22 @@ int main(void) {
     assert(SDL_GetAtomicInt(&wheel_ticks[1])==WHEEL_MAX_PENDING);
     drop_wheel();
     assert(SDL_GetAtomicInt(&wheel_ticks[1])==0 && !wheel_held(1,t1));
-    /* Rage: one source for L3 + R3; "None" clears L3 and R3 so their keys press nothing. */
-    ButtonMap rage=key_map;
-    assert(apply_button_map(&rage,"l3=None,r3=none,rage=V",true)==3);
-    assert(pressed_by(&rage,SDL_SCANCODE_Z)==0 && pressed_by(&rage,SDL_SCANCODE_C)==0);
-    assert(pressed_by(&rage,SDL_SCANCODE_V)==RAGE);
+    /* Drive: one source for L3 + R3 (also accepts legacy "rage"); "None" clears L3 and R3 so their keys press nothing. */
+    ButtonMap drive=key_map;
+    assert(apply_button_map(&drive,"l3=None,r3=none,drive=V",true)==3);
+    assert(pressed_by(&drive,SDL_SCANCODE_Z)==0 && pressed_by(&drive,SDL_SCANCODE_C)==0);
+    assert(pressed_by(&drive,SDL_SCANCODE_V)==DRIVE);
     PadData sparta={0};
-    sparta.buttons=RAGE|BTN_SQUARE;
+    sparta.buttons=DRIVE|BTN_SQUARE;
     apply_combos(&sparta);
     assert(sparta.buttons==(BTN_L3|BTN_R3|BTN_SQUARE));
     sparta.buttons=BTN_L3;
     apply_combos(&sparta);
     assert(sparta.buttons==BTN_L3);
+    /* Legacy alias: rage */
+    ButtonMap rage=key_map;
+    assert(apply_button_map(&rage,"l3=None,r3=none,rage=V",true)==3);
+    assert(pressed_by(&rage,SDL_SCANCODE_V)==RAGE);
 
     /* The pause key tells the window once per press; L1 + touchpad right (photo mode) does not. */
     PadData menu={0};
@@ -220,7 +224,14 @@ int main(void) {
     aim_sensitivity=100;
     aim_style=0;
 
-    /* Grab: L1 + Circle from one source, alongside rage. */
+    /* Special: L1 + Circle from one source, alongside drive (also accepts legacy grab/rage). */
+    ButtonMap special=key_map;
+    assert(apply_button_map(&special,"r3=X,special=C,drive=V",true)==3);
+    assert(pressed_by(&special,SDL_SCANCODE_C)==SPECIAL && pressed_by(&special,SDL_SCANCODE_X)==BTN_R3);
+    sparta.buttons=SPECIAL|DRIVE;
+    apply_combos(&sparta);
+    assert(sparta.buttons==(BTN_L1|BTN_CIRCLE|BTN_L3|BTN_R3));
+    /* Legacy aliases: grab and rage */
     ButtonMap grab=key_map;
     assert(apply_button_map(&grab,"r3=X,grab=C,rage=V",true)==3); /* C was R3's default key */
     assert(pressed_by(&grab,SDL_SCANCODE_C)==GRAB && pressed_by(&grab,SDL_SCANCODE_X)==BTN_R3);

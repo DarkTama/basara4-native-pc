@@ -64,7 +64,7 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
 uintptr_t runtime_kernel_resolve(const char *name);
 uintptr_t runtime_file_resolve(const char *name);
 uintptr_t runtime_services_resolve(const char *name);
-/* Event flags, Ngs2 (silent) and offline system services beyond God of War III (runtime_offline.c). */
+/* Event flags, Ngs2 (silent) and offline system services (runtime_offline.c). */
 uintptr_t runtime_offline_resolve(const char *name);
 /* SPARTAN_AUDIO_DEBUG=<file>: a timestamped key=value line per audio event (runtime_audio.c). Cheap when off. */
 int runtime_audio_log_enabled(void);
