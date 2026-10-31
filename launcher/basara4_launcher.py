@@ -38,7 +38,7 @@ INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
 WINDOW_ICON = USER / "window_icon.bmp"
 CORE = BIN / "basara4-core.exe"
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
@@ -92,6 +92,12 @@ def extract_crash_summary(log_path, max_context_lines=10):
         "tail_context": "\n".join(tail_lines),
         "total_lines": len(lines)
     }
+
+
+def parse_version(tag):
+    """Parses version strings like 'v1.1.2' or '1.0.6' into a comparable tuple of ints."""
+    nums = re.findall(r"\d+", str(tag))
+    return tuple(int(n) for n in nums) if nums else (0,)
 
 
 def check_latest_release(repo=GITHUB_REPO):
