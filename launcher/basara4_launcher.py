@@ -33,6 +33,7 @@ DATA = ROOT / "data"
 TRANSLATION_DB = DATA / "en_translation_db.json"
 PATCH_DIR = ROOT / "mods" / "english_patch"
 XBOX_PROMPT_DIR = ROOT / "mods" / "xbox_prompts"
+KBM_PROMPT_DIR = ROOT / "mods" / "kbm_prompts"
 OVERLAY_DIR = USER / "app0_overlay"
 CONFIG = USER / "launcher.json"
 INI = USER / "basara4.ini"
@@ -483,18 +484,20 @@ P2_CONTROL_MAP = {n: v for n, v in P2_CONTROLS_EN + P2_CONTROLS_ID}
 P2_CONTROL_MAP.update({"none": "none", "pad2": "pad2", "pad1": "pad1", "kbm": "kbm"})
 
 PROMPT_LAYOUTS_EN = [
-    ("Auto (Xbox on Gamepad, PS on DualShock)", "auto"),
+    ("Auto (Xbox on Gamepad, KBM on Keyboard)", "auto"),
     ("Xbox (A / B / X / Y)", "xbox"),
+    ("Keyboard & Mouse", "kbm"),
     ("PlayStation (✕ / ◯ / △ / □)", "ps"),
 ]
 PROMPT_LAYOUTS_ID = [
-    ("Otomatis (Xbox saat pakai stik)", "auto"),
+    ("Otomatis (Sesuai Controller P1)", "auto"),
     ("Xbox (A / B / X / Y)", "xbox"),
+    ("Keyboard & Mouse", "kbm"),
     ("PlayStation (✕ / ◯ / △ / □)", "ps"),
 ]
 
 PROMPT_LAYOUT_MAP = {n: v for n, v in PROMPT_LAYOUTS_EN + PROMPT_LAYOUTS_ID}
-PROMPT_LAYOUT_MAP.update({"auto": "auto", "xbox": "xbox", "ps": "ps"})
+PROMPT_LAYOUT_MAP.update({"auto": "auto", "xbox": "xbox", "kbm": "kbm", "ps": "ps"})
 
 ANISO_EN = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 ANISO_ID = [("Nonaktif", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
@@ -2044,8 +2047,16 @@ class Launcher(tk.Tk):
 
         prompt_setting = self.cfg.get("prompt_layout", "auto")
         p1_ctrl = self.cfg.get("p1_control", "pad1")
+        wants_kbm = (prompt_setting == "kbm") or (prompt_setting == "auto" and p1_ctrl == "kbm")
         wants_xbox = (prompt_setting == "xbox") or (prompt_setting == "auto" and p1_ctrl in ("pad1", "pad2"))
-        if not error and wants_xbox:
+
+        if not error and wants_kbm:
+            try:
+                basara4_prompts.ensure_kbm_prompts(Path(effective_game), KBM_PROMPT_DIR)
+                active_patches.append(KBM_PROMPT_DIR)
+            except Exception as e:
+                print(f"Warning: could not prepare KBM button prompts: {e}")
+        elif not error and wants_xbox:
             try:
                 basara4_prompts.ensure_xbox_prompts(Path(effective_game), XBOX_PROMPT_DIR)
                 active_patches.append(XBOX_PROMPT_DIR)

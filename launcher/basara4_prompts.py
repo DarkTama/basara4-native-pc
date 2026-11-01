@@ -1,5 +1,5 @@
 # Basara 4 PC - by Razz. Fork by DarkTama.
-# Controller button prompt / glyph patcher.
+# Controller button prompt / glyph patcher (Xbox & Keyboard/Mouse).
 from __future__ import annotations
 
 import io
@@ -12,14 +12,21 @@ import etcpak
 from gmdarc import ArcFile
 import basara4_tex as tex
 
-PROMPTS_CACHE = Path(__file__).resolve().parent.parent / "assets" / "prompts" / "xbox"
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "prompts"
+XBOX_CACHE = ASSETS_DIR / "xbox"
+KBM_CACHE = ASSETS_DIR / "kbm"
 
-KENNEY_BASE = (
+KENNEY_XBOX_BASE = (
     "https://raw.githubusercontent.com/tanuki-billie/kenney-input-prompts/main/"
     "addons/kenney_input_prompts/Xbox%20Series/Default/"
 )
 
-REQUIRED_FILES = [
+KENNEY_KBM_BASE = (
+    "https://raw.githubusercontent.com/tanuki-billie/kenney-input-prompts/main/"
+    "addons/kenney_input_prompts/Keyboard%20%26%20Mouse/Default/"
+)
+
+XBOX_FILES = [
     "xbox_button_color_a.png",
     "xbox_button_color_b.png",
     "xbox_button_color_x.png",
@@ -35,15 +42,46 @@ REQUIRED_FILES = [
     "xbox_rs.png",
 ]
 
+KBM_FILES = [
+    "mouse_left.png",
+    "mouse_right.png",
+    "keyboard_space.png",
+    "keyboard_shift.png",
+    "keyboard_e.png",
+    "keyboard_q.png",
+    "keyboard_r.png",
+    "keyboard_f.png",
+    "keyboard_tab.png",
+    "keyboard_escape.png",
+    "keyboard_z.png",
+    "keyboard_c.png",
+    "keyboard_arrows.png",
+]
 
-def ensure_prompt_assets() -> bool:
-    """Ensures Kenney Xbox prompt png assets exist locally in assets/prompts/xbox."""
-    PROMPTS_CACHE.mkdir(parents=True, exist_ok=True)
+
+def ensure_xbox_assets() -> bool:
+    XBOX_CACHE.mkdir(parents=True, exist_ok=True)
     all_ok = True
-    for fname in REQUIRED_FILES:
-        dest = PROMPTS_CACHE / fname
+    for fname in XBOX_FILES:
+        dest = XBOX_CACHE / fname
         if not dest.is_file():
-            url = KENNEY_BASE + fname
+            url = KENNEY_XBOX_BASE + fname
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    dest.write_bytes(resp.read())
+            except Exception:
+                all_ok = False
+    return all_ok
+
+
+def ensure_kbm_assets() -> bool:
+    KBM_CACHE.mkdir(parents=True, exist_ok=True)
+    all_ok = True
+    for fname in KBM_FILES:
+        dest = KBM_CACHE / fname
+        if not dest.is_file():
+            url = KENNEY_KBM_BASE + fname
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=10) as resp:
@@ -55,11 +93,11 @@ def ensure_prompt_assets() -> bool:
 
 def compose_xbox_atlas(orig_atlas: Image.Image | None = None) -> Image.Image:
     """Composites Xbox button glyphs into a 512x512 RGBA grid (4x4 tiles of 128x128)."""
-    ensure_prompt_assets()
+    ensure_xbox_assets()
     atlas = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
 
     def place(img_name: str, r: int, c: int, scale: int = 108):
-        p = PROMPTS_CACHE / img_name
+        p = XBOX_CACHE / img_name
         if not p.is_file():
             return
         im = Image.open(p).convert("RGBA")
@@ -97,11 +135,53 @@ def compose_xbox_atlas(orig_atlas: Image.Image | None = None) -> Image.Image:
     return atlas
 
 
-def build_xbox_prompts_arc(game_rom: Path, out_patch_dir: Path) -> Path:
-    """Builds patched game_common.arc with Xbox button glyphs inside out_patch_dir."""
+def compose_kbm_atlas(orig_atlas: Image.Image | None = None) -> Image.Image:
+    """Composites Keyboard & Mouse button glyphs into a 512x512 RGBA grid (4x4 tiles of 128x128)."""
+    ensure_kbm_assets()
+    atlas = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+
+    def place(img_name: str, r: int, c: int, scale: int = 100):
+        p = KBM_CACHE / img_name
+        if not p.is_file():
+            return
+        im = Image.open(p).convert("RGBA")
+        im.thumbnail((scale, scale), Image.Resampling.LANCZOS)
+        x = c * 128 + (128 - im.width) // 2
+        y = r * 128 + (128 - im.height) // 2
+        atlas.paste(im, (x, y), im)
+
+    # Row 0: Arrows, F, Space, +
+    place("keyboard_arrows.png", 0, 0, scale=100)
+    place("keyboard_f.png", 0, 1, scale=100)
+    place("keyboard_space.png", 0, 2, scale=100)
+    if orig_atlas is not None:
+        plus = orig_atlas.crop((3 * 128, 0, 4 * 128, 128))
+        atlas.paste(plus, (3 * 128, 0), plus)
+
+    # Row 1: F, Space, Mouse Right, Mouse Left
+    place("keyboard_f.png", 1, 0, scale=100)
+    place("keyboard_space.png", 1, 1, scale=100)
+    place("mouse_right.png", 1, 2, scale=95)
+    place("mouse_left.png", 1, 3, scale=95)
+
+    # Row 2: Shift, E, R, Q
+    place("keyboard_shift.png", 2, 0, scale=100)
+    place("keyboard_e.png", 2, 1, scale=100)
+    place("keyboard_r.png", 2, 2, scale=100)
+    place("keyboard_q.png", 2, 3, scale=100)
+
+    # Row 3: Tab, Esc, Z, C
+    place("keyboard_tab.png", 3, 0, scale=100)
+    place("keyboard_escape.png", 3, 1, scale=100)
+    place("keyboard_z.png", 3, 2, scale=100)
+    place("keyboard_c.png", 3, 3, scale=100)
+
+    return atlas
+
+
+def _build_prompts_arc(game_rom: Path, out_patch_dir: Path, style: str = "xbox") -> Path:
     src_arc = game_rom / "game_common.arc"
     if not src_arc.is_file():
-        # Maybe game_rom is CUSA01159 directly
         src_arc = game_rom / "nativePS4" / "rom" / "game_common.arc"
     if not src_arc.is_file():
         raise FileNotFoundError(f"Cannot find game_common.arc in {game_rom}")
@@ -118,7 +198,10 @@ def build_xbox_prompts_arc(game_rom: Path, out_patch_dir: Path) -> Path:
     orig_deswiz = tex.deswizzle_bc3(orig_payload, hdr["width"], hdr["height"])
     orig_atlas = tex.decode_bc3_to_rgba(orig_deswiz, hdr["width"], hdr["height"])
 
-    new_atlas = compose_xbox_atlas(orig_atlas)
+    if style == "kbm":
+        new_atlas = compose_kbm_atlas(orig_atlas)
+    else:
+        new_atlas = compose_xbox_atlas(orig_atlas)
 
     comp_bc3 = etcpak.compress_bc3(new_atlas.tobytes(), 512, 512)
     swizzled = tex.swizzle_bc3(comp_bc3, 512, 512)
@@ -136,4 +219,11 @@ def ensure_xbox_prompts(game_rom: Path, out_patch_dir: Path) -> Path:
     dst_arc = out_patch_dir / "nativePS4" / "rom" / "game_common.arc"
     if dst_arc.is_file() and dst_arc.stat().st_size > 10 * 1024 * 1024:
         return dst_arc
-    return build_xbox_prompts_arc(game_rom, out_patch_dir)
+    return _build_prompts_arc(game_rom, out_patch_dir, style="xbox")
+
+
+def ensure_kbm_prompts(game_rom: Path, out_patch_dir: Path) -> Path:
+    dst_arc = out_patch_dir / "nativePS4" / "rom" / "game_common.arc"
+    if dst_arc.is_file() and dst_arc.stat().st_size > 10 * 1024 * 1024:
+        return dst_arc
+    return _build_prompts_arc(game_rom, out_patch_dir, style="kbm")
