@@ -314,12 +314,113 @@ def is_ui_text_texture(path: str) -> bool:
     return True
 
 
+def find_ps3_ps4_localized_rects(
+    im3: Image.Image,
+    im4: Image.Image,
+    w3: int,
+    h3: int,
+) -> list[list[int]]:
+    """Fallback: finds localized changed 4x4-block rectangles by comparing PS3 against PS4.
+    Filters out diffuse differences (e.g. character art like charasele_02_38).
+    """
+    bw, bh = w3 // 4, h3 // 4
+    if bw <= 0 or bh <= 0:
+        return []
+
+    box_filter = getattr(Image.Resampling, "BOX", getattr(Image, "BOX", None))
+    im4_down = im4.resize((w3, h3), resample=box_filter)
+
+    r3 = ycbcr_to_rgb(np.array(im3, dtype=np.float32))
+    r4 = ycbcr_to_rgb(np.array(im4_down, dtype=np.float32))
+
+    vis3 = r3[:, :, :3] * (r3[:, :, 3:4] / 255.0)
+    vis4 = r4[:, :, :3] * (r4[:, :, 3:4] / 255.0)
+    diff = np.max(np.abs(vis3 - vis4), axis=-1)
+
+    px_ch = diff > 45.0
+    b_cnt = px_ch.reshape(bh, 4, bw, 4).sum(axis=(1, 3))
+    raw_mask = b_cnt >= 4
+    if not np.any(raw_mask):
+        return []
+
+    if np.count_nonzero(raw_mask) > 0.7 * bw * bh:
+        return [[0, 0, bw - 1, bh - 1]]
+
+    # Dilate by 1 block
+    dilated = raw_mask.copy()
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy == 0 and dx == 0:
+                continue
+            y_src = slice(max(0, -dy), min(bh, bh - dy))
+            x_src = slice(max(0, -dx), min(bw, bw - dx))
+            y_dst = slice(max(0, dy), min(bh, bh + dy))
+            x_dst = slice(max(0, dx), min(bw, bw + dx))
+            dilated[y_dst, x_dst] |= raw_mask[y_src, x_src]
+
+    # Label connected components
+    try:
+        from scipy import ndimage
+        lbl, num_features = ndimage.label(dilated)
+    except ImportError:
+        lbl = np.zeros((bh, bw), dtype=int)
+        num_features = 0
+        for y in range(bh):
+            for x in range(bw):
+                if dilated[y, x] and lbl[y, x] == 0:
+                    num_features += 1
+                    queue = [(y, x)]
+                    lbl[y, x] = num_features
+                    while queue:
+                        cy, cx = queue.pop(0)
+                        for n_dy, n_dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                            ny, nx = cy + n_dy, cx + n_dx
+                            if 0 <= ny < bh and 0 <= nx < bw and dilated[ny, nx] and lbl[ny, nx] == 0:
+                                lbl[ny, nx] = num_features
+                                queue.append((ny, nx))
+
+    valid_rects = []
+    for i in range(1, num_features + 1):
+        by, bx = np.where(lbl == i)
+        raw_count = np.count_nonzero(raw_mask[by, bx])
+        if raw_count >= 8:
+            valid_rects.append([int(bx.min()), int(by.min()), int(bx.max()), int(by.max())])
+
+    # If diffuse across more than 10 components, it is art/downsampling noise, not localized UI text
+    if len(valid_rects) > 10:
+        return []
+
+    # Merge overlapping
+    changed = True
+    while changed:
+        changed = False
+        merged = []
+        skip = set()
+        for i in range(len(valid_rects)):
+            if i in skip:
+                continue
+            r1 = valid_rects[i]
+            for j in range(i + 1, len(valid_rects)):
+                if j in skip:
+                    continue
+                r2 = valid_rects[j]
+                if not (r1[2] < r2[0] or r2[2] < r1[0] or r1[3] < r2[1] or r2[3] < r1[1]):
+                    r1 = [min(r1[0], r2[0]), min(r1[1], r2[1]), max(r1[2], r2[2]), max(r1[3], r2[3])]
+                    skip.add(j)
+                    changed = True
+            merged.append(r1)
+        valid_rects = merged
+
+    return valid_rects
+
+
 def classify(
     ps3_tex: bytes,
     ps4_tex: bytes,
     threshold: float = 12.0,
     texture_path: Optional[str] = None,
     path: Optional[str] = None,
+    rects: Optional[list[list[int]]] = None,
 ) -> dict[str, Any]:
     """Classifies whether the PS3 texture contains an English translation compared
     to the native PS4 original.
@@ -517,12 +618,32 @@ def classify(
     total_pixels = w3 * h3_px
     ratio = changed_pixel_count / max(1, total_pixels)
 
+    if rects is not None:
+        is_translated = len(rects) > 0
+        return {
+            "translated": is_translated,
+            "score": score,
+            "rgb_diff": rgb_diff,
+            "changed_pixels": changed_pixel_count,
+            "reason": None if is_translated else "not_translated",
+            "ps3_dims": (w3, h3_px),
+            "ps4_dims": (w4, h4_px),
+            "rects": rects,
+        }
+
     # Dual condition: global score >= threshold OR localized changed pixel cluster
-    is_translated = bool(
+    candidate_translated = bool(
         (score >= threshold)
         or (changed_pixel_count >= 250 and score >= 2.0)
         or (changed_pixel_count >= 250 and ratio >= 0.0005 and score >= 0.5)
     )
+
+    if candidate_translated:
+        fallback_rects = find_ps3_ps4_localized_rects(im3, im4, w3, h3_px)
+        is_translated = len(fallback_rects) > 0
+    else:
+        fallback_rects = []
+        is_translated = False
 
     return {
         "translated": is_translated,
@@ -532,16 +653,20 @@ def classify(
         "reason": None if is_translated else "not_translated",
         "ps3_dims": (w3, h3_px),
         "ps4_dims": (w4, h4_px),
+        "rects": fallback_rects if is_translated else [],
     }
 
 
-def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
+def convert_ps3_to_ps4(
+    ps3_tex: bytes,
+    ps4_tex: bytes,
+    rects: Optional[list[list[int]]] = None,
+) -> bytes:
     """Converts a translated PS3 BC3 texture to the matching PS4 format.
     Upscales to PS4 resolution using premultiplied Lanczos interpolation,
     applies halo purging and remaster sharpening (Hermite S-curve and unsharp mask),
     applies alpha cleanup to avoid atlas neighbour bleed, compresses to BC3
-    using etcpak, tiles (swizzles) into PS4 order, and splices into the original
-    PS4 header bytes.
+    using etcpak, and composites changed regions onto the PS4 original texture.
     """
     try:
         import etcpak
@@ -554,10 +679,24 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     w3, h3_px = h3["width"], h3["height"]
     w4, h4_px = h4["width"], h4["height"]
     pix_off4 = h4["pixel_offset"]
+    scale_x = max(1, w4 // w3)
+    scale_y = max(1, h4_px // h3_px)
+    bw4, bh4 = w4 // 4, h4_px // 4
+
+    ps4_payload = ps4_tex[pix_off4:]
+    deswz_ps4 = deswizzle_bc3(ps4_payload, w4, h4_px)
+    im4 = decode_bc3_to_rgba(deswz_ps4, w4, h4_px)
 
     # 1. Decode PS3 linear BC3 and move it out of the stored YCbCr layout into real RGB
     ps3_payload = ps3_tex[h3["pixel_offset"]:]
     im3 = decode_bc3_to_rgba(ps3_payload, w3, h3_px)
+
+    if rects is None:
+        rects = find_ps3_ps4_localized_rects(im3, im4, w3, h3_px)
+        if not rects:
+            # No localized text region found: preserve untouched native PS4 texture
+            return ps4_tex
+
     arr3 = ycbcr_to_rgb(np.array(im3, dtype=np.float32))
 
     # 2. Fully transparent texels carry no colour: make them black so they cannot bleed when
@@ -599,17 +738,38 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     # For anti-bleed: transparent texels are black (neutral chroma once stored)
     rgb_unpre[alpha_res == 0] = 0.0
 
-    final_rgba = np.dstack([rgb_unpre, alpha_res]).astype(np.uint8)
-    # Back to the game's stored YCbCr layout
-    final_rgba = rgba_image_to_stored(Image.fromarray(final_rgba, mode="RGBA"))
+    upscaled_ps3_rgb = np.dstack([rgb_unpre, alpha_res]).astype(np.float32)
 
-    # 7. Compress to linear BC3
+    # 8. Region-limited compositing onto PS4 in RGB
+    arr4_rgb = ycbcr_to_rgb(np.array(im4, dtype=np.float32))
+
+    block_mask_4 = np.zeros((bh4, bw4), dtype=bool)
+    for bx0, by0, bx1, by1 in rects:
+        bx0_4 = max(0, min(bw4, bx0 * scale_x))
+        bx1_4 = max(0, min(bw4, (bx1 + 1) * scale_x))
+        by0_4 = max(0, min(bh4, by0 * scale_y))
+        by1_4 = max(0, min(bh4, (by1 + 1) * scale_y))
+        block_mask_4[by0_4:by1_4, bx0_4:bx1_4] = True
+
+    pixel_mask_4 = np.repeat(np.repeat(block_mask_4, 4, axis=0), 4, axis=1)
+
+    composite_rgb = arr4_rgb.copy()
+    composite_rgb[pixel_mask_4] = upscaled_ps3_rgb[pixel_mask_4]
+
+    final_rgba = rgba_image_to_stored(Image.fromarray(np.round(composite_rgb).astype(np.uint8), mode="RGBA"))
+
+    # 9. Compress to linear BC3
     comp_bc3 = etcpak.compress_bc3(final_rgba.tobytes(), w4, h4_px)
+    comp_blocks = np.frombuffer(comp_bc3, dtype=np.dtype("V16")).reshape((bh4, bw4))
 
-    # 8. Swizzle to PS4 tiled order
-    swizzled_payload = swizzle_bc3(comp_bc3, w4, h4_px)
+    # Keep native PS4 blocks outside the region mask
+    ps4_orig_blocks = np.frombuffer(deswz_ps4, dtype=np.dtype("V16")).reshape((bh4, bw4)).copy()
+    ps4_orig_blocks[block_mask_4] = comp_blocks[block_mask_4]
 
-    # 9. Splice into original PS4 header verbatim
+    # 10. Swizzle to PS4 tiled order
+    swizzled_payload = swizzle_bc3(ps4_orig_blocks.tobytes(), w4, h4_px)
+
+    # 11. Splice into original PS4 header verbatim
     converted_tex = ps4_tex[:pix_off4] + swizzled_payload
     if len(converted_tex) != len(ps4_tex):
         raise ValueError(

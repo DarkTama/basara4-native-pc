@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import gzip
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -54,7 +56,57 @@ except ImportError:
 
 # Bump when the converted output changes in a way that needs a rebuild of existing patches.
 # 2: UI textures handled as YCbCr (fixes green/purple chroma noise from format 1).
-PATCH_FORMAT = 2
+# 3: Original PS3 hash filter to skip untranslated textures and region-limited merge on atlases.
+PATCH_FORMAT = 3
+
+
+_ORIG_TEX_DATA_CACHE: Optional[tuple[dict[str, str], dict[str, list[list[int]]]]] = None
+
+
+def load_orig_tex_data(
+    repo_root: Optional[Path] = None,
+) -> tuple[dict[str, str], dict[str, list[list[int]]]]:
+    """Loads precomputed original Japanese PS3 texture hashes and changed rectangles.
+    Returns (hashes_dict, changed_rects_dict).
+    """
+    global _ORIG_TEX_DATA_CACHE
+    if _ORIG_TEX_DATA_CACHE is not None:
+        return _ORIG_TEX_DATA_CACHE
+
+    if repo_root is None:
+        repo_root = Path(__file__).resolve().parent.parent
+
+    data_dir = repo_root / "data"
+    hashes: dict[str, str] = {}
+    rects: dict[str, list[list[int]]] = {}
+
+    found_path = None
+    for cand in [data_dir / "ps3_orig_tex_hashes.json.gz", data_dir / "ps3_orig_tex_hashes.json"]:
+        if cand.is_file():
+            found_path = cand
+            break
+
+    if found_path is not None:
+        try:
+            if found_path.suffix == ".gz":
+                with gzip.open(found_path, "rt", encoding="utf-8") as f:
+                    payload = json.load(f)
+            else:
+                with open(found_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+            if isinstance(payload, dict):
+                hashes = payload.get("hashes", {})
+                rects = payload.get("changed_rects", {})
+        except Exception as e:
+            logging.getLogger("basara4").warning(f"Failed to load original texture hashes from {found_path}: {e}")
+    else:
+        logging.getLogger("basara4").warning(
+            "Original PS3 texture hash database (data/ps3_orig_tex_hashes.json[.gz]) not found. "
+            "Falling back to legacy classification."
+        )
+
+    _ORIG_TEX_DATA_CACHE = (hashes, rects)
+    return _ORIG_TEX_DATA_CACHE
 
 
 def patch_format(patch_dir: Path) -> int:
@@ -342,6 +394,7 @@ def repatch(
         "textures_translated": 0,
         "textures_kept": 0,
         "textures_skipped": {
+            "unchanged_in_ps3_patch": 0,
             "fmt_unsupported": 0,
             "mips_unsupported": 0,
             "size_mismatch": 0,
@@ -352,6 +405,9 @@ def repatch(
         },
         "translated_size_histogram": {},
     }
+
+    # Load ground-truth original PS3 texture hashes & rects
+    orig_hashes, orig_rects = load_orig_tex_data()
 
     # In-memory texture conversion cache: (ps3_raw_hash, ps4_raw_hash) -> cache dict
     tex_cache: dict[tuple[bytes, bytes], dict[str, Any]] = {}
@@ -460,7 +516,23 @@ def repatch(
                 cached = tex_cache.get(pair_key)
 
                 if cached is None:
-                    if not is_ui_text_texture(e3.path):
+                    norm_path = e3.path.replace("\\", "/")
+                    norm_key = f"{rel_arc}|{norm_path}"
+
+                    # Primary filter: skip if byte-identical to clean PS3 original
+                    is_unchanged = False
+                    if orig_hashes and norm_key in orig_hashes:
+                        try:
+                            d3_peek = e3.decompress()
+                            h3_sha = hashlib.sha256(d3_peek).hexdigest()
+                            if h3_sha == orig_hashes[norm_key]:
+                                is_unchanged = True
+                        except Exception:
+                            pass
+
+                    if is_unchanged:
+                        cached = {"translated": False, "reason": "unchanged_in_ps3_patch"}
+                    elif not is_ui_text_texture(e3.path):
                         cached = {"translated": False, "reason": "non_text_texture"}
                     else:
                         h3 = _peek_header(e3.raw_data, ">")
@@ -474,21 +546,41 @@ def repatch(
                         else:
                             d3 = e3.decompress()
                             d4 = e4.decompress()
-                            cls = classify(d3, d4, threshold=threshold, texture_path=e3.path)
-                            if cls["translated"]:
-                                conv = convert_ps3_to_ps4(d3, d4)
-                                cached = {
-                                    "translated": True,
-                                    "converted": conv,
-                                    "cls": cls,
-                                    "ps4_dims": cls.get("ps4_dims", (h4["w"], h4["h"])),
-                                }
+                            rects = orig_rects.get(norm_key)
+                            if orig_hashes and rects is not None:
+                                if len(rects) > 0:
+                                    conv = convert_ps3_to_ps4(d3, d4, rects=rects)
+                                    cached = {
+                                        "translated": True,
+                                        "converted": conv,
+                                        "ps4_dims": (h4["w"], h4["h"]),
+                                    }
+                                else:
+                                    cached = {"translated": False, "reason": "not_translated"}
                             else:
-                                cached = {
-                                    "translated": False,
-                                    "reason": cls.get("reason", "not_translated"),
-                                    "cls": cls,
-                                }
+                                cls = classify(d3, d4, threshold=threshold, texture_path=e3.path)
+                                if cls["translated"]:
+                                    fallback_rects = cls.get("rects")
+                                    conv = convert_ps3_to_ps4(d3, d4, rects=fallback_rects)
+                                    if conv is not None:
+                                        cached = {
+                                            "translated": True,
+                                            "converted": conv,
+                                            "cls": cls,
+                                            "ps4_dims": cls.get("ps4_dims", (h4["w"], h4["h"])),
+                                        }
+                                    else:
+                                        cached = {
+                                            "translated": False,
+                                            "reason": "not_translated",
+                                            "cls": cls,
+                                        }
+                                else:
+                                    cached = {
+                                        "translated": False,
+                                        "reason": cls.get("reason", "not_translated"),
+                                        "cls": cls,
+                                    }
                     tex_cache[pair_key] = cached
 
                 if cached["translated"]:
