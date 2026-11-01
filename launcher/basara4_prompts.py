@@ -179,14 +179,33 @@ def compose_kbm_atlas(orig_atlas: Image.Image | None = None) -> Image.Image:
     return atlas
 
 
-def _build_prompts_arc(game_rom: Path, out_patch_dir: Path, style: str = "xbox") -> Path:
-    src_arc = game_rom / "game_common.arc"
-    if not src_arc.is_file():
-        src_arc = game_rom / "nativePS4" / "rom" / "game_common.arc"
-    if not src_arc.is_file():
-        raise FileNotFoundError(f"Cannot find game_common.arc in {game_rom}")
+ARC_REL = Path("nativePS4") / "rom" / "game_common.arc"
+STAMP_NAME = ".prompts_stamp.json"
+STAMP_VERSION = 2  # bump when the atlas or encoding changes
 
-    arc = ArcFile.from_file(src_arc)
+
+def find_base_arc(game: Path, lower_layers: list[Path] | None = None) -> Path:
+    """The game_common.arc the prompt patch must be built on: the topmost lower overlay layer
+    that carries one (e.g. the English patch), else the game's own."""
+    for layer in reversed(lower_layers or []):
+        cand = Path(layer) / ARC_REL
+        if cand.is_file():
+            return cand
+    game = Path(game)
+    for cand in (game / ARC_REL, game / "game_common.arc"):
+        if cand.is_file():
+            return cand
+    raise FileNotFoundError(f"Cannot find game_common.arc in {game}")
+
+
+def _stamp_for(base_arc: Path, style: str) -> dict:
+    st = base_arc.stat()
+    return {"version": STAMP_VERSION, "style": style, "base": str(base_arc.resolve()),
+            "base_size": st.st_size, "base_mtime": st.st_mtime}
+
+
+def _build_prompts_arc(base_arc: Path, out_patch_dir: Path, style: str = "xbox") -> Path:
+    arc = ArcFile.from_file(base_arc)
     entry = arc.get_entry(r"ui\tex\jpn\common\common_001_ID_HQ_ps4")
     if not entry:
         entry = arc.get_entry("ui/tex/jpn/common/common_001_ID_HQ_ps4")
@@ -215,15 +234,29 @@ def _build_prompts_arc(game_rom: Path, out_patch_dir: Path, style: str = "xbox")
     return dst_arc
 
 
-def ensure_xbox_prompts(game_rom: Path, out_patch_dir: Path) -> Path:
-    dst_arc = out_patch_dir / "nativePS4" / "rom" / "game_common.arc"
-    if dst_arc.is_file() and dst_arc.stat().st_size > 10 * 1024 * 1024:
-        return dst_arc
-    return _build_prompts_arc(game_rom, out_patch_dir, style="xbox")
+def ensure_prompts(game: Path, out_patch_dir: Path, style: str,
+                   lower_layers: list[Path] | None = None) -> Path:
+    """Builds (or reuses) the prompt patch. It is layered on top of lower_layers, so it never
+    drops the entries another patch (the English patch) changed in game_common.arc."""
+    import json
+    out_patch_dir = Path(out_patch_dir)
+    base_arc = find_base_arc(game, lower_layers)
+    dst_arc = out_patch_dir / ARC_REL
+    stamp_file = out_patch_dir / STAMP_NAME
+    want = _stamp_for(base_arc, style)
+    try:
+        if dst_arc.is_file() and json.loads(stamp_file.read_text(encoding="utf-8")) == want:
+            return dst_arc
+    except (OSError, ValueError):
+        pass
+    _build_prompts_arc(base_arc, out_patch_dir, style=style)
+    stamp_file.write_text(json.dumps(want, indent=2), encoding="utf-8")
+    return dst_arc
 
 
-def ensure_kbm_prompts(game_rom: Path, out_patch_dir: Path) -> Path:
-    dst_arc = out_patch_dir / "nativePS4" / "rom" / "game_common.arc"
-    if dst_arc.is_file() and dst_arc.stat().st_size > 10 * 1024 * 1024:
-        return dst_arc
-    return _build_prompts_arc(game_rom, out_patch_dir, style="kbm")
+def ensure_xbox_prompts(game: Path, out_patch_dir: Path, lower_layers: list[Path] | None = None) -> Path:
+    return ensure_prompts(game, out_patch_dir, "xbox", lower_layers)
+
+
+def ensure_kbm_prompts(game: Path, out_patch_dir: Path, lower_layers: list[Path] | None = None) -> Path:
+    return ensure_prompts(game, out_patch_dir, "kbm", lower_layers)

@@ -2052,13 +2052,13 @@ class Launcher(tk.Tk):
 
         if not error and wants_kbm:
             try:
-                basara4_prompts.ensure_kbm_prompts(Path(effective_game), KBM_PROMPT_DIR)
+                basara4_prompts.ensure_kbm_prompts(Path(effective_game), KBM_PROMPT_DIR, list(active_patches))
                 active_patches.append(KBM_PROMPT_DIR)
             except Exception as e:
                 print(f"Warning: could not prepare KBM button prompts: {e}")
         elif not error and wants_xbox:
             try:
-                basara4_prompts.ensure_xbox_prompts(Path(effective_game), XBOX_PROMPT_DIR)
+                basara4_prompts.ensure_xbox_prompts(Path(effective_game), XBOX_PROMPT_DIR, list(active_patches))
                 active_patches.append(XBOX_PROMPT_DIR)
             except Exception as e:
                 print(f"Warning: could not prepare Xbox button prompts: {e}")
