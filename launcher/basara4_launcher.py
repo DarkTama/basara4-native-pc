@@ -744,6 +744,12 @@ GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manaj
 GROUP = GROUP_EN
 CHEAT_HINT = CHEAT_HINT_EN
 
+ENGLISH_PATCH_DISCLAIMER = (
+    "Note: the English patch is a community port of the PS3 (BLJM61248) English patch v0.85 "
+    "and is not 100% complete. Some text is still in Japanese, and some menus and textures "
+    "may look different from the original or show minor mismatches."
+)
+
 
 def find_game():
     """The first folder under game\\ that holds an eboot.bin."""
@@ -1442,6 +1448,16 @@ class Launcher(tk.Tk):
         self._check_row(page, "english", self.english_var)
         self._button_row(page, "import_patch", "Import…", self.on_import_ps3_patch, "import_patch_btn")
         self._button_row(page, "rebuild_patch", "Rebuild", self.on_rebuild_patch, "rebuild_patch_btn")
+        tk.Label(
+            page,
+            text=ENGLISH_PATCH_DISCLAIMER,
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+            wraplength=480,
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=13, pady=(4, 6))
         self._group(page, "cheats")
         for key in CHEAT_KEYS:
             self._check_row(page, key, self.cheat_vars[key])
@@ -1866,7 +1882,8 @@ class Launcher(tk.Tk):
                         f"Textures translated: {s.get('textures_translated', 0)}\n"
                         f"Textures kept (native): {s.get('textures_kept', 0)}\n"
                         f"Elapsed: {s.get('elapsed_seconds', 0)}s\n"
-                        f"Output location: {PATCH_DIR}"
+                        f"Output location: {PATCH_DIR}\n\n"
+                        f"{ENGLISH_PATCH_DISCLAIMER}"
                     )
                     messagebox.showinfo("PS3 Patch Import Complete", summary, parent=self)
 
@@ -1954,7 +1971,8 @@ class Launcher(tk.Tk):
                         f"Archives patched: {s.get('arcs_written', 0)} / {s.get('arcs_found', 0)}\n"
                         f"GMD files modified: {s.get('gmds_modified', 0)}\n"
                         f"Strings replaced: {s.get('strings_replaced', 0)}\n"
-                        f"Output location: {PATCH_DIR}"
+                        f"Output location: {PATCH_DIR}\n\n"
+                        f"{ENGLISH_PATCH_DISCLAIMER}"
                     )
                     messagebox.showinfo("English Patch Complete", summary, parent=self)
 

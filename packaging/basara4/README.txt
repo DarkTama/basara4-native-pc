@@ -43,6 +43,10 @@ In-game menu
 Controller
   XInput and SDL-supported pads work directly. Any other pad: "Map controller" in the launcher.
 
+English translation patch
+  The English patch is a community port of the PS3 (BLJM61248) patch v0.85 and is not 100% complete.
+  Some text remains in Japanese, and some menus and textures may show minor layout mismatches.
+
 Problems
   Attach user\last_run.log (and user\prepare.log if the preparation failed) to your report.
 

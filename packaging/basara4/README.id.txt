@@ -15,4 +15,8 @@ Menu in-game: Insert, atau R3 + L2. Screenshot: F12.
 FPS di atas 60 bersifat eksperimental. Kalau gerakan terasa lebih cepat atau ada glitch,
 kembali ke 60. Matikan VSync agar tidak dibatasi refresh rate monitor.
 
+Patch Bahasa Inggris
+  Patch Bahasa Inggris adalah port komunitas dari versi PS3 (BLJM61248) v0.85 dan belum 100% lengkap.
+  Sebagian teks masih berbahasa Jepang dan beberapa tekstur mungkin memiliki sedikit perbedaan tampilan.
+
 Masalah: kirim user\last_run.log (dan user\prepare.log kalau persiapan gagal).

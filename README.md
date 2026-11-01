@@ -59,6 +59,14 @@ When a game update folder is set, the patch is built from the updated files. Sta
 python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch
 ```
 
+### Known limitations
+- **Not 100% complete**: The English patch is a community port of the PS3 (BLJM61248) English patch v0.85 and is not 100% complete.
+- **Untranslated Japanese**: Untranslated Japanese text remains across the game, including story and stage dialogue/banter, stage objectives, and win/lose conditions.
+- **Texture layout mismatches**: Some textures have layout mismatches because PS3 and PS4 texture atlases differ (e.g. dark boxes behind some labels).
+- **User-supplied files required**: Requires the user's own PS3 BLJM61248 English patch v0.85 files; no copyrighted translation assets are distributed in this repository.
+- **Bug reports**: Report translation issues or glitches on GitHub: https://github.com/DarkTama/basara4-native-pc/issues
+
+
 ## Cheats
 Five gameplay cheats (**Gold won't decrease**, **Special Coin x99999**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) are available from the launcher's **Mods & Cheats** page or in game via the overlay (**Insert** / **R3 + L2**). Cheats are off by default. They are authored for game version 01.02 and located by signature pattern on other versions.
 

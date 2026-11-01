@@ -59,6 +59,14 @@ Jika folder update game diatur, patch akan dibangun dari file versi update secar
 python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA01159 --out mods/english_patch
 ```
 
+### Batasan yang diketahui (Known limitations)
+- **Belum 100% lengkap**: Patch Bahasa Inggris ini merupakan port komunitas dari patch PS3 (BLJM61248) v0.85 dan belum 100% selesai.
+- **Teks Bahasa Jepang yang belum diterjemahkan**: Masih terdapat teks bahasa Jepang yang belum diterjemahkan di berbagai bagian game, termasuk dialog cerita dan pertempuran stage, target objektif, serta kondisi menang/kalah.
+- **Perbedaan tata letak tekstur**: Beberapa tekstur memiliki ketidakcocokan layout karena atlas tekstur PS3 dan PS4 berbeda (misalnya kotak gelap di belakang beberapa label).
+- **Memerlukan file patch pengguna sendiri**: Membutuhkan file patch Bahasa Inggris PS3 BLJM61248 v0.85 milik pengguna sendiri; repositori ini tidak mendistribusikan aset terjemahan berhak cipta.
+- **Laporan kendala**: Laporkan kendala atau masalah translasi melalui GitHub Issues: https://github.com/DarkTama/basara4-native-pc/issues
+
+
 ## Cheat
 Lima cheat gameplay (**Gold won't decrease**, **Special Coin x99999**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
 
