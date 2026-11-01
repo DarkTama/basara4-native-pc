@@ -38,7 +38,7 @@ INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
 WINDOW_ICON = USER / "window_icon.bmp"
 CORE = BIN / "basara4-core.exe"
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
@@ -227,7 +227,8 @@ import patches  # noqa: E402
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
-            "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "", "pad_routing": "p1"}
+            "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
+            "p1_control": "pad1", "p2_control": "none"}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -426,14 +427,35 @@ UPSCALERS_EN = [("Off (Native 1080p)", "off"), ("FSR 1 (Spatial Sharpening)", "f
 UPSCALERS_ID = [("Nonaktif (Native 1080p)", "off"), ("FSR 1 (Penajaman Spasial)", "fsr1"),
                 ("FSR 3.1 (Rekonstruksi Temporal)", "fsr3"), ("DLSS (Khusus NVIDIA RTX)", "dlss")]
 
-PAD_ROUTINGS_EN = [
-    ("Player 1 (Default: Gamepad + Keyboard/Mouse)", "p1"),
-    ("Player 2 (Co-op: Gamepad ke P2, P1 pakai Keyboard+Mouse)", "p2"),
+P1_CONTROLS_EN = [
+    ("Gamepad 1 (Primary / First detected)", "pad1"),
+    ("Gamepad 2 (Secondary)", "pad2"),
+    ("Keyboard & Mouse Only", "kbm"),
 ]
-PAD_ROUTINGS_ID = [
-    ("Player 1 (Default: Gamepad + Keyboard/Mouse)", "p1"),
-    ("Player 2 (Co-op: Gamepad ke P2, P1 pakai Keyboard+Mouse)", "p2"),
+P1_CONTROLS_ID = [
+    ("Gamepad 1 (Stik Utama / Terdeteksi Pertama)", "pad1"),
+    ("Gamepad 2 (Stik Kedua)", "pad2"),
+    ("Keyboard & Mouse Saja", "kbm"),
 ]
+
+P2_CONTROLS_EN = [
+    ("None (Disabled / Single Player)", "none"),
+    ("Gamepad 2 (Secondary)", "pad2"),
+    ("Gamepad 1 (Co-op with P1 on KBM)", "pad1"),
+    ("Keyboard & Mouse", "kbm"),
+]
+P2_CONTROLS_ID = [
+    ("Tidak Ada (Nonaktif / Single Player)", "none"),
+    ("Gamepad 2 (Stik Kedua)", "pad2"),
+    ("Gamepad 1 (Co-op dengan P1 pakai KBM)", "pad1"),
+    ("Keyboard & Mouse", "kbm"),
+]
+
+P1_CONTROL_MAP = {n: v for n, v in P1_CONTROLS_EN + P1_CONTROLS_ID}
+P1_CONTROL_MAP.update({"pad1": "pad1", "pad2": "pad2", "kbm": "kbm"})
+
+P2_CONTROL_MAP = {n: v for n, v in P2_CONTROLS_EN + P2_CONTROLS_ID}
+P2_CONTROL_MAP.update({"none": "none", "pad2": "pad2", "pad1": "pad1", "kbm": "kbm"})
 
 ANISO_EN = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 ANISO_ID = [("Nonaktif", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
@@ -515,7 +537,8 @@ ROW_EN = {
     "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
     "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
     "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
-    "pad_routing": ("Gamepad Routing", "Assign gamepad to Player 1 (Default: Gamepad + Keyboard/Mouse) or Player 2 (Co-op)."),
+    "p1_control": ("Player 1 Control", "Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."),
+    "p2_control": ("Player 2 Control", "Assign input device for Player 2 (local co-op) or disable for single player."),
     "pad": ("Gamepad Mapping", "Custom controller mapping state (gamepad_mapping.txt vs default)."),
     "pad_actions": ("Mapping Actions", "Configure gamepad buttons/sticks or reset back to default database."),
     "map_pad": ("Map All Buttons", "Press each gamepad button when prompted in the mapper window."),
@@ -555,8 +578,9 @@ ROW_ID = {
     "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
     "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
     "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
-    "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Refresh untuk memindai ulang."),
-    "pad_routing": ("Penugasan Controller", "Arahkan gamepad ke Player 1 (Default: Gamepad + Keyboard/Mouse) atau Player 2 (Co-op)."),
+    "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Deteksi Ulang untuk memindai ulang."),
+    "p1_control": ("Kontrol Player 1", "Pilih perangkat input untuk Player 1. Otomatis ke Keyboard & Mouse jika stik dilepas."),
+    "p2_control": ("Kontrol Player 2", "Pilih perangkat input untuk Player 2 (co-op lokal) atau nonaktifkan untuk single player."),
     "pad": ("Pemetaan Gamepad", "Status pemetaan controller kustom (gamepad_mapping.txt vs default)."),
     "pad_actions": ("Aksi Pemetaan", "Konfigurasi tombol/analog stick controller atau reset ke database default."),
     "map_pad": ("Atur Semua Tombol", "Tekan setiap tombol stick saat diminta di jendela mapper."),
@@ -664,7 +688,8 @@ DISPLAY_MODES = DISPLAY_MODES_EN
 FPS_LIMITS = FPS_LIMITS_EN
 RESOLUTIONS = RESOLUTIONS_EN
 UPSCALERS = UPSCALERS_EN
-PAD_ROUTINGS = PAD_ROUTINGS_EN
+P1_CONTROLS = P1_CONTROLS_EN
+P2_CONTROLS = P2_CONTROLS_EN
 ANISO = ANISO_EN
 ROW = ROW_EN
 NAV = NAV_EN
@@ -689,10 +714,22 @@ def find_game():
 
 def load_config():
     cfg = dict(DEFAULTS)
+    raw = {}
     try:
-        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8-sig")))
+        raw = json.loads(CONFIG.read_text(encoding="utf-8-sig"))
+        cfg.update(raw)
     except (OSError, ValueError):
         pass
+    legacy_routing = raw.get("pad_routing") or raw.get("gamepad_routing")
+    if legacy_routing == "p2" and "p1_control" not in raw and "p2_control" not in raw:
+        cfg["p1_control"] = "kbm"
+        cfg["p2_control"] = "pad1"
+    cfg.pop("pad_routing", None)
+    cfg.pop("gamepad_routing", None)
+    if cfg.get("p1_control") not in ("pad1", "pad2", "kbm"):
+        cfg["p1_control"] = "pad1"
+    if cfg.get("p2_control") not in ("none", "pad2", "pad1", "kbm"):
+        cfg["p2_control"] = "none"
     if cfg.get("language") not in ("id", "en"):
         cfg["language"] = "id"
     if not cfg["game"] or not (Path(cfg["game"]) / "eboot.bin").is_file():
@@ -926,9 +963,13 @@ class Launcher(tk.Tk):
         self.mouse_sens_var = tk.IntVar(value=self.cfg.get("mouse_sens", 100))
         self.mouse_invert_x_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_x", False))
         self.mouse_invert_y_var = tk.BooleanVar(value=self.cfg.get("mouse_invert_y", False))
-        cur_routing = self.cfg.get("pad_routing", "p1")
-        initial_routing = next((n for n, v in PAD_ROUTINGS if v == cur_routing), PAD_ROUTINGS[0][0])
-        self.pad_routing_var = tk.StringVar(value=initial_routing)
+        is_id = self.cfg.get("language") == "id"
+        p1_opts = P1_CONTROLS_ID if is_id else P1_CONTROLS_EN
+        p2_opts = P2_CONTROLS_ID if is_id else P2_CONTROLS_EN
+        cur_p1 = self.cfg.get("p1_control", "pad1")
+        cur_p2 = self.cfg.get("p2_control", "none")
+        self.p1_control_var = tk.StringVar(value=next((n for n, v in p1_opts if v == cur_p1), p1_opts[0][0]))
+        self.p2_control_var = tk.StringVar(value=next((n for n, v in p2_opts if v == cur_p2), p2_opts[0][0]))
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
 
         shell = tk.Frame(self, bg=BG)
@@ -1186,19 +1227,32 @@ class Launcher(tk.Tk):
 
         self._group(content, "controller")
 
-        # 1. Controller Detection & Live Status
+        is_id = self.cfg.get("language") == "id"
+
+        # 1. Controller Detection & Live Status Card (per slot)
         def pad_detect(holder):
-            btn = ttk.Button(holder, text="Refresh / Deteksi Ulang", command=self._refresh_gamepads)
-            btn.pack(side="right", padx=(6, 0))
-            self.detected_pads_label = tk.Label(holder, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9),
-                                                justify="right", anchor="e")
-            self.detected_pads_label.pack(side="right", fill="x", expand=True)
+            status_card = tk.Frame(holder, bg=FIELD, highlightbackground=EDGE, highlightthickness=1, padx=10, pady=6)
+            status_card.pack(fill="x", expand=True)
+            refresh_txt = "Deteksi Ulang" if is_id else "Refresh"
+            btn = ttk.Button(status_card, text=refresh_txt, command=self._refresh_gamepads)
+            btn.pack(side="right", padx=(8, 0))
+            slots_box = tk.Frame(status_card, bg=FIELD)
+            slots_box.pack(side="left", fill="x", expand=True)
+            self.pad_slot_labels = []
+            for _ in range(2):
+                lbl = tk.Label(slots_box, text="", bg=FIELD, fg=MUTED, font=("Segoe UI", 9),
+                               justify="left", anchor="w")
+                lbl.pack(fill="x", anchor="w", pady=1)
+                self.pad_slot_labels.append(lbl)
             self._refresh_gamepads()
 
-        self._row(content, "pad_detect", pad_detect, width=370)
+        self._row(content, "pad_detect", pad_detect, stack=True)
 
-        # 2. Player Assignment (Option A: P1 / P2 / KBM Co-op)
-        self._combo_row(content, "pad_routing", self.pad_routing_var, [n for n, _ in PAD_ROUTINGS])
+        # 2. Player 1 & Player 2 Control Assignment
+        p1_opts = P1_CONTROLS_ID if is_id else P1_CONTROLS_EN
+        p2_opts = P2_CONTROLS_ID if is_id else P2_CONTROLS_EN
+        self._combo_row(content, "p1_control", self.p1_control_var, [n for n, _ in p1_opts])
+        self._combo_row(content, "p2_control", self.p2_control_var, [n for n, _ in p2_opts])
 
         # 3. Controller Mapping & Visual Layout Indicators
         def pad_status(holder):
@@ -1225,7 +1279,6 @@ class Launcher(tk.Tk):
 
         top_bar = tk.Frame(card, bg=FIELD)
         top_bar.pack(fill="x", padx=10, pady=(6, 4))
-        is_id = self.cfg.get("language") == "id"
         guide_title = "🎮 Layout Aksi Controller" if is_id else "🎮 Controller Layout & Action Guide"
         tk.Label(top_bar, text=guide_title, bg=FIELD, fg=GOLD, font=("Segoe UI Semibold", 9)).pack(side="left")
 
@@ -1510,21 +1563,25 @@ class Launcher(tk.Tk):
     def _refresh_gamepads(self):
         pads = detect_connected_gamepads()
         is_id = self.cfg.get("language") == "id"
-        if pads:
-            pad_lines = [f"🎮 Controller {i + 1}: {name}" for i, name in enumerate(pads)]
-            text = " | ".join(pad_lines) if len(pad_lines) <= 2 else f"🎮 {len(pads)} Controllers: " + ", ".join(pads[:2]) + "..."
-            color = GOLD
-        else:
-            text = "🎮 Tidak ada controller terdeteksi (Keyboard & Mouse aktif)" if is_id else "🎮 No gamepad detected (Keyboard & Mouse active)"
-            color = MUTED
-        if hasattr(self, "detected_pads_label"):
-            self.detected_pads_label.config(text=text, fg=color)
+        not_detected = (
+            "(Belum terdeteksi - otomatis aktif saat dicolok)"
+            if is_id
+            else "(Not detected yet - will connect automatically when plugged in)"
+        )
+        if hasattr(self, "pad_slot_labels"):
+            for idx, lbl in enumerate(self.pad_slot_labels):
+                if idx < len(pads):
+                    lbl.config(text=f"🎮 Gamepad {idx + 1}: {pads[idx]}", fg=GOLD)
+                else:
+                    lbl.config(text=f"🎮 Gamepad {idx + 1}: {not_detected}", fg=MUTED)
 
     def _collect(self):
         selected_gpu_name = self.gpu_var.get()
         selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
-        routing_str = self.pad_routing_var.get() if hasattr(self, "pad_routing_var") else ""
-        routing_val = "p2" if "Player 2" in routing_str else "p1"
+        p1_str = self.p1_control_var.get() if hasattr(self, "p1_control_var") else "pad1"
+        p2_str = self.p2_control_var.get() if hasattr(self, "p2_control_var") else "none"
+        p1_val = P1_CONTROL_MAP.get(p1_str, "pad1")
+        p2_val = P2_CONTROL_MAP.get(p2_str, "none")
         self.cfg.update(
             game=self.game_var.get().strip(),
             game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
@@ -1541,7 +1598,8 @@ class Launcher(tk.Tk):
             mouse_sens=int(self.mouse_sens_var.get()),
             mouse_invert_x=self.mouse_invert_x_var.get(),
             mouse_invert_y=self.mouse_invert_y_var.get(),
-            pad_routing=routing_val)
+            p1_control=p1_val,
+            p2_control=p2_val)
         save_config(self.cfg)
 
         up_val = self.cfg.get("upscale", "off")
@@ -1588,7 +1646,11 @@ class Launcher(tk.Tk):
             env["SPARTAN_WINDOW_ICON"] = str(WINDOW_ICON)
         if MAPPING.exists():
             env["SDL_GAMECONTROLLERCONFIG_FILE"] = str(MAPPING)
-        if self.cfg.get("pad_routing") == "p2":
+        p1_ctrl = self.cfg.get("p1_control", "pad1")
+        p2_ctrl = self.cfg.get("p2_control", "none")
+        env["SPARTAN_PAD_P1"] = p1_ctrl
+        env["SPARTAN_PAD_P2"] = p2_ctrl
+        if p1_ctrl == "kbm" and p2_ctrl == "pad1":
             env["SPARTAN_COOP_PAD_TO_P2"] = "1"
         else:
             env.pop("SPARTAN_COOP_PAD_TO_P2", None)
