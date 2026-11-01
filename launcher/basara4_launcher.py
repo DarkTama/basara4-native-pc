@@ -350,62 +350,85 @@ SYSTEM_GPUS = enumerate_gpus()
 
 
 def detect_connected_gamepads():
-    """Detects connected gamepads using bin/SDL3.dll via ctypes. Returns list of pad names."""
+    """Detects connected gamepads using bin/SDL3.dll via ctypes (with native XInput fallback). Returns list of pad names."""
     gamepads = []
     sdl_dll = BIN / "SDL3.dll"
-    if not sdl_dll.is_file():
-        return gamepads
-    try:
-        import ctypes
-        sdl = ctypes.CDLL(str(sdl_dll))
-        SDL_INIT_GAMEPAD = 0x00002000
-        SDL_INIT_JOYSTICK = 0x00000200
-        if hasattr(sdl, "SDL_InitSubSystem"):
-            sdl.SDL_InitSubSystem.restype = ctypes.c_bool
-            sdl.SDL_InitSubSystem.argtypes = [ctypes.c_uint32]
-            sdl.SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)
-        if hasattr(sdl, "SDL_UpdateGamepads"):
-            sdl.SDL_UpdateGamepads()
-        if hasattr(sdl, "SDL_PumpEvents"):
-            sdl.SDL_PumpEvents()
+    if sdl_dll.is_file():
+        try:
+            import ctypes
+            sdl = ctypes.CDLL(str(sdl_dll))
+            SDL_INIT_GAMEPAD = 0x00002000
+            SDL_INIT_JOYSTICK = 0x00000200
+            if hasattr(sdl, "SDL_SetHint"):
+                sdl.SDL_SetHint.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+                sdl.SDL_SetHint.restype = ctypes.c_bool
+                sdl.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
+            if hasattr(sdl, "SDL_InitSubSystem"):
+                sdl.SDL_InitSubSystem.restype = ctypes.c_bool
+                sdl.SDL_InitSubSystem.argtypes = [ctypes.c_uint32]
+                sdl.SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)
+            if hasattr(sdl, "SDL_UpdateGamepads"):
+                sdl.SDL_UpdateGamepads()
+            if hasattr(sdl, "SDL_PumpEvents"):
+                sdl.SDL_PumpEvents()
 
-        if hasattr(sdl, "SDL_GetGamepads"):
-            sdl.SDL_GetGamepads.restype = ctypes.POINTER(ctypes.c_uint32)
-            sdl.SDL_GetGamepads.argtypes = [ctypes.POINTER(ctypes.c_int)]
-            count = ctypes.c_int(0)
-            pads = sdl.SDL_GetGamepads(ctypes.byref(count))
-            if pads and count.value > 0:
-                if hasattr(sdl, "SDL_GetGamepadNameForID"):
-                    sdl.SDL_GetGamepadNameForID.restype = ctypes.c_char_p
-                    sdl.SDL_GetGamepadNameForID.argtypes = [ctypes.c_uint32]
-                for i in range(count.value):
-                    name_bytes = sdl.SDL_GetGamepadNameForID(pads[i]) if hasattr(sdl, "SDL_GetGamepadNameForID") else None
-                    name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Controller {i + 1}"
-                    gamepads.append(name)
-                if hasattr(sdl, "SDL_free"):
-                    sdl.SDL_free(pads)
+            if hasattr(sdl, "SDL_GetGamepads"):
+                sdl.SDL_GetGamepads.restype = ctypes.POINTER(ctypes.c_uint32)
+                sdl.SDL_GetGamepads.argtypes = [ctypes.POINTER(ctypes.c_int)]
+                count = ctypes.c_int(0)
+                pads = sdl.SDL_GetGamepads(ctypes.byref(count))
+                if pads and count.value > 0:
+                    if hasattr(sdl, "SDL_GetGamepadNameForID"):
+                        sdl.SDL_GetGamepadNameForID.restype = ctypes.c_char_p
+                        sdl.SDL_GetGamepadNameForID.argtypes = [ctypes.c_uint32]
+                    for i in range(count.value):
+                        name_bytes = sdl.SDL_GetGamepadNameForID(pads[i]) if hasattr(sdl, "SDL_GetGamepadNameForID") else None
+                        name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Controller {i + 1}"
+                        gamepads.append(name)
+                    if hasattr(sdl, "SDL_free"):
+                        sdl.SDL_free(pads)
 
-        if not gamepads and hasattr(sdl, "SDL_GetJoysticks"):
-            sdl.SDL_GetJoysticks.restype = ctypes.POINTER(ctypes.c_uint32)
-            sdl.SDL_GetJoysticks.argtypes = [ctypes.POINTER(ctypes.c_int)]
-            jcount = ctypes.c_int(0)
-            joys = sdl.SDL_GetJoysticks(ctypes.byref(jcount))
-            if joys and jcount.value > 0:
-                if hasattr(sdl, "SDL_GetJoystickNameForID"):
-                    sdl.SDL_GetJoystickNameForID.restype = ctypes.c_char_p
-                    sdl.SDL_GetJoystickNameForID.argtypes = [ctypes.c_uint32]
-                for i in range(jcount.value):
-                    name_bytes = sdl.SDL_GetJoystickNameForID(joys[i]) if hasattr(sdl, "SDL_GetJoystickNameForID") else None
-                    name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Joystick {i + 1}"
-                    gamepads.append(name)
-                if hasattr(sdl, "SDL_free"):
-                    sdl.SDL_free(joys)
+            if not gamepads and hasattr(sdl, "SDL_GetJoysticks"):
+                sdl.SDL_GetJoysticks.restype = ctypes.POINTER(ctypes.c_uint32)
+                sdl.SDL_GetJoysticks.argtypes = [ctypes.POINTER(ctypes.c_int)]
+                jcount = ctypes.c_int(0)
+                joys = sdl.SDL_GetJoysticks(ctypes.byref(jcount))
+                if joys and jcount.value > 0:
+                    if hasattr(sdl, "SDL_GetJoystickNameForID"):
+                        sdl.SDL_GetJoystickNameForID.restype = ctypes.c_char_p
+                        sdl.SDL_GetJoystickNameForID.argtypes = [ctypes.c_uint32]
+                    for i in range(jcount.value):
+                        name_bytes = sdl.SDL_GetJoystickNameForID(joys[i]) if hasattr(sdl, "SDL_GetJoystickNameForID") else None
+                        name = name_bytes.decode("utf-8", errors="replace").strip() if name_bytes else f"Joystick {i + 1}"
+                        gamepads.append(name)
+                    if hasattr(sdl, "SDL_free"):
+                        sdl.SDL_free(joys)
+        except Exception:
+            pass
 
-        if hasattr(sdl, "SDL_QuitSubSystem"):
-            sdl.SDL_QuitSubSystem.argtypes = [ctypes.c_uint32]
-            sdl.SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)
-    except Exception:
-        pass
+    # Windows native XInput fallback if SDL3 enumeration returned empty
+    if not gamepads:
+        try:
+            import ctypes
+            for dll_name in ("xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"):
+                try:
+                    xi = ctypes.windll.LoadLibrary(dll_name)
+                    class XINPUT_STATE(ctypes.Structure):
+                        _fields_ = [("dwPacketNumber", ctypes.c_ulong), ("wButtons", ctypes.c_ushort),
+                                    ("bLeftTrigger", ctypes.c_ubyte), ("bRightTrigger", ctypes.c_ubyte),
+                                    ("sThumbLX", ctypes.c_short), ("sThumbLY", ctypes.c_short),
+                                    ("sThumbRX", ctypes.c_short), ("sThumbRY", ctypes.c_short)]
+                    for slot in range(4):
+                        state = XINPUT_STATE()
+                        if xi.XInputGetState(slot, ctypes.byref(state)) == 0:
+                            gamepads.append(f"Xbox Controller (Slot {slot + 1})")
+                    if gamepads:
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     return gamepads
 
 
@@ -971,6 +994,8 @@ class Launcher(tk.Tk):
         self.p1_control_var = tk.StringVar(value=next((n for n, v in p1_opts if v == cur_p1), p1_opts[0][0]))
         self.p2_control_var = tk.StringVar(value=next((n for n, v in p2_opts if v == cur_p2), p2_opts[0][0]))
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
+        self._current_page = None
+        self._pad_poll_id = None
 
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True, padx=14, pady=14)
@@ -1066,6 +1091,7 @@ class Launcher(tk.Tk):
         self._page_tools(self.pages["tools"])
 
     def show_page(self, key):
+        self._current_page = key
         for name, page in self.pages.items():
             page.pack_forget()
             item, bar, label = self.nav[name]
@@ -1078,9 +1104,21 @@ class Launcher(tk.Tk):
         self.pages[key].pack(fill="both", expand=True)
         self._light(None)
         self.hint.config(text=PAGE_HINT[key])
+        if hasattr(self, "_pad_poll_id") and self._pad_poll_id:
+            try:
+                self.after_cancel(self._pad_poll_id)
+            except Exception:
+                pass
+            self._pad_poll_id = None
         if key == "controls":
             self._refresh_gamepads()
             self._pad_text()
+            self._schedule_pad_poll()
+
+    def _schedule_pad_poll(self):
+        if getattr(self, "_current_page", None) == "controls":
+            self._refresh_gamepads()
+            self._pad_poll_id = self.after(1500, self._schedule_pad_poll)
 
     # ---- settings rows ----
     def _light(self, bar):
@@ -1564,9 +1602,9 @@ class Launcher(tk.Tk):
         pads = detect_connected_gamepads()
         is_id = self.cfg.get("language") == "id"
         not_detected = (
-            "(Belum terdeteksi - otomatis aktif saat dicolok)"
+            "(Belum terhubung)"
             if is_id
-            else "(Not detected yet - will connect automatically when plugged in)"
+            else "(Not connected)"
         )
         if hasattr(self, "pad_slot_labels"):
             for idx, lbl in enumerate(self.pad_slot_labels):
