@@ -32,6 +32,7 @@ BIN, OUT, USER, SCRIPTS = ROOT / "bin", ROOT / "out", ROOT / "user", ROOT / "scr
 DATA = ROOT / "data"
 TRANSLATION_DB = DATA / "en_translation_db.json"
 PATCH_DIR = ROOT / "mods" / "english_patch"
+XBOX_PROMPT_DIR = ROOT / "mods" / "xbox_prompts"
 OVERLAY_DIR = USER / "app0_overlay"
 CONFIG = USER / "launcher.json"
 INI = USER / "basara4.ini"
@@ -218,6 +219,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import basara4_patches  # noqa: E402
 import basara4_translation  # noqa: E402
+import basara4_prompts  # noqa: E402
 import basara4_overlay  # noqa: E402
 import basara4_repatch  # noqa: E402
 import game_update  # noqa: E402
@@ -228,7 +230,7 @@ DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
-            "p1_control": "pad1", "p2_control": "none"}
+            "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto"}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -480,6 +482,20 @@ P1_CONTROL_MAP.update({"pad1": "pad1", "pad2": "pad2", "kbm": "kbm"})
 P2_CONTROL_MAP = {n: v for n, v in P2_CONTROLS_EN + P2_CONTROLS_ID}
 P2_CONTROL_MAP.update({"none": "none", "pad2": "pad2", "pad1": "pad1", "kbm": "kbm"})
 
+PROMPT_LAYOUTS_EN = [
+    ("Auto (Xbox on Gamepad, PS on DualShock)", "auto"),
+    ("Xbox (A / B / X / Y)", "xbox"),
+    ("PlayStation (✕ / ◯ / △ / □)", "ps"),
+]
+PROMPT_LAYOUTS_ID = [
+    ("Otomatis (Xbox saat pakai stik)", "auto"),
+    ("Xbox (A / B / X / Y)", "xbox"),
+    ("PlayStation (✕ / ◯ / △ / □)", "ps"),
+]
+
+PROMPT_LAYOUT_MAP = {n: v for n, v in PROMPT_LAYOUTS_EN + PROMPT_LAYOUTS_ID}
+PROMPT_LAYOUT_MAP.update({"auto": "auto", "xbox": "xbox", "ps": "ps"})
+
 ANISO_EN = [("Off", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 ANISO_ID = [("Nonaktif", 0), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 
@@ -562,6 +578,7 @@ ROW_EN = {
     "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
     "p1_control": ("Player 1 Control", "Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."),
     "p2_control": ("Player 2 Control", "Assign input device for Player 2 (local co-op) or disable for single player."),
+    "prompt_layout": ("Button Prompts", "In-game HUD button prompt style: Xbox (A/B/X/Y) or PlayStation default."),
     "pad": ("Gamepad Mapping", "Custom controller mapping state (gamepad_mapping.txt vs default)."),
     "pad_actions": ("Mapping Actions", "Configure gamepad buttons/sticks or reset back to default database."),
     "map_pad": ("Map All Buttons", "Press each gamepad button when prompted in the mapper window."),
@@ -604,6 +621,7 @@ ROW_ID = {
     "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Deteksi Ulang untuk memindai ulang."),
     "p1_control": ("Kontrol Player 1", "Pilih perangkat input untuk Player 1. Otomatis ke Keyboard & Mouse jika stik dilepas."),
     "p2_control": ("Kontrol Player 2", "Pilih perangkat input untuk Player 2 (co-op lokal) atau nonaktifkan untuk single player."),
+    "prompt_layout": ("Simbol Tombol HUD", "Tampilan tombol panduan in-game: Xbox (A/B/X/Y) atau PlayStation bawaan."),
     "pad": ("Pemetaan Gamepad", "Status pemetaan controller kustom (gamepad_mapping.txt vs default)."),
     "pad_actions": ("Aksi Pemetaan", "Konfigurasi tombol/analog stick controller atau reset ke database default."),
     "map_pad": ("Atur Semua Tombol", "Tekan setiap tombol stick saat diminta di jendela mapper."),
@@ -991,8 +1009,11 @@ class Launcher(tk.Tk):
         p2_opts = P2_CONTROLS_ID if is_id else P2_CONTROLS_EN
         cur_p1 = self.cfg.get("p1_control", "pad1")
         cur_p2 = self.cfg.get("p2_control", "none")
+        prompt_opts = PROMPT_LAYOUTS_ID if is_id else PROMPT_LAYOUTS_EN
+        cur_prompt = self.cfg.get("prompt_layout", "auto")
         self.p1_control_var = tk.StringVar(value=next((n for n, v in p1_opts if v == cur_p1), p1_opts[0][0]))
         self.p2_control_var = tk.StringVar(value=next((n for n, v in p2_opts if v == cur_p2), p2_opts[0][0]))
+        self.prompt_layout_var = tk.StringVar(value=next((n for n, v in prompt_opts if v == cur_prompt), prompt_opts[0][0]))
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
         self._current_page = None
         self._pad_poll_id = None
@@ -1289,8 +1310,10 @@ class Launcher(tk.Tk):
         # 2. Player 1 & Player 2 Control Assignment
         p1_opts = P1_CONTROLS_ID if is_id else P1_CONTROLS_EN
         p2_opts = P2_CONTROLS_ID if is_id else P2_CONTROLS_EN
+        prompt_opts = PROMPT_LAYOUTS_ID if is_id else PROMPT_LAYOUTS_EN
         self._combo_row(content, "p1_control", self.p1_control_var, [n for n, _ in p1_opts])
         self._combo_row(content, "p2_control", self.p2_control_var, [n for n, _ in p2_opts])
+        self._combo_row(content, "prompt_layout", self.prompt_layout_var, [n for n, _ in prompt_opts])
 
         # 3. Controller Mapping & Visual Layout Indicators
         def pad_status(holder):
@@ -1618,8 +1641,10 @@ class Launcher(tk.Tk):
         selected_gpu_idx = next((idx for idx, name, _ in SYSTEM_GPUS if name == selected_gpu_name), -1)
         p1_str = self.p1_control_var.get() if hasattr(self, "p1_control_var") else "pad1"
         p2_str = self.p2_control_var.get() if hasattr(self, "p2_control_var") else "none"
+        prompt_str = self.prompt_layout_var.get() if hasattr(self, "prompt_layout_var") else "auto"
         p1_val = P1_CONTROL_MAP.get(p1_str, "pad1")
         p2_val = P2_CONTROL_MAP.get(p2_str, "none")
+        prompt_val = PROMPT_LAYOUT_MAP.get(prompt_str, "auto")
         self.cfg.update(
             game=self.game_var.get().strip(),
             game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
@@ -1637,7 +1662,8 @@ class Launcher(tk.Tk):
             mouse_invert_x=self.mouse_invert_x_var.get(),
             mouse_invert_y=self.mouse_invert_y_var.get(),
             p1_control=p1_val,
-            p2_control=p2_val)
+            p2_control=p2_val,
+            prompt_layout=prompt_val)
         save_config(self.cfg)
 
         up_val = self.cfg.get("upscale", "off")
@@ -1989,6 +2015,7 @@ class Launcher(tk.Tk):
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
 
         app0 = effective_game
+        active_patches: list[Path] = []
         if not error and self.cfg.get("english_patch"):
             manifest_file = PATCH_DIR / "manifest.json"
             is_ps3_import = False
@@ -2000,10 +2027,7 @@ class Launcher(tk.Tk):
                     pass
 
             if is_ps3_import:
-                try:
-                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
-                except Exception as e:
-                    error = f"Failed to build English patch: {e}"
+                active_patches.append(PATCH_DIR)
             elif TRANSLATION_DB.is_file():
                 try:
                     if patch_needs_rebuild(effective_game, TRANSLATION_DB, PATCH_DIR):
@@ -2012,11 +2036,29 @@ class Launcher(tk.Tk):
                         basara4_translation.build_patch(
                             effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                         )
-                    app0 = basara4_overlay.build_overlay(effective_game, PATCH_DIR, OVERLAY_DIR)
+                    active_patches.append(PATCH_DIR)
                 except Exception as e:
                     error = f"Failed to build English patch: {e}"
             else:
                 error = 'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.'
+
+        prompt_setting = self.cfg.get("prompt_layout", "auto")
+        p1_ctrl = self.cfg.get("p1_control", "pad1")
+        wants_xbox = (prompt_setting == "xbox") or (prompt_setting == "auto" and p1_ctrl in ("pad1", "pad2"))
+        if not error and wants_xbox:
+            try:
+                basara4_prompts.ensure_xbox_prompts(Path(effective_game), XBOX_PROMPT_DIR)
+                active_patches.append(XBOX_PROMPT_DIR)
+            except Exception as e:
+                print(f"Warning: could not prepare Xbox button prompts: {e}")
+
+        if not error and active_patches:
+            try:
+                app0 = basara4_overlay.build_overlay(effective_game, active_patches, OVERLAY_DIR)
+            except Exception as e:
+                error = f"Failed to build game overlay: {e}"
+        else:
+            app0 = effective_game
 
         addons_args = []
         dlc_dir = self.cfg.get("dlc_folder", "").strip() if isinstance(self.cfg.get("dlc_folder"), str) else ""

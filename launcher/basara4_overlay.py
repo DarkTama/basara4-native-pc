@@ -140,39 +140,42 @@ def _link_or_recurse_dir(src: Path, dst: Path) -> None:
                 _link_file(c_src, c_dst)
 
 
-def build_overlay(game: Path | str, patch_root: Path | str, overlay: Path | str) -> Path:
+def build_overlay(game: Path | str, patch_root: Path | str | list[Path | str], overlay: Path | str) -> Path:
     """Builds an idempotent sparse overlay directory pointing to game and patch files."""
     game = Path(game)
-    patch_root = Path(patch_root)
     overlay = Path(overlay)
 
     _check_not_nested(overlay, game)
 
-    if not patch_root.is_dir():
-        return game
+    if isinstance(patch_root, (list, tuple)):
+        roots = [Path(r) for r in patch_root]
+    else:
+        roots = [Path(patch_root)]
 
-    # Collect replaced files
+    # Collect replaced files across all patch roots in order
     replaced_files: dict[Path, Path] = {}
-    for p in patch_root.rglob("*"):
-        if not p.is_file():
+    db_sha256 = ""
+    for r in roots:
+        if not r.is_dir():
             continue
-        rel = p.relative_to(patch_root)
-        if rel.as_posix() == "manifest.json" or rel.name == ".overlay_stamp.json":
-            continue
-        replaced_files[rel] = p
+        for p in r.rglob("*"):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(r)
+            if rel.as_posix() == "manifest.json" or rel.name == ".overlay_stamp.json":
+                continue
+            replaced_files[rel] = p
+        manifest_file = r / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                if not db_sha256 and m_data.get("db_sha256"):
+                    db_sha256 = m_data.get("db_sha256")
+            except (OSError, ValueError):
+                pass
 
     if not replaced_files:
         return game
-
-    # Read patch manifest if present
-    db_sha256 = ""
-    manifest_file = patch_root / "manifest.json"
-    if manifest_file.is_file():
-        try:
-            m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
-            db_sha256 = m_data.get("db_sha256", "")
-        except (OSError, ValueError):
-            pass
 
     # Build target stamp dict
     stamp_replaced = [
