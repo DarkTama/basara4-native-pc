@@ -62,6 +62,23 @@ int main(void) {
     assert(do_write(save,"save",4)==4 && !do_close(save));
     assert(!path_op("/data/test-save",2,0));
     assert(!unlink(link) && !unlink(other) && !unlink(source) && !unlink(replacement) && !rmdir(game));
+    /* Stub files for missing stage EX and horse motion archives */
+    int ex_fd=(int)do_open("/app0/stage/m513_ex.arc",0,0); assert(ex_fd>=3);
+    char ex_buf[16]={0}; assert(do_read(ex_fd,ex_buf,sizeof(ex_buf))==8);
+    assert(!memcmp(ex_buf,"ARC\0\7\0\0\0",8));
+    GuestStat ex_stat;
+    assert(!do_fstat(ex_fd,&ex_stat) && ex_stat.size==8);
+    assert(!do_stat("/app0/stage/m513_ex.arc",&ex_stat) && ex_stat.size==8);
+    assert(!do_close(ex_fd));
+
+    int uma_fd=(int)do_open("/app0/motion/pl014_uma.lmt",0,0); assert(uma_fd>=3);
+    char uma_buf[20]={0}; assert(do_read(uma_fd,uma_buf,sizeof(uma_buf))==16);
+    assert(!memcmp(uma_buf,"LMT\0\x43\0\0\0",8));
+    GuestStat uma_stat;
+    assert(!do_fstat(uma_fd,&uma_stat) && uma_stat.size==16);
+    assert(!do_stat("/app0/motion/pl014_uma.lmt",&uma_stat) && uma_stat.size==16);
+    assert(!do_close(uma_fd));
+
     const char *dirs[]={"temp0","download0","data"};
     for (int i=0;i<3;++i) { char p[1024]; snprintf(p,sizeof(p),"%s/%s",user,dirs[i]); assert(!rmdir(p)); }
     assert(!rmdir(user) && !rmdir(root));

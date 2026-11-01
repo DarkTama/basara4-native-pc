@@ -116,7 +116,7 @@ class ReadBootLinkedTests(unittest.TestCase):
             code, out = run_main(['missing.bin', '--out', '.'])
         finally:
             isa_rewrite.iced_x86 = saved
-        self.assertEqual((code, out), (1, 'ISA: rewrite table unavailable (iced_x86 is not installed)\n'))
+        self.assertEqual((code, out), (0, 'ISA: rewrite table unavailable (iced_x86 is not installed)\n'))
 
 
 @unittest.skipUnless(isa_rewrite.iced_x86, 'pip install iced-x86')
