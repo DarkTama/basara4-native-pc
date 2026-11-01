@@ -122,4 +122,8 @@ void runtime_savedata_report(void);
 int runtime_savedata_param(int32_t user, const char *dir, void *param);
 int runtime_savedata_icon(int32_t user, const char *dir, char *out, size_t size);
 void runtime_thread_attach_host(const char *name);
+void describe_address(char *out, size_t size, uintptr_t address);
+#ifdef _WIN32
+void spartanport_write_minidump(void *exception_pointers);
+#endif
 #endif

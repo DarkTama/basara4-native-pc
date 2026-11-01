@@ -113,7 +113,7 @@ __asm__(".text\n.globl enter_on_stack\nenter_on_stack:\n"
 #endif
 static ABI void guest_exit(void) { puts("Runtime: process finalizer callback reached"); }
 #ifdef _WIN32
-static void describe_address(char *out, size_t size, uintptr_t address) {
+void describe_address(char *out, size_t size, uintptr_t address) {
     HMODULE module=NULL;
     char name[MAX_PATH]="?";
     int site=isa_table ? isa_rewrite_site_of_stub(isa_table,address) : -1;
@@ -135,7 +135,9 @@ static void describe_address(char *out, size_t size, uintptr_t address) {
 /* Basara 4 PC: a minidump (threads, stacks, modules) next to the logs when the process dies, so a crash report is not just
  * the text above.  user/crash/core-YYYYMMDD-HHMMSS.dmp; SPARTAN_GPU_USER_DIR is the launcher's user folder. */
 typedef BOOL (WINAPI *minidump_write_fn)(HANDLE, DWORD, HANDLE, int, PVOID, PVOID, PVOID);
+#pragma pack(push, 4)
 typedef struct { DWORD thread; EXCEPTION_POINTERS *pointers; BOOL client_pointers; } minidump_exception;
+#pragma pack(pop)
 void spartanport_write_minidump(void *exception_pointers) {
     static volatile LONG once;
     if (InterlockedExchange(&once,1)) return;
@@ -149,13 +151,16 @@ void spartanport_write_minidump(void *exception_pointers) {
     SYSTEMTIME now;
     GetLocalTime(&now);
     snprintf(path,sizeof(path),"%s\\core-%04d%02d%02d-%02d%02d%02d.dmp",dir,now.wYear,now.wMonth,now.wDay,now.wHour,now.wMinute,now.wSecond);
-    HANDLE file=CreateFileA(path,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+    HANDLE file=CreateFileA(path,GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
     if (file==INVALID_HANDLE_VALUE) return;
     minidump_exception ex={GetCurrentThreadId(),(EXCEPTION_POINTERS *)exception_pointers,FALSE};
-    /* thread info, process/thread data, indirectly referenced memory, unloaded modules */
-    BOOL ok=write(GetCurrentProcess(),GetCurrentProcessId(),file,0x1000|0x100|0x40|0x20,exception_pointers ? &ex : NULL,NULL,NULL);
+    /* MiniDumpWithThreadInfo (0x1000) | MiniDumpWithIndirectlyReferencedMemory (0x40) */
+    BOOL ok=write(GetCurrentProcess(),GetCurrentProcessId(),file,0x1000|0x40,exception_pointers ? &ex : NULL,NULL,NULL);
+    DWORD err=ok ? 0 : GetLastError();
     CloseHandle(file);
-    fprintf(stderr,ok ? "Crash dump written: %s\n" : "Crash dump failed: %s\n",path);
+    if (!ok) DeleteFileA(path);
+    if (ok) fprintf(stderr,"Crash dump written: %s\n",path);
+    else fprintf(stderr,"Crash dump failed (0x%08lx): %s\n",(unsigned long)err,path);
     fflush(stderr);
 }
 static int fatal_reported;
@@ -269,6 +274,15 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
             if (at[0]==0x65 && !memcmp(at,load,sizeof(load))) { memcpy(at+5,&displacement,4); ++patched; at+=sizeof(load)-1; }
     }
     return patched;
+}
+#endif
+#ifndef _WIN32
+void describe_address(char *out, size_t size, uintptr_t address) {
+    if (image && address >= (uintptr_t)image && address - (uintptr_t)image < 0x20000000) {
+        snprintf(out, size, "guest offset 0x%" PRIxPTR, address - (uintptr_t)image);
+        return;
+    }
+    snprintf(out, size, "%p", (void *)address);
 }
 #endif
 #ifndef _WIN32

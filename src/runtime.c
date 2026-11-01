@@ -1,4 +1,5 @@
 /* Narrow, explicit PS4 libc contracts. No automatic success stubs. */
+#define _GNU_SOURCE
 #define _CRT_RAND_S
 #include "runtime.h"
 #include "gpu/spartanportgpu.h"
@@ -8,6 +9,12 @@
 #include <stdatomic.h>
 #include <sched.h>
 #include <pthread.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/uio.h>
+#include <unistd.h>
+#endif
 
 typedef struct {
     union { GuestCallback plain; void (ABI *with_arg)(void *); } callback;
@@ -160,7 +167,56 @@ static ABI void guard_abort(uint64_t *guard) {
     atomic_fetch_and_explicit((_Atomic uint64_t *)guard, UINT64_C(0xffffffff), memory_order_release);
 }
 static ABI __attribute__((noreturn)) void stack_fail(void) {
-    fputs("STOP: guest stack protector detected corruption\n", stderr);
+    uintptr_t caller = (uintptr_t)__builtin_return_address(0);
+    char where[512];
+    describe_address(where, sizeof(where), caller);
+
+    char tname[64] = {0};
+    unsigned long tid = 0;
+#ifdef _WIN32
+    tid = (unsigned long)GetCurrentThreadId();
+    typedef HRESULT (WINAPI *pfn_get_thread_desc)(HANDLE, PWSTR *);
+    pfn_get_thread_desc get_desc = (pfn_get_thread_desc)(void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetThreadDescription");
+    if (get_desc) {
+        PWSTR wide = NULL;
+        if (SUCCEEDED(get_desc(GetCurrentThread(), &wide)) && wide) {
+            WideCharToMultiByte(CP_UTF8, 0, wide, -1, tname, sizeof(tname), NULL, NULL);
+            LocalFree(wide);
+        }
+    }
+#else
+    tid = (unsigned long)pthread_self();
+#if defined(__GLIBC__) || defined(__FreeBSD__)
+    pthread_getname_np(pthread_self(), tname, sizeof(tname));
+#endif
+#endif
+
+    if (tname[0])
+        fprintf(stderr, "STOP: guest stack protector detected corruption at %s (thread %lu, '%s')\n", where, tid, tname);
+    else
+        fprintf(stderr, "STOP: guest stack protector detected corruption at %s (thread %lu)\n", where, tid);
+
+    /* rbp frame-chain backtrace */
+    uintptr_t rbp = (uintptr_t)__builtin_frame_address(0);
+    for (int depth = 0; depth < 24 && rbp; ++depth) {
+        uintptr_t frame[2];
+#ifdef _WIN32
+        SIZE_T got = 0;
+        if (!ReadProcessMemory(GetCurrentProcess(), (void *)rbp, frame, sizeof(frame), &got) || got != sizeof(frame) || frame[0] <= rbp) break;
+#else
+        struct iovec local = {frame, sizeof(frame)}, remote = {(void *)rbp, sizeof(frame)};
+        if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) != (ssize_t)sizeof(frame) || frame[0] <= rbp) break;
+#endif
+        describe_address(where, sizeof(where), frame[1]);
+        fprintf(stderr, "  #%d %s\n", depth, where);
+        rbp = frame[0];
+    }
+
+#ifdef _WIN32
+    spartanport_write_minidump(NULL);
+#endif
+    fflush(stderr);
+    fflush(stdout);
     exit(22);
 }
 static ABI void *guest_memset(void *dst, int value, size_t size) {
