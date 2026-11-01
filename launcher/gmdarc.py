@@ -87,6 +87,7 @@ class GmdFile:
         raw_keys: bytes = b"",
         orig_string_block_len: int = 0,
         sbs_was_garbage: bool = False,
+        raw_data: Optional[bytes] = None,
     ):
         self.magic = magic
         self.version = version
@@ -105,6 +106,7 @@ class GmdFile:
         self.raw_keys = raw_keys
         self.orig_string_block_len = orig_string_block_len
         self.sbs_was_garbage = sbs_was_garbage
+        self.raw_data = raw_data
         self._key_map: Optional[dict[str, int]] = None
 
     @property
@@ -208,9 +210,46 @@ class GmdFile:
             raw_keys=raw_keys,
             orig_string_block_len=orig_string_block_len,
             sbs_was_garbage=sbs_was_garbage,
+            raw_data=data,
         )
 
-    def to_bytes(self, new_strings: Optional[list[str]] = None) -> bytes:
+    def with_exact_string_block_size(
+        self_or_data, raw_data: Optional[bytes] = None
+    ) -> bytes:
+        """Returns GMD bytes with header string_block_size rewritten to orig_string_block_len
+        (the exact byte length of the string block), preserving all other bytes exactly.
+        Can be called on an instance: gmd.with_exact_string_block_size()
+        or on raw bytes: GmdFile.with_exact_string_block_size(raw_bytes).
+        """
+        if isinstance(self_or_data, (bytes, bytearray)):
+            gmd = GmdFile.from_bytes(self_or_data)
+            return gmd.with_exact_string_block_size()
+        if isinstance(self_or_data, type):
+            if raw_data is None:
+                raise ValueError("raw_data required when calling as classmethod")
+            gmd = self_or_data.from_bytes(raw_data)
+            return gmd.with_exact_string_block_size()
+
+        self = self_or_data
+        data = raw_data if raw_data is not None else self.raw_data
+        new_sbsz = self.orig_string_block_len
+        if data is not None:
+            packed_sbsz = struct.pack(f"{self.endian}I", new_sbsz)
+            repaired = data[:0x20] + packed_sbsz + data[0x24:]
+            self.string_block_size = new_sbsz
+            self.sbs_was_garbage = False
+            self.raw_data = repaired
+            return repaired
+
+        self.string_block_size = new_sbsz
+        self.sbs_was_garbage = False
+        return self.to_bytes()
+
+    def to_bytes(
+        self,
+        new_strings: Optional[list[str]] = None,
+        base_exact: Optional[bool] = None,
+    ) -> bytes:
         """Serializes GMD to bytes. If new_strings is given, replaces the string block
         and updates header string_block_size according to format rules.
         """
@@ -227,10 +266,12 @@ class GmdFile:
         new_len = len(new_str_block)
 
         # SBS calculation rule:
-        # - if orig == actual original block length -> write new length
+        # - if base_exact is True or (base_exact is None and orig == actual original block length) -> write new length
         # - if orig == 0xFFFF -> keep 0xFFFF
         # - otherwise (garbage gt/lt) -> orig + (new_len - old_len), clamped to [0, 0xFFFFFFFF]
-        if self.string_block_size == self.orig_string_block_len:
+        if base_exact is True or (
+            base_exact is None and self.string_block_size == self.orig_string_block_len
+        ):
             new_sbsz = new_len
         elif self.string_block_size == 0xFFFF:
             new_sbsz = 0xFFFF

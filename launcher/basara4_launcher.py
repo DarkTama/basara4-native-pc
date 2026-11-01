@@ -32,6 +32,7 @@ BIN, OUT, USER, SCRIPTS = ROOT / "bin", ROOT / "out", ROOT / "user", ROOT / "scr
 DATA = ROOT / "data"
 TRANSLATION_DB = DATA / "en_translation_db.json"
 PATCH_DIR = ROOT / "mods" / "english_patch"
+GMD_FIX_DIR = ROOT / "mods" / "gmd_header_fix"
 XBOX_PROMPT_DIR = ROOT / "mods" / "xbox_prompts"
 KBM_PROMPT_DIR = ROOT / "mods" / "kbm_prompts"
 OVERLAY_DIR = USER / "app0_overlay"
@@ -223,6 +224,7 @@ import basara4_translation  # noqa: E402
 import basara4_prompts  # noqa: E402
 import basara4_overlay  # noqa: E402
 import basara4_repatch  # noqa: E402
+import basara4_gmd_fix  # noqa: E402
 import game_update  # noqa: E402
 import dlc  # noqa: E402
 import patches  # noqa: E402
@@ -1894,6 +1896,10 @@ class Launcher(tk.Tk):
                 res = basara4_repatch.repatch(
                     src_path, effective_game, PATCH_DIR, progress=_prog
                 )
+                try:
+                    basara4_gmd_fix.repair_layer_in_place(PATCH_DIR, Path(game))
+                except Exception:
+                    pass
                 if OVERLAY_DIR.exists():
                     try:
                         basara4_overlay._safe_remove_tree(OVERLAY_DIR)
@@ -1987,6 +1993,10 @@ class Launcher(tk.Tk):
                 stats = basara4_translation.build_patch(
                     effective_game, TRANSLATION_DB, PATCH_DIR, progress=_prog
                 )
+                try:
+                    basara4_gmd_fix.repair_layer_in_place(PATCH_DIR, Path(game))
+                except Exception:
+                    pass
                 if OVERLAY_DIR.exists():
                     try:
                         basara4_overlay._safe_remove_tree(OVERLAY_DIR)
@@ -2085,6 +2095,17 @@ class Launcher(tk.Tk):
 
         app0 = effective_game
         active_patches: list[Path] = []
+
+        if not error:
+            try:
+                gmd_fixes = basara4_gmd_fix.ensure_gmd_header_fix(
+                    Path(game), Path(effective_game), GMD_FIX_DIR
+                )
+                if gmd_fixes or any(GMD_FIX_DIR.glob("**/*.arc")):
+                    active_patches.append(GMD_FIX_DIR)
+            except Exception as e:
+                print(f"Warning: could not prepare GMD header fix: {e}")
+
         if not error and self.cfg.get("english_patch"):
             manifest_file = PATCH_DIR / "manifest.json"
             is_ps3_import = False
@@ -2114,6 +2135,12 @@ class Launcher(tk.Tk):
             else:
                 error = 'No English patch yet: click "Import PS3 English Patch…" and select your PS3 (BLJM61248) English patch folder.'
 
+            if not error and PATCH_DIR in active_patches and PATCH_DIR.is_dir():
+                try:
+                    basara4_gmd_fix.repair_layer_in_place(PATCH_DIR, Path(game))
+                except Exception as e:
+                    print(f"Warning: could not repair English patch GMD headers: {e}")
+
         prompt_setting = self.cfg.get("prompt_layout", "auto")
         p1_ctrl = self.cfg.get("p1_control", "pad1")
         wants_kbm = (prompt_setting == "kbm") or (prompt_setting == "auto" and p1_ctrl == "kbm")
@@ -2122,12 +2149,14 @@ class Launcher(tk.Tk):
         if not error and wants_kbm:
             try:
                 basara4_prompts.ensure_kbm_prompts(Path(effective_game), KBM_PROMPT_DIR, list(active_patches))
+                basara4_gmd_fix.repair_layer_in_place(KBM_PROMPT_DIR, Path(game))
                 active_patches.append(KBM_PROMPT_DIR)
             except Exception as e:
                 print(f"Warning: could not prepare KBM button prompts: {e}")
         elif not error and wants_xbox:
             try:
                 basara4_prompts.ensure_xbox_prompts(Path(effective_game), XBOX_PROMPT_DIR, list(active_patches))
+                basara4_gmd_fix.repair_layer_in_place(XBOX_PROMPT_DIR, Path(game))
                 active_patches.append(XBOX_PROMPT_DIR)
             except Exception as e:
                 print(f"Warning: could not prepare Xbox button prompts: {e}")
