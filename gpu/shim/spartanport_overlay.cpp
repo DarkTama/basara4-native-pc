@@ -341,8 +341,8 @@ void BasaraTab() {
 
         const bool coins_ok = (supported & (1u << BASARA4_CHEAT_COINS)) != 0;
         ImGui::BeginDisabled(!coins_ok);
-        CheckRow("Special coin x99999", s.cheats[BASARA4_CHEAT_COINS],
-                 coins_ok ? "Sets special coins (小判) directly to 999,999." : Unsupported);
+        CheckRow("Special coins: max (999,999)", s.cheats[BASARA4_CHEAT_COINS],
+                 coins_ok ? "Sets special coins (小判) directly to 999,999. Applies the next time coins are added." : Unsupported);
         ImGui::EndDisabled();
 
         const bool growth_ok = (supported & (1u << BASARA4_CHEAT_GROWTH_POINTS)) != 0;

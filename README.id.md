@@ -68,7 +68,7 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 
 
 ## Cheat
-Lima cheat gameplay (**Gold won't decrease**, **Special Coin x99999**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
+Lima cheat gameplay (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
 
 ## Kontrol
 - **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).

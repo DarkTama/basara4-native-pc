@@ -538,6 +538,10 @@ FIELD, EDGE, LINE, RULE, HOVER, OK = "#12100e", "#3f382f", "#332d27", "#26211d",
 FONT, FONT_SMALL = ("Segoe UI", 10), ("Segoe UI", 8)
 CHEAT_HINT_EN = "Can also be toggled in game (Insert / R3+L2)"
 CHEAT_HINT_ID = "Dapat diatur juga di dalam game (Insert / R3+L2)"
+CHEAT_COINS_HINT_EN = "Sets special coins (小判) directly to 999,999. Applies the next time coins are added."
+CHEAT_COINS_HINT_ID = "Mengatur koin spesial (小判) langsung ke 999.999. Berlaku saat koin bertambah berikutnya."
+CHEAT_RUNNING_HINT_EN = "Game is running: use the in-game menu (Insert / R3+L2) to toggle cheats."
+CHEAT_RUNNING_HINT_ID = "Game sedang berjalan: gunakan menu dalam game (Insert / R3+L2) untuk mengatur cheat."
 CHEAT_KEYS = ["cheat_gold", "cheat_coins", "cheat_growth_points", "cheat_weapon_points", "cheat_weapon_rank"]
 
 NAV_EN = [("game", "Game"), ("display", "Display"), ("controls", "Controls"), ("mods", "Mods & Cheats"), ("tools", "Tools")]
@@ -596,7 +600,7 @@ ROW_EN = {
     "import_patch": ("Import PS3 English Patch", "Pick your own PS3 (BLJM61248) English patch folder."),
     "rebuild_patch": ("Rebuild Translation Patch", "Builds the patch again from the imported files."),
     "cheat_gold": ("Gold won't decrease", CHEAT_HINT_EN),
-    "cheat_coins": ("Special Coin x99999", CHEAT_HINT_EN),
+    "cheat_coins": ("Special Coins: max (999,999)", CHEAT_COINS_HINT_EN),
     "cheat_growth_points": ("Growth points won't decrease", CHEAT_HINT_EN),
     "cheat_weapon_points": ("Weapon points won't decrease", CHEAT_HINT_EN),
     "cheat_weapon_rank": ("Weapon rank points won't decrease", CHEAT_HINT_EN),
@@ -639,7 +643,7 @@ ROW_ID = {
     "import_patch": ("Impor Patch PS3 Inggris", "Pilih folder patch Bahasa Inggris PS3 (BLJM61248) milik Anda."),
     "rebuild_patch": ("Bangun Ulang Patch", "Membangun ulang patch dari file yang diimpor."),
     "cheat_gold": ("Gold tidak berkurang", CHEAT_HINT_ID),
-    "cheat_coins": ("Koin Spesial x99999", CHEAT_HINT_ID),
+    "cheat_coins": ("Koin Spesial: maks (999.999)", CHEAT_COINS_HINT_ID),
     "cheat_growth_points": ("Poin Growth tidak berkurang", CHEAT_HINT_ID),
     "cheat_weapon_points": ("Poin Weapon tidak berkurang", CHEAT_HINT_ID),
     "cheat_weapon_rank": ("Poin Rank Weapon tidak berkurang", CHEAT_HINT_ID),
@@ -1024,6 +1028,7 @@ class Launcher(tk.Tk):
         self.p2_control_var = tk.StringVar(value=next((n for n, v in p2_opts if v == cur_p2), p2_opts[0][0]))
         self.prompt_layout_var = tk.StringVar(value=next((n for n, v in prompt_opts if v == cur_prompt), prompt_opts[0][0]))
         self.cheat_vars = {key: tk.BooleanVar(value=False) for key in CHEAT_KEYS}  # live in the runtime ini
+        self.cheat_checkboxes = {}
         self._current_page = None
         self._pad_poll_id = None
 
@@ -1133,7 +1138,10 @@ class Launcher(tk.Tk):
             bar.config(bg=GOLD if on else PANEL)
         self.pages[key].pack(fill="both", expand=True)
         self._light(None)
-        self.hint.config(text=PAGE_HINT[key])
+        if key == "mods" and self._is_game_running():
+            self.hint.config(text=self._running_cheat_hint())
+        else:
+            self.hint.config(text=PAGE_HINT[key])
         if hasattr(self, "_pad_poll_id") and self._pad_poll_id:
             try:
                 self.after_cancel(self._pad_poll_id)
@@ -1183,7 +1191,10 @@ class Launcher(tk.Tk):
 
         def show(_event=None):
             self._light(bar)
-            self.hint.config(text=hint)
+            if key in CHEAT_KEYS and self._is_game_running():
+                self.hint.config(text=self._running_cheat_hint())
+            else:
+                self.hint.config(text=hint)
 
         def wire(widget):
             widget.bind("<Enter>", show, add="+")
@@ -1203,8 +1214,13 @@ class Launcher(tk.Tk):
             fill="both", expand=True), width=max(250, need), stack=need > 330)
 
     def _check_row(self, page, key, var, command=None, sub=False):
-        self._row(page, key, lambda h: ttk.Checkbutton(h, text="On", variable=var, command=command).pack(side="left"),
-                  sub=sub)
+        btn = None
+        def make(h):
+            nonlocal btn
+            btn = ttk.Checkbutton(h, text="On", variable=var, command=command)
+            btn.pack(side="left")
+        self._row(page, key, make, sub=sub)
+        return btn
 
     def _slider_row(self, page, key, var, from_, to):
         def make(holder):
@@ -1459,8 +1475,13 @@ class Launcher(tk.Tk):
             anchor="w",
         ).pack(fill="x", padx=13, pady=(4, 6))
         self._group(page, "cheats")
+        self.cheat_checkboxes = {}
+        is_running = self._is_game_running()
         for key in CHEAT_KEYS:
-            self._check_row(page, key, self.cheat_vars[key])
+            cb = self._check_row(page, key, self.cheat_vars[key])
+            if is_running and cb:
+                cb.config(state="disabled")
+            self.cheat_checkboxes[key] = cb
 
     def _page_tools(self, page):
         self._button_row(page, "open_log", "Open", self.open_log)
@@ -1561,6 +1582,33 @@ class Launcher(tk.Tk):
             self._collect()
         except Exception as e:
             self.status.config(text=f"DLC error: {e}")
+
+    def _is_game_running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def _running_cheat_hint(self):
+        is_id = self.cfg.get("language") == "id"
+        return CHEAT_RUNNING_HINT_ID if is_id else CHEAT_RUNNING_HINT_EN
+
+    def _update_cheats_state(self, running=None):
+        if running is None:
+            running = self._is_game_running()
+        state = "disabled" if running else "normal"
+        for cb in getattr(self, "cheat_checkboxes", {}).values():
+            if cb:
+                try:
+                    cb.config(state=state)
+                except Exception:
+                    pass
+        if getattr(self, "_current_page", None) == "mods":
+            if running:
+                self.hint.config(text=self._running_cheat_hint())
+            else:
+                self.hint.config(text=PAGE_HINT["mods"])
+        if not running:
+            ini = read_ini(self._ini())
+            for key, var in self.cheat_vars.items():
+                var.set(ini.get(key) == "1")
 
     def _clear_dlc(self):
         self.dlc_var.set("")
@@ -2161,6 +2209,7 @@ class Launcher(tk.Tk):
         self.status.config(text=notice + ("Running, writing user\\audio_debug.log…" if self.cfg.get("audio_log")
                                           else "Running…  (Insert opens the in-game menu)"))
         self._refresh_image_label()
+        self._update_cheats_state(running=True)
 
     def _make_window_icon(self, game):
         if Image is None or WINDOW_ICON.exists():
@@ -2699,6 +2748,7 @@ class Launcher(tk.Tk):
                 return
             err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if (code not in (0, None) and not self.user_stopped) else None
             self.status.config(text=err_msg if err_msg else "Game closed.")
+            self._update_cheats_state(running=False)
             self._load_ini_into_ui()
         self.after(500, self._poll)
 

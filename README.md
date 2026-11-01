@@ -68,7 +68,7 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 
 
 ## Cheats
-Five gameplay cheats (**Gold won't decrease**, **Special Coin x99999**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) are available from the launcher's **Mods & Cheats** page or in game via the overlay (**Insert** / **R3 + L2**). Cheats are off by default. They are authored for game version 01.02 and located by signature pattern on other versions.
+Five gameplay cheats (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) are available from the launcher's **Mods & Cheats** page or in game via the overlay (**Insert** / **R3 + L2**). Cheats are off by default. They are authored for game version 01.02 and located by signature pattern on other versions.
 
 ## Controls
 - **Insert** (Keyboard) or **R3 + L2** (Gamepad): Opens the in-game overlay menu (FSR settings, anisotropic filtering, controller status, cheats).
