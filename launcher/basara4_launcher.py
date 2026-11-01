@@ -40,7 +40,7 @@ INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
 WINDOW_ICON = USER / "window_icon.bmp"
 CORE = BIN / "basara4-core.exe"
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
@@ -2031,6 +2031,9 @@ class Launcher(tk.Tk):
 
             if is_ps3_import:
                 active_patches.append(PATCH_DIR)
+                if basara4_repatch.patch_format(PATCH_DIR) < basara4_repatch.PATCH_FORMAT:
+                    notice += ("English patch was built by an older version (texture colour noise): "
+                               "click Rebuild Translation Patch in Mods.  ")
             elif TRANSLATION_DB.is_file():
                 try:
                     if patch_needs_rebuild(effective_game, TRANSLATION_DB, PATCH_DIR):

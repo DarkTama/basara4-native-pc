@@ -52,6 +52,21 @@ except ImportError:
     )
     from basara4_translation_extract import extract_translation_data
 
+# Bump when the converted output changes in a way that needs a rebuild of existing patches.
+# 2: UI textures handled as YCbCr (fixes green/purple chroma noise from format 1).
+PATCH_FORMAT = 2
+
+
+def patch_format(patch_dir: Path) -> int:
+    """Format of an imported PS3 patch (1 for manifests written before the field existed)."""
+    try:
+        data = json.loads((Path(patch_dir) / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    if data.get("mode") != "ps3_import":
+        return 0
+    return int(data.get("format", 1))
+
 
 def resolve_game_paths(game_dir_input: Path) -> tuple[Path, Path]:
     """Resolves (game_root, rom_dir) generically from game_dir_input."""
@@ -558,6 +573,7 @@ def repatch(
     manifest_path = out_dir / "manifest.json"
     manifest_payload = {
         "mode": "ps3_import",
+        "format": PATCH_FORMAT,
         "meta": {
             "source_game": "BLJM61248",
         },
