@@ -116,6 +116,58 @@ def decode_bc3_to_rgba(bc3_bytes: bytes, w: int, h: int) -> Image.Image:
     return im.convert("RGBA")
 
 
+# ---- Colour space ----
+# The game's _ID_HQ UI textures are not RGB: each texel stores YCbCr as R=Cr, G=Y, B=Cb, A=alpha
+# (BT.601 full range, chroma centred on 128). A raw decode therefore looks green. Any resampling,
+# sharpening or compositing has to happen on real RGB, and the result must be stored back in this
+# layout, or chroma noise (green/purple) and tinted glyphs (white -> pink) appear in game.
+NEUTRAL_CHROMA = 128.0
+
+
+def ycbcr_to_rgb(stored: np.ndarray) -> np.ndarray:
+    """Stored (H,W,3|4) R=Cr G=Y B=Cb in 0..255 -> real RGB float32 0..255 (alpha passed through)."""
+    s = stored.astype(np.float32)
+    y = s[..., 1]
+    cr = s[..., 0] - NEUTRAL_CHROMA
+    cb = s[..., 2] - NEUTRAL_CHROMA
+    rgb = np.stack([y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb], axis=-1)
+    rgb = np.clip(rgb, 0.0, 255.0)
+    if s.shape[-1] == 4:
+        return np.dstack([rgb, s[..., 3]])
+    return rgb
+
+
+def rgb_to_ycbcr(rgb: np.ndarray) -> np.ndarray:
+    """Real RGB (H,W,3|4) 0..255 -> stored layout R=Cr G=Y B=Cb, float32 0..255 (alpha passed through)."""
+    c = rgb.astype(np.float32)
+    r, g, b = c[..., 0], c[..., 1], c[..., 2]
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    cb = NEUTRAL_CHROMA + (b - y) / 1.772
+    cr = NEUTRAL_CHROMA + (r - y) / 1.402
+    out = np.clip(np.stack([cr, y, cb], axis=-1), 0.0, 255.0)
+    if c.shape[-1] == 4:
+        return np.dstack([out, c[..., 3]])
+    return out
+
+
+def rgba_image_to_stored(im: Image.Image) -> np.ndarray:
+    """Real-colour RGBA image -> uint8 RGBA array in the game's stored layout. Fully transparent
+    texels get black with neutral chroma so filtering never pulls in extreme chroma."""
+    arr = np.array(im.convert("RGBA"), dtype=np.float32)
+    out = rgb_to_ycbcr(arr)
+    clear = arr[..., 3] == 0
+    out[clear, 0] = NEUTRAL_CHROMA
+    out[clear, 1] = 0.0
+    out[clear, 2] = NEUTRAL_CHROMA
+    return np.round(out).astype(np.uint8)
+
+
+def stored_to_rgba_image(stored) -> Image.Image:
+    """Stored-layout RGBA -> real-colour RGBA image."""
+    arr = np.array(stored, dtype=np.float32)
+    return Image.fromarray(np.round(ycbcr_to_rgb(arr)).astype(np.uint8), mode="RGBA")
+
+
 def morton2d_8x8(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Morton (Z-order) interleaving for 3 bits each (0..7)."""
     return (
@@ -503,28 +555,14 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     w4, h4_px = h4["width"], h4["height"]
     pix_off4 = h4["pixel_offset"]
 
-    # 1. Decode PS3 linear BC3 to RGBA
+    # 1. Decode PS3 linear BC3 and move it out of the stored YCbCr layout into real RGB
     ps3_payload = ps3_tex[h3["pixel_offset"]:]
     im3 = decode_bc3_to_rgba(ps3_payload, w3, h3_px)
-    arr3 = np.array(im3, dtype=np.float32)
+    arr3 = ycbcr_to_rgb(np.array(im3, dtype=np.float32))
 
-    # 2. Chroma-key Magenta Purge & Anti-bleed:
-    # Do NOT cut alpha <= 16 blindly! Soft alpha gradients must be preserved.
-    # Specifically target chroma-key magenta:
-    r3 = arr3[:, :, 0]
-    g3 = arr3[:, :, 1]
-    b3 = arr3[:, :, 2]
+    # 2. Fully transparent texels carry no colour: make them black so they cannot bleed when
+    # resampled (in RGB this is a real black, not the extreme chroma a raw zero would be).
     a3 = arr3[:, :, 3]
-
-    magenta_mask = (
-        (a3 == 0)
-        & (np.abs(r3 - 123) <= 12)
-        & (np.abs(b3 - 123) <= 12)
-        & (g3 <= 20)
-    )
-    arr3[magenta_mask, :3] = 0.0
-
-    # For anti-bleed: only apply zeroing to RGB where alpha == 0 (clean unpremultiplied zero)
     arr3[a3 == 0, :3] = 0.0
 
     # 3. Premultiply alpha before resize to eliminate color halos
@@ -558,10 +596,12 @@ def convert_ps3_to_ps4(ps3_tex: bytes, ps4_tex: bytes) -> bytes:
     zero_mask = (np.array(im_alpha_nearest) == 0)
     alpha_res[zero_mask] = 0.0
 
-    # For anti-bleed: only apply zeroing to RGB where alpha == 0 (clean unpremultiplied zero)
+    # For anti-bleed: transparent texels are black (neutral chroma once stored)
     rgb_unpre[alpha_res == 0] = 0.0
 
     final_rgba = np.dstack([rgb_unpre, alpha_res]).astype(np.uint8)
+    # Back to the game's stored YCbCr layout
+    final_rgba = rgba_image_to_stored(Image.fromarray(final_rgba, mode="RGBA"))
 
     # 7. Compress to linear BC3
     comp_bc3 = etcpak.compress_bc3(final_rgba.tobytes(), w4, h4_px)

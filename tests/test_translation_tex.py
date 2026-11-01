@@ -214,21 +214,24 @@ class TestTexBasics(unittest.TestCase):
         left_half_alpha = arr_out[:, :60, 3]
         left_half_rgb = arr_out[:, :60, :3]
         self.assertTrue(np.all(left_half_alpha == 0), f"Max alpha in zero region: {np.max(left_half_alpha)}")
-        self.assertTrue(np.all(left_half_rgb == 0), f"Max RGB in zero region: {np.max(left_half_rgb)}")
+        # Stored layout R=Cr G=Y B=Cb: transparent = black luma with neutral chroma (not raw 0,
+        # which is extreme chroma and shows as green/purple noise)
+        self.assertLessEqual(int(np.max(left_half_rgb[..., 1])), 4, "luma bled into zero region")
+        self.assertLessEqual(int(np.max(np.abs(left_half_rgb[..., [0, 2]].astype(int) - 128))), 6,
+                             "chroma not neutral in zero region")
 
-    def test_convert_ps3_to_ps4_magenta_halo_purged(self):
-        """Verifies that chroma key magenta background [123, 0, 123, 0] does not bleed
-        into upscaled font edges or background.
+    def test_convert_ps3_to_ps4_transparent_background_is_neutral(self):
+        """The stored layout is R=Cr G=Y B=Cb. A PS3 background of (123, 0, 123, 0) is transparent
+        black with neutral chroma: it must come out neutral (chroma ~128), never as the zero chroma
+        that shows as green/purple noise in game, and a white glyph must stay white.
         """
         w3, h3 = 64, 64
         w4, h4 = 128, 128
 
-        # PS3 texture with magenta chroma key background [123, 0, 123, 0]
-        # and a white foreground element [255, 255, 255, 255]
         im3 = Image.new("RGBA", (w3, h3), (123, 0, 123, 0))
         for y in range(20, 44):
             for x in range(20, 44):
-                im3.putpixel((x, y), (255, 255, 255, 255))
+                im3.putpixel((x, y), (128, 255, 128, 255))  # stored white: Y=255, neutral chroma
 
         im4_dummy = Image.new("RGBA", (w4, h4), (0, 0, 0, 0))
 
@@ -238,31 +241,44 @@ class TestTexBasics(unittest.TestCase):
         converted = convert_ps3_to_ps4(ps3_tex, ps4_tex)
         self.assertEqual(len(converted), len(ps4_tex))
 
-        # Decode converted PS4 texture back to RGBA
         p4 = parse_tex_header(converted, endian="<")
         deswz = deswizzle_bc3(converted[p4["pixel_offset"]:], w4, h4)
-        im_out = decode_bc3_to_rgba(deswz, w4, h4)
-        arr_out = np.array(im_out)
+        arr_out = np.array(decode_bc3_to_rgba(deswz, w4, h4)).astype(int)
 
-        # 1. Background pixels (far from text) should be strictly 0 (no magenta [123, 0, 123])
-        bg_alpha = arr_out[:15, :15, 3]
-        bg_rgb = arr_out[:15, :15, :3]
-        self.assertTrue(np.all(bg_alpha == 0), f"Background alpha non-zero: {np.max(bg_alpha)}")
-        self.assertTrue(np.all(bg_rgb == 0), f"Background RGB non-zero: {np.max(bg_rgb)}")
+        # 1. Background: transparent, black luma, neutral chroma
+        bg = arr_out[:15, :15]
+        self.assertTrue(np.all(bg[..., 3] == 0))
+        self.assertLessEqual(int(np.max(bg[..., 1])), 4, "background luma should be black")
+        self.assertLessEqual(int(np.max(np.abs(bg[..., 0] - 128))), 6, "background Cr not neutral")
+        self.assertLessEqual(int(np.max(np.abs(bg[..., 2] - 128))), 6, "background Cb not neutral")
 
-        # 2. Text boundary edge pixels (0 < alpha < 250): verify no magenta bleed
-        # In pure white foreground, R == G == B. Magenta bleed would cause R > G and B > G.
-        edge_mask = (arr_out[:, :, 3] > 0) & (arr_out[:, :, 3] < 250)
-        self.assertTrue(np.any(edge_mask), "Should have antialiased edge pixels")
-        edge_pixels = arr_out[edge_mask]
-        diff_rg = np.abs(edge_pixels[:, 0].astype(int) - edge_pixels[:, 1].astype(int))
-        diff_bg = np.abs(edge_pixels[:, 2].astype(int) - edge_pixels[:, 1].astype(int))
-        self.assertLessEqual(
-            int(np.max(diff_rg)), 5, f"Magenta red-green aberration detected on edge: max diff {np.max(diff_rg)}"
-        )
-        self.assertLessEqual(
-            int(np.max(diff_bg)), 5, f"Magenta blue-green aberration detected on edge: max diff {np.max(diff_bg)}"
-        )
+        # 2. No visible texel anywhere has zero / extreme chroma
+        vis = arr_out[arr_out[..., 3] > 0]
+        self.assertTrue(len(vis) > 0)
+        self.assertLessEqual(int(np.max(np.abs(vis[:, 0] - 128))), 12, "chroma noise on edges (Cr)")
+        self.assertLessEqual(int(np.max(np.abs(vis[:, 2] - 128))), 12, "chroma noise on edges (Cb)")
+
+        # 3. Glyph centre is still bright white
+        centre = arr_out[60:68, 60:68]
+        self.assertGreaterEqual(int(np.min(centre[..., 1])), 240)
+
+    def test_ycbcr_roundtrip(self):
+        from basara4_tex import rgb_to_ycbcr, ycbcr_to_rgb, rgba_image_to_stored, stored_to_rgba_image
+
+        rng = np.random.default_rng(1)
+        rgb = rng.integers(0, 256, size=(32, 32, 3)).astype(np.float32)
+        back = ycbcr_to_rgb(rgb_to_ycbcr(rgb))
+        self.assertLessEqual(float(np.max(np.abs(back - rgb))), 1.0)
+
+        white = Image.new("RGBA", (4, 4), (255, 255, 255, 255))
+        stored = rgba_image_to_stored(white)
+        self.assertTrue(np.all(stored[..., 1] == 255))
+        self.assertTrue(np.all(np.abs(stored[..., 0].astype(int) - 128) <= 1))
+        self.assertTrue(np.all(np.abs(stored[..., 2].astype(int) - 128) <= 1))
+        self.assertEqual(np.array(stored_to_rgba_image(stored))[0, 0].tolist(), [255, 255, 255, 255])
+
+        clear = rgba_image_to_stored(Image.new("RGBA", (2, 2), (255, 0, 255, 0)))
+        self.assertEqual(clear[0, 0].tolist(), [128, 0, 128, 0])
 
     def test_is_ui_text_texture_filter(self):
         """Verifies whitelist and blacklist keyword filtering in is_ui_text_texture."""
@@ -372,7 +388,9 @@ class TestTexBasics(unittest.TestCase):
         bg_alpha = arr_out[:15, :15, 3]
         bg_rgb = arr_out[:15, :15, :3]
         self.assertTrue(np.all(bg_alpha == 0), f"Background alpha non-zero: {np.max(bg_alpha)}")
-        self.assertTrue(np.all(bg_rgb == 0), f"Background RGB non-zero: {np.max(bg_rgb)}")
+        self.assertLessEqual(int(np.max(bg_rgb[..., 1])), 4, "background luma not black")
+        self.assertLessEqual(int(np.max(np.abs(bg_rgb[..., [0, 2]].astype(int) - 128))), 6,
+                             "background chroma not neutral")
 
         # 2. Soft alpha gradient region: low-alpha pixels (e.g. corresponding to x=24 where alpha was 10)
         # must NOT be zeroed out into holes!

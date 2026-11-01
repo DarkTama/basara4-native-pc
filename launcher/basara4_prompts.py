@@ -181,7 +181,7 @@ def compose_kbm_atlas(orig_atlas: Image.Image | None = None) -> Image.Image:
 
 ARC_REL = Path("nativePS4") / "rom" / "game_common.arc"
 STAMP_NAME = ".prompts_stamp.json"
-STAMP_VERSION = 2  # bump when the atlas or encoding changes
+STAMP_VERSION = 3  # bump when the atlas or encoding changes (3: YCbCr storage)
 
 
 def find_base_arc(game: Path, lower_layers: list[Path] | None = None) -> Path:
@@ -215,14 +215,16 @@ def _build_prompts_arc(base_arc: Path, out_patch_dir: Path, style: str = "xbox")
     orig_raw = entry.decompress()
     hdr, orig_payload = tex.extract_tex_payload(orig_raw, endian="<")
     orig_deswiz = tex.deswizzle_bc3(orig_payload, hdr["width"], hdr["height"])
-    orig_atlas = tex.decode_bc3_to_rgba(orig_deswiz, hdr["width"], hdr["height"])
+    orig_atlas = tex.stored_to_rgba_image(
+        tex.decode_bc3_to_rgba(orig_deswiz, hdr["width"], hdr["height"]))
 
     if style == "kbm":
         new_atlas = compose_kbm_atlas(orig_atlas)
     else:
         new_atlas = compose_xbox_atlas(orig_atlas)
 
-    comp_bc3 = etcpak.compress_bc3(new_atlas.tobytes(), 512, 512)
+    stored = tex.rgba_image_to_stored(new_atlas)  # the game reads R=Cr G=Y B=Cb
+    comp_bc3 = etcpak.compress_bc3(stored.tobytes(), 512, 512)
     swizzled = tex.swizzle_bc3(comp_bc3, 512, 512)
     new_tex = orig_raw[: hdr["pixel_offset"]] + swizzled
 
