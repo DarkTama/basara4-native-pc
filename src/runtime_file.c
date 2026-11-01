@@ -198,8 +198,6 @@ static int game_path(const char *p) {
     return (!strncmp(p,"/app0",5) && (!p[5] || p[5]=='/')) ||
            (!strncmp(p,"/hostapp",8) && (!p[8] || p[8]=='/'));
 }
-/* Empty ARC v7 header (8 bytes): magic='ARC\0', version=7, num_files=0 */
-static const unsigned char empty_arc_stub[8] = {'A','R','C',0, 7,0, 0,0};
 /* Empty LMT v67 header (16 bytes): magic='LMT\0', version=67, num_motions=0, reserved=0 */
 static const unsigned char empty_lmt_stub[16] = {'L','M','T',0, 67,0, 0,0, 0,0,0,0, 0,0,0,0};
 
@@ -207,11 +205,6 @@ static const unsigned char empty_lmt_stub[16] = {'L','M','T',0, 67,0, 0,0, 0,0,0
 static const unsigned char *get_stub_data(const char *guest, size_t *out_size) {
     if (!guest) return NULL;
     size_t len = strlen(guest);
-    /* Missing stage extra archives (_ex.arc) e.g. m513_ex.arc, briefing_ex.arc */
-    if (len >= 7 && !strcmp(guest + len - 7, "_ex.arc")) {
-        *out_size = sizeof(empty_arc_stub);
-        return empty_arc_stub;
-    }
     /* Missing horse motion data (_uma.lmt) e.g. pl014_uma.lmt */
     if (len >= 8 && !strcmp(guest + len - 8, "_uma.lmt")) {
         *out_size = sizeof(empty_lmt_stub);
@@ -220,12 +213,38 @@ static const unsigned char *get_stub_data(const char *guest, size_t *out_size) {
     return NULL;
 }
 
+/* Base archive path for stage EX requests: .../<name>_ex.arc -> .../<name>.arc */
+static int get_arc_base_path(const char *guest, char *base, size_t base_size) {
+    if (!guest) return 0;
+    size_t len = strlen(guest);
+    if (len < 8 || strcmp(guest + len - 7, "_ex.arc") != 0) return 0;
+    char prev = guest[len - 8];
+    if (prev == '/' || prev == '\\') return 0;
+    size_t stem_len = len - 7;
+    if (stem_len + 4 >= base_size) return 0;
+    memcpy(base, guest, stem_len);
+    memcpy(base + stem_len, ".arc", 5);
+    return 1;
+}
+
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
-static int64_t do_open(const char *guest,int flags,int mode) {
+static int64_t do_open_internal(const char *guest,int flags,int mode,int allow_alias) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
-    if (e) return -e;
+    if (e) {
+        if (e==ENOENT && allow_alias) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) {
+                int64_t fd=do_open_internal(base,flags&~3,mode,0);
+                if (fd>=0) {
+                    printf("Runtime: open(%s) -> not found, aliased to %s\n",guest,base);
+                    return fd;
+                }
+            }
+        }
+        return -e;
+    }
     const unsigned char *stub_bytes = NULL;
     size_t stub_size = 0;
 #ifdef _WIN32
@@ -239,7 +258,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
         if (!(dir=list_directory(path))) return -EACCES;
     } else if (flags&0x20000) {
         e=errno==ENOENT ? ENOENT : ENOTDIR;
-        if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
+        if (e==ENOENT && allow_alias) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
         return -e;
     } else {
         host=open(path,host_flags(flags)&~O_DIRECTORY,_S_IREAD|_S_IWRITE);
@@ -250,7 +269,17 @@ static int64_t do_open(const char *guest,int flags,int mode) {
                 if (stub_bytes) {
                     printf("Runtime: open(%s) -> not found, mounted empty stub (%zu bytes)\n", guest, stub_size);
                 } else {
-                    ++missing; printf("Runtime: open(%s) -> not found\n",guest);
+                    if (allow_alias) {
+                        char base[1024];
+                        if (get_arc_base_path(guest,base,sizeof(base))) {
+                            int64_t fd=do_open_internal(base,flags&~3,mode,0);
+                            if (fd>=0) {
+                                printf("Runtime: open(%s) -> not found, aliased to %s\n",guest,base);
+                                return fd;
+                            }
+                        }
+                        ++missing; printf("Runtime: open(%s) -> not found\n",guest);
+                    }
                     return -e;
                 }
             } else {
@@ -268,7 +297,17 @@ static int64_t do_open(const char *guest,int flags,int mode) {
             if (stub_bytes) {
                 printf("Runtime: open(%s) -> not found, mounted empty stub (%zu bytes)\n", guest, stub_size);
             } else {
-                ++missing; printf("Runtime: open(%s) -> not found\n",guest);
+                if (allow_alias) {
+                    char base[1024];
+                    if (get_arc_base_path(guest,base,sizeof(base))) {
+                        int64_t fd=do_open_internal(base,flags&~3,mode,0);
+                        if (fd>=0) {
+                            printf("Runtime: open(%s) -> not found, aliased to %s\n",guest,base);
+                            return fd;
+                        }
+                    }
+                    ++missing; printf("Runtime: open(%s) -> not found\n",guest);
+                }
                 return -e;
             }
         } else {
@@ -310,6 +349,10 @@ static int64_t do_open(const char *guest,int flags,int mode) {
         }
     }
     return fd;
+}
+
+static int64_t do_open(const char *guest,int flags,int mode) {
+    return do_open_internal(guest,flags,mode,1);
 }
 static int64_t do_close(int fd) {
     if (fd>=0 && fd<3) return 0;
@@ -469,6 +512,10 @@ static int64_t do_stat(const char *guest,GuestStat *out) {
             out->blksize=4096;
             return 0;
         }
+        if (e==ENOENT) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) return do_stat(base,out);
+        }
         return -e;
     }
     if (host_stat(path,&s)) {
@@ -479,6 +526,10 @@ static int64_t do_stat(const char *guest,GuestStat *out) {
             out->blocks=(stub_size+511)/512;
             out->blksize=4096;
             return 0;
+        }
+        if (errno==ENOENT) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) return do_stat(base,out);
         }
         return -errno;
     }
@@ -562,11 +613,31 @@ static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; ret
 static int64_t do_access(const char *guest,int mode) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
-    if (e) return -e;
+    if (e) {
+        if (e==ENOENT) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) return do_access(base,mode);
+        }
+        return -e;
+    }
 #ifdef _WIN32
-    return access(path,mode&6) ? -errno : 0; /* X_OK is invalid for the CRT */
+    if (access(path,mode&6)) {
+        if (errno==ENOENT) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) return do_access(base,mode);
+        }
+        return -errno;
+    }
+    return 0;
 #else
-    return access(path,mode&7) ? -errno : 0;
+    if (access(path,mode&7)) {
+        if (errno==ENOENT) {
+            char base[1024];
+            if (get_arc_base_path(guest,base,sizeof(base))) return do_access(base,mode);
+        }
+        return -errno;
+    }
+    return 0;
 #endif
 }
 
