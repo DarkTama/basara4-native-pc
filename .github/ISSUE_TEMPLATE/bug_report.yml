@@ -1,18 +1,19 @@
 name: Bug report
-description: Visual glitch, crash, audio issue, or anything that doesn't behave as expected
+description: Gameplay, graphics, audio, or input bugs
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Before opening: search existing issues for your GPU/error first, it may already be tracked.
+        Before opening a bug report, please search existing issues first to check if it has already been reported.
+        If your issue is related to translation, font rendering, or broken textures from the English patch, please use the **English patch issue** template instead.
 
   - type: input
     id: version
     attributes:
       label: Port version
-      description: Shown in the launcher title bar (e.g. v2.1.7)
-      placeholder: v2.1.7
+      description: Shown in the launcher title bar and under Tools (e.g. v1.1.5)
+      placeholder: v1.1.5
     validations:
       required: true
 
@@ -20,7 +21,7 @@ body:
     id: gpu
     attributes:
       label: GPU and driver version
-      placeholder: "RX 6600, Adrenalin 26.8.1"
+      placeholder: "e.g. RX 6600, Adrenalin 24.3.1 / RTX 3070, GeForce 551.86"
     validations:
       required: true
 
@@ -28,15 +29,44 @@ body:
     id: cpu
     attributes:
       label: CPU
-      placeholder: "Ryzen 7 5700X"
+      placeholder: "e.g. Ryzen 7 5700X / Core i5-12400"
     validations:
       required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "e.g. Windows 11 23H2 / Arch Linux (Wine 9.0)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: upscaling
+    attributes:
+      label: Upscaling setting
+      description: Launcher upscaling option used when the bug occurred
+      options:
+        - "Off"
+        - "FSR 1"
+        - "FSR 3.1"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: input_device
+    attributes:
+      label: Controller / input used
+      placeholder: "e.g. DualSense (pad1), Xbox Series controller, Keyboard + Mouse"
+    validations:
+      required: false
 
   - type: textarea
     id: description
     attributes:
       label: What happened
-      description: What you expected vs what actually happened
+      description: Describe what went wrong and what you expected to happen
     validations:
       required: true
 
@@ -45,17 +75,26 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1.
-        2.
-        3.
+        1. Start the game with character X
+        2. Enter stage Y
+        3. Perform move Z
     validations:
       required: true
+
+  - type: textarea
+    id: crash_report
+    attributes:
+      label: Crash Diagnostic Report
+      description: If the game crashed, paste the full text from the launcher's Crash Diagnostic window (starting with `=== Sengoku Basara 4 PC — Crash Diagnostic Report ===`).
+      render: text
+    validations:
+      required: false
 
   - type: textarea
     id: log
     attributes:
       label: user/last_run.log
-      description: Attach the file from the port's folder (drag and drop it here). Required for crashes, black screens, graphics glitches and performance issues.
+      description: Drag and drop or attach `user/last_run.log` from the port folder. Highly recommended for crashes, audio issues, or graphical glitches.
     validations:
       required: false
 
@@ -63,6 +102,6 @@ body:
     id: screenshots
     attributes:
       label: Screenshots or video
-      description: Especially for visual glitches, attach the raw in-game capture, not a photo of the screen when possible.
+      description: Attach in-game screenshots or video showing the problem.
     validations:
       required: false

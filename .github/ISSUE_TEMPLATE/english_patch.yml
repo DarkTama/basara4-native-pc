@@ -1,0 +1,86 @@
+name: English patch issue
+description: Translation bugs, garbled textures, or issues with imported PS3 English patch
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The English patch is optional and built by the launcher from your own PS3 (BLJM61248) English patch v0.85 files via **Import PS3 English Patch** / **Rebuild Translation Patch** in the Mods page. The repository ships no translated content.
+
+        **Known limitations:**
+        - The patch is not 100% complete: untranslated Japanese text remains in story/stage dialogue, stage objectives, and win/lose conditions.
+        - Untranslated Japanese story/in-stage dialogue is already known and expected. Please do not report story dialogue as missing.
+        - Some texture layout mismatches exist (e.g. dark boxes behind labels).
+
+        Only report translation issues if:
+        1. Japanese text is still showing in a menu or UI element that was translated in the PS3 patch.
+        2. A menu texture or font is garbled, noisy, discolored, or broken.
+        3. Text overflows or clips unexpectedly.
+        4. The import or rebuild process failed in the launcher.
+
+  - type: input
+    id: version
+    attributes:
+      label: Port version
+      description: Shown in the launcher title bar and under Tools (e.g. v1.1.5)
+      placeholder: v1.1.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue type
+      options:
+        - "Garbled/noisy/discolored texture"
+        - "Wrong or missing translation in a menu"
+        - "Text overflow / layout mismatch"
+        - "Japanese text still showing"
+        - "Patch import/rebuild fails"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: game_location
+    attributes:
+      label: Where in the game
+      description: Screen, menu, mode, or stage where the issue appears
+      placeholder: "e.g. Main Menu -> Battle Preparation -> Inscription shop"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: rebuilt_patch
+    attributes:
+      label: Did you click "Rebuild Translation Patch" after updating the launcher?
+      options:
+        - "yes"
+        - "no"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Attach a clear in-game screenshot showing the issue.
+    validations:
+      required: true
+
+  - type: input
+    id: ps3_patch_version
+    attributes:
+      label: PS3 patch version used
+      description: The source PS3 BLJM61248 patch files imported
+      placeholder: "v0.85 + Matabe fix"
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra_details
+    attributes:
+      label: Extra details
+      description: Any additional context, log output, or reproduction details.
+    validations:
+      required: false

@@ -1,50 +1,67 @@
 name: Game won't launch / crashes on startup
-description: Black screen, instant close, "prepare failed", param.sfo errors, etc.
+description: Black screen, instant close, "prepare failed", param.sfo errors, or startup crash
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
         Most launch failures come from an incomplete or misplaced game dump (missing `param.sfo`,
-        wrong update version, wrong folder selected). Check the README's setup section before
-        filing, it covers the folder layout the launcher expects.
+        missing `eboot.bin`, wrong folder selected). Please check the [README setup section](https://github.com/DarkTama/basara4-native-pc#readme)
+        first, as it covers the folder layout and requirements expected by the launcher.
 
   - type: input
     id: version
     attributes:
       label: Port version
-      placeholder: v2.1.7
+      description: Shown in the launcher title bar and under Tools (e.g. v1.1.5)
+      placeholder: v1.1.5
     validations:
       required: true
 
-  - type: input
+  - type: dropdown
     id: game_version
     attributes:
-      label: Game build / update version
-      description: e.g. 01.00, 01.02, region (CUSA01623, CUSA01715, CUSA01740...)
+      label: Game update version
+      description: PS4 title ID is CUSA01159
+      options:
+        - "01.00 base only"
+        - "with update CUSA01159-patch"
+        - "not sure"
     validations:
       required: true
 
-  - type: textarea
-    id: folder
+  - type: dropdown
+    id: dlc_folder
     attributes:
-      label: Selected game folder
-      description: Screenshot of the folder you pointed the launcher at, showing eboot.bin, sce_sys and sce_module.
+      label: DLC folder set
+      description: Have you set an extracted DLC folder in the launcher?
+      options:
+        - "yes"
+        - "no"
     validations:
       required: true
 
   - type: textarea
-    id: error
+    id: folder_screenshot
+    attributes:
+      label: Selected game folder screenshot
+      description: Attach a screenshot of the folder you selected in the launcher, showing `eboot.bin` and the `sce_sys` folder (containing `param.sfo`).
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_message
     attributes:
       label: Exact error message
-      description: Copy the full text shown by the launcher or the game window, don't paraphrase it.
+      description: Copy the full text shown by the launcher or popup dialog. Do not paraphrase it.
     validations:
       required: true
 
   - type: textarea
-    id: log
+    id: crash_report_or_log
     attributes:
-      label: user/last_run.log
-      description: Attach the file from the port's folder.
+      label: Crash Diagnostic Report / user/last_run.log
+      description: Paste the full Crash Diagnostic report (starting with `=== Sengoku Basara 4 PC — Crash Diagnostic Report ===`) or contents of `user/last_run.log`.
+      render: text
     validations:
       required: true

@@ -1,18 +1,27 @@
 name: Feature request
-description: Suggest something that isn't a bug, e.g. new platform support, settings, QoL
+description: Suggest an enhancement, new setting, or QoL feature for the PC port
 labels: ["enhancement"]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: What do you want to do that you can't right now?
+      label: What feature or improvement are you requesting?
+      description: Describe what you would like to be able to do or see improved in the port or launcher.
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Optional, if you have something specific in mind.
+      label: Proposed solution or implementation ideas
+      description: Optional, if you have a specific approach or technical details in mind.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any screenshots, mockups, or examples from other games or ports.
     validations:
       required: false

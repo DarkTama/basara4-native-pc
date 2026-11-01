@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Setup guide / README
+    url: https://github.com/DarkTama/basara4-native-pc#readme
+    about: Please read the setup guide and requirements before opening an issue.
