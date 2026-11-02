@@ -486,37 +486,82 @@ def make_mock_elf(payload, vaddr=0x1000):
 
 class Basara4VerticalSplitPatchTests(unittest.TestCase):
     SPLIT_TABLE_BYTES = bytes.fromhex(basara4_patches.SPLIT_TABLE)
+    ASPECT_SITE_BYTES = bytes.fromhex(basara4_patches.ASPECT_SITE)
+    HUD_P2_SITE_BYTES = bytes.fromhex("c4 c1 7a 10 57 54 c5 ea 58 15 45 6e e9 00 c4 c1 7a 58 47 58")
 
     def test_vertical_splitscreen_finds_site_and_returns_correct_patch(self):
-        site_offset = 0xd90b50
-        image = bytearray(site_offset + len(self.SPLIT_TABLE_BYTES) + 0x100)
-        image[site_offset:site_offset + len(self.SPLIT_TABLE_BYTES)] = self.SPLIT_TABLE_BYTES
+        site_table = 0xd90b50
+        site_aspect = 0x200000
+        site_hud = 0x21fa80
+        total_len = max(site_table + len(self.SPLIT_TABLE_BYTES),
+                        site_aspect + len(self.ASPECT_SITE_BYTES),
+                        site_hud + len(self.HUD_P2_SITE_BYTES)) + 0x100
+        image = bytearray(total_len)
+        image[site_table:site_table + len(self.SPLIT_TABLE_BYTES)] = self.SPLIT_TABLE_BYTES
+        image[site_aspect:site_aspect + len(self.ASPECT_SITE_BYTES)] = self.ASPECT_SITE_BYTES
+        image[site_hud:site_hud + len(self.HUD_P2_SITE_BYTES)] = self.HUD_P2_SITE_BYTES
 
         writes = basara4_patches.vertical_splitscreen(bytes(image))
-        self.assertEqual(len(writes), 1)
-        offset, data = writes[0]
-        self.assertEqual(offset, site_offset + 8)
-        self.assertEqual(data, b'\x14\xff\xff\xff\x32\xff\xff\xff')
+        self.assertEqual(len(writes), 3)
+
+        # 1. Viewport jump table redirect
+        offset_table, data_table = writes[0]
+        self.assertEqual(offset_table, site_table + 8)
+        self.assertEqual(data_table, b'\x14\xff\xff\xff\x32\xff\xff\xff')
 
         # Verify displacements decode correctly
         # Mode 2 entry is patched to Mode 4 displacement (-236)
-        disp_mode4, = struct.unpack_from('<i', data, 0)
+        disp_mode4, = struct.unpack_from('<i', data_table, 0)
         self.assertEqual(disp_mode4, -236)
         # Mode 3 entry is patched to Mode 5 displacement (-206)
-        disp_mode5, = struct.unpack_from('<i', data, 4)
+        disp_mode5, = struct.unpack_from('<i', data_table, 4)
         self.assertEqual(disp_mode5, -206)
+
+        # 2. Camera aspect ratio un-stretch
+        offset_aspect, data_aspect = writes[1]
+        self.assertEqual(offset_aspect, site_aspect + 8)
+        self.assertEqual(data_aspect, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3')
+
+        # 3. Player 2 HUD reposition to Monitor 2
+        offset_hud, data_hud = writes[2]
+        self.assertEqual(offset_hud, site_hud + 6)
+        self.assertEqual(data_hud, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01')
 
     def test_vertical_splitscreen_missing_raises_lookup_error(self):
         dummy_image = b'\x90' * 0x1000
         with self.assertRaises(LookupError) as ctx:
             basara4_patches.vertical_splitscreen(dummy_image)
-        self.assertIn('not found', str(ctx.exception))
+        self.assertIn('split table not found', str(ctx.exception))
+
+        # Split table present, aspect missing
+        image_no_aspect = bytearray(0x2000)
+        image_no_aspect[0x100:0x100 + len(self.SPLIT_TABLE_BYTES)] = self.SPLIT_TABLE_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.vertical_splitscreen(bytes(image_no_aspect))
+        self.assertIn('aspect site not found', str(ctx.exception))
+
+        # Split table & aspect present, hud missing
+        image_no_hud = bytearray(0x2000)
+        image_no_hud[0x100:0x100 + len(self.SPLIT_TABLE_BYTES)] = self.SPLIT_TABLE_BYTES
+        image_no_hud[0x200:0x200 + len(self.ASPECT_SITE_BYTES)] = self.ASPECT_SITE_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.vertical_splitscreen(bytes(image_no_hud))
+        self.assertIn('hud site not found', str(ctx.exception))
 
     def test_vertical_splitscreen_duplicate_raises_lookup_error(self):
         image = b'AAA' + self.SPLIT_TABLE_BYTES + b'BBB' + self.SPLIT_TABLE_BYTES
         with self.assertRaises(LookupError) as ctx:
             basara4_patches.vertical_splitscreen(image)
-        self.assertIn('twice', str(ctx.exception))
+        self.assertIn('split table found twice', str(ctx.exception))
+
+        # Duplicate aspect site
+        valid_table_and_hud = bytearray(0x2000)
+        valid_table_and_hud[0x100:0x100 + len(self.SPLIT_TABLE_BYTES)] = self.SPLIT_TABLE_BYTES
+        valid_table_and_hud[0x200:0x200 + len(self.ASPECT_SITE_BYTES)] = self.ASPECT_SITE_BYTES
+        valid_table_and_hud[0x300:0x300 + len(self.ASPECT_SITE_BYTES)] = self.ASPECT_SITE_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.vertical_splitscreen(bytes(valid_table_and_hud))
+        self.assertIn('aspect site found twice', str(ctx.exception))
 
     def test_build_respects_vertical_split_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -524,7 +569,10 @@ class Basara4VerticalSplitPatchTests(unittest.TestCase):
             elf_path = tmp / 'eboot.elf'
             out_path = tmp / 'patches.bin'
 
-            payload = b'\x90' * 0x200 + self.SPLIT_TABLE_BYTES + b'\x90' * 0x200
+            split_payload = (self.SPLIT_TABLE_BYTES + b'\x90' * 0x20 +
+                             self.ASPECT_SITE_BYTES + b'\x90' * 0x20 +
+                             self.HUD_P2_SITE_BYTES)
+            payload = b'\x90' * 0x200 + split_payload + b'\x90' * 0x200
             elf_bytes = make_mock_elf(payload, vaddr=0x4000)
             elf_path.write_bytes(elf_bytes)
 
@@ -539,21 +587,25 @@ class Basara4VerticalSplitPatchTests(unittest.TestCase):
             self.assertEqual(magic, b'G3PATCH2')
             self.assertEqual(count, 0)
 
-            # Test 2: vertical_split=True -> vertical split patch included
+            # Test 2: vertical_split=True -> all 3 vertical split patches included
             writes, notes = basara4_patches.build(elf_path, out_path, unlimited=False, vertical_split=True)
-            self.assertEqual(len(writes), 1)
+            self.assertEqual(len(writes), 3)
             self.assertIn('vertical split', notes)
-            expected_site = 0x4000 + 0x200
-            self.assertEqual(writes[0], (expected_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'))
+            expected_table = 0x4000 + 0x200
+            expected_aspect = expected_table + len(self.SPLIT_TABLE_BYTES) + 0x20
+            expected_hud = expected_aspect + len(self.ASPECT_SITE_BYTES) + 0x20
+            self.assertEqual(writes[0], (expected_table + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'))
+            self.assertEqual(writes[1], (expected_aspect + 8, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'))
+            self.assertEqual(writes[2], (expected_hud + 6, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'))
 
             # Check binary patches.bin format
             blob = out_path.read_bytes()
             magic, base, count = struct.unpack_from('<8sQQ', blob, 0)
             self.assertEqual(magic, b'G3PATCH2')
             self.assertEqual(base, basara4_patches.EBOOT_BASE)
-            self.assertEqual(count, 1)
+            self.assertEqual(count, 3)
             rec_off, rec_len = struct.unpack_from('<QQ', blob, 24)
-            self.assertEqual(rec_off, expected_site + 8)
+            self.assertEqual(rec_off, expected_table + 8)
             self.assertEqual(rec_len, 8)
             self.assertEqual(blob[40:48], b'\x14\xff\xff\xff\x32\xff\xff\xff')
 
@@ -568,12 +620,15 @@ class Basara4VerticalSplitPatchTests(unittest.TestCase):
                 "81 c7 18 fc ff ff e8 55 66 77 88 c5 fa 10 5d cc c5 fa 10 43 60 c5 f8 2e d8 "
                 "c5 fb 10 4d d0 0f 86 10 00 00 00"
             )
-            payload = limiter_code + b'\x90' * 0x100 + self.SPLIT_TABLE_BYTES
+            split_payload = (self.SPLIT_TABLE_BYTES + b'\x90' * 0x20 +
+                             self.ASPECT_SITE_BYTES + b'\x90' * 0x20 +
+                             self.HUD_P2_SITE_BYTES)
+            payload = limiter_code + b'\x90' * 0x100 + split_payload
             elf_bytes = make_mock_elf(payload, vaddr=0x10000)
             elf_path.write_bytes(elf_bytes)
 
             writes, notes = basara4_patches.build(elf_path, out_path, unlimited=True, vertical_split=True)
-            self.assertEqual(len(writes), 3)  # 2 for limiter + 1 for split
+            self.assertEqual(len(writes), 5)  # 2 for limiter + 3 for split
             self.assertIn('unlimited fps', notes)
             self.assertIn('vertical split', notes)
 

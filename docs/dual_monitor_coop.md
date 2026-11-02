@@ -163,17 +163,42 @@ The dual-blit logic is integrated directly into the emulator presentation pipeli
 ### Approach A: MT Framework Native Vertical Split Patch (Active Approach)
 
 #### Implementation
-Because MT Framework already contains the complete code for vertical left-half (Mode 4) and vertical right-half (Mode 5) viewports, we redirect the jump table entries for Mode 2 and Mode 3:
+Because MT Framework already contains the complete code for vertical left-half (Mode 4) and vertical right-half (Mode 5) viewports, the vertical split patch applies three coordinated binary modifications:
 
-```
-Jump Table Base: 0x00d90b50
-Offset +0x08 (Mode 2 -> P1 Top Half)    => Overwritten with 14 ff ff ff (-236, target Mode 4: 0x00d90a64)
-Offset +0x0c (Mode 3 -> P2 Bottom Half) => Overwritten with 32 ff ff ff (-206, target Mode 5: 0x00d90a82)
-```
+1. **Viewport Mode Jump Table Redirect**:
+   - Signature: `SPLIT_TABLE` (`fa fe ff ff fd ff ff ff 00 ff ff ff 0a ff ff ff 14 ff ff ff 32 ff ff ff 50 ff ff ff 6f ff ff ff 8e ff ff ff c6 ff ff ff`)
+   - Offset: `table_site + 8`
+   - Replacement bytes: `b'\x14\xff\xff\xff\x32\xff\xff\xff'`
+   - Redirects Mode 2 (P1 Top) to Mode 4 (P1 Left, displacement `-236`) and Mode 3 (P2 Bottom) to Mode 5 (P2 Right, displacement `-206`).
 
-The runtime loader (`patches.bin` format `G3PATCH2`) locates the table signature dynamically across any decrypted ELF image and writes the 8 replacement bytes:
+2. **Camera Aspect Ratio 16:9 Un-Stretch**:
+   - Signature: `ASPECT_SITE` (`c5 ea 5e c9 c5 fa 59 c1 c3`)
+   - Offset: `aspect_site + 8`
+   - Replacement bytes: `b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'`
+   - Logic: Replaces the `ret` and trailing padding with:
+     ```asm
+     vucomiss xmm2, xmm0        ; compares 1.0f (xmm2) with camera aspect ratio (xmm0)
+     jbe      keep_aspect       ; if aspect >= 1.0f, leave untouched
+     vaddss   xmm0, xmm0, xmm0  ; if aspect < 1.0f (0.888 in 960x1080), double to 1.777 (16:9)
+     keep_aspect:
+     ret
+     ```
+     In vertical split mode on a 1920x1080 canvas, each half has an 8:9 aspect ratio (~0.888). Doubling this to 16:9 (~1.777) ensures the 3D projection renders with correct proportions when each viewport is presented/stretched across a 16:9 monitor.
+
+3. **Player 2 HUD Repositioning to Monitor 2**:
+   - Signature: `HUD_P2_SITE` (`c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? c4 c1 7a 58 47 58`)
+   - Offset: `hud_site + 6`
+   - Original instruction (8 bytes): `vaddss xmm2, xmm2, [rip + 0xe96e45]` (adds 540.0f to Y, positioning P2 at bottom half)
+   - Replacement bytes: `b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'` (`vaddss xmm1, xmm1, [rip + 0x10a07a1]`)
+   - Logic: Leaves Y unshifted at the top (top alignment intact) and adds `960.0f` to X, shifting Player 2's HUD from Monitor 1 to the top-left of Monitor 2.
+
+The runtime loader (`patches.bin` format `G3PATCH2`) locates all three signatures dynamically across any decrypted ELF image and writes the replacements:
 ```python
-[(table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff')]
+[
+    (table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'),
+    (aspect_site + 8, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'),
+    (hud_site + 6, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'),
+]
 ```
 
 #### User Experience
@@ -217,16 +242,16 @@ Running two completely isolated process instances of `eboot.bin` via sandbox:
 
 ---
 
-## 5. Future Considerations & Enhancements
+## 5. Implementation Status of Enhancements
 
-### 5.1 Aspect Ratio and Field of View (FOV) Tuning
-In vertical split mode (Mode 4 & Mode 5), MT Framework adjusts the horizontal scissor bounds to `[0.0, 0.5]` and `[0.5, 1.0]`. When displaying on an ultra-wide desktop (e.g. 3840x1080 across two 16:9 monitors), the combined aspect ratio is `32:9`, meaning each half receives a standard `16:9` aspect ratio. If playing on a single 16:9 screen (1920x1080), each half has an aspect ratio of `8:9` (tall).
-- A future patch can expose a camera projection matrix multiplier (similar to the ultrawide camera cave patches) to dynamically adjust `tan(FOV_x * 0.5)` based on the display aspect ratio.
+### 5.1 Aspect Ratio and Field of View (FOV) Tuning (Implemented)
+In vertical split mode (Mode 4 & Mode 5), MT Framework adjusts the horizontal scissor bounds to `[0.0, 0.5]` and `[0.5, 1.0]`. When displaying on an ultra-wide desktop (e.g. 3840x1080 across two 16:9 monitors) or stretching viewports across individual displays, an uncorrected 8:9 camera aspect ratio appears squished horizontally.
+- The active vertical split patch now incorporates the `ASPECT_SITE` un-stretch patch: any camera aspect ratio `< 1.0f` is automatically doubled to 16:9, eliminating distortion across dual 16:9 monitors.
 
-### 5.2 HUD X-Offset for Player 2
-Currently, Player 2's HUD coordinates inherit the engine's 2D split-screen placement.
-- When running in full dual-monitor spanned resolution (3840x1080), Player 2's HUD elements can be shifted along the X-axis by adding `+1920.0f` to Player 2's UI transform matrix (analogous to the Y-axis shift at `0x0021fa8f`).
-- This will place Player 1's HUD cleanly on the edges of Monitor 1 and Player 2's HUD on the edges of Monitor 2.
+### 5.2 HUD X-Offset for Player 2 (Implemented)
+Player 2's HUD coordinates previously inherited the horizontal split layout (Y shifted by +540.0f).
+- The active vertical split patch now incorporates the `HUD_P2_SITE` patch: replacing the Y displacement with an X displacement of `+960.0f` (`vaddss xmm1, xmm1, [rip + 0x10a07a1]`).
+- This cleanly positions Player 1's HUD on Monitor 1 and Player 2's HUD on Monitor 2.
 
 ---
 

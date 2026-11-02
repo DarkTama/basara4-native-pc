@@ -25,6 +25,8 @@ SLEEP_JB, SPIN_JBE = 16, 59
 
 SPLIT_TABLE = ("fa fe ff ff fd ff ff ff 00 ff ff ff 0a ff ff ff 14 ff ff ff "
                "32 ff ff ff 50 ff ff ff 6f ff ff ff 8e ff ff ff c6 ff ff ff")
+ASPECT_SITE = "c5 ea 5e c9 c5 fa 59 c1 c3"
+HUD_P2_SITE = "c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? c4 c1 7a 58 47 58"
 
 
 def eboot_image(elf):
@@ -78,12 +80,28 @@ def unlimited_fps(image):
 
 
 def vertical_splitscreen(image):
-    """[(image offset, bytes)] that changes splitscreen viewport mode from horizontal to vertical."""
+    """[(image offset, bytes)] that changes splitscreen viewport mode from horizontal to vertical,
+    fixes 3D camera aspect ratio (un-stretch), and moves Player 2 HUD to Monitor 2."""
     sites = find(image, SPLIT_TABLE)
     if len(sites) != 1:
         raise LookupError('split table not found' if not sites else 'split table found twice')
     table_site = sites[0]
-    return [(table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff')]
+
+    aspect_sites = find(image, ASPECT_SITE)
+    if len(aspect_sites) != 1:
+        raise LookupError('aspect site not found' if not aspect_sites else 'aspect site found twice')
+    aspect_site = aspect_sites[0] + 8
+
+    hud_sites = find(image, HUD_P2_SITE)
+    if len(hud_sites) != 1:
+        raise LookupError('hud site not found' if not hud_sites else 'hud site found twice')
+    hud_site = hud_sites[0] + 6
+
+    return [
+        (table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'),
+        (aspect_site, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'),
+        (hud_site, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'),
+    ]
 
 
 def write_patches(path, writes):
