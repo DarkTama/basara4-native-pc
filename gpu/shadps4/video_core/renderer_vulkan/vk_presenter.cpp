@@ -947,10 +947,21 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         };
         cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer,
                                vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
-        cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                         vk::ImageLayout::eTransferDstOptimal,
-                         MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
-                         vk::Filter::eLinear);
+        if (extent.width >= 3840 && extent.height <= 1440 && SpartanSettings::Get().dual_monitor_mirror.load()) {
+            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                             vk::ImageLayout::eTransferDstOptimal,
+                             MakeImageBlit(frame->width, frame->height, extent.width / 2, extent.height, 0, 0),
+                             vk::Filter::eLinear);
+            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                             vk::ImageLayout::eTransferDstOptimal,
+                             MakeImageBlit(frame->width, frame->height, extent.width / 2, extent.height, extent.width / 2, 0),
+                             vk::Filter::eLinear);
+        } else {
+            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                             vk::ImageLayout::eTransferDstOptimal,
+                             MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
+                             vk::Filter::eLinear);
+        }
         if (VideoCore::ConsumeGameOnlyScreenshotRequests() != 0) {
             CaptureScreenshot(instance, scheduler, cmdbuf, *frame);
         }

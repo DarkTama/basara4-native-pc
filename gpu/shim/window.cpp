@@ -60,6 +60,11 @@ static bool StartSize(s32& width, s32& height, SDL_DisplayID display) {
     const std::vector<std::string> names = SpartanGraphics::ResolutionNames();
     const int index = std::clamp(SpartanSettings::Get().render_resolution.load(), 0, int(names.size()) - 1);
     const auto [w, h] = SpartanGraphics::ResolutionSize(names[index]);
+    if (w >= 3840 && h <= 1080) {
+        width = w;
+        height = h;
+        return false;
+    }
     double scale = 1.0;
     SDL_Rect usable{};
     if (SDL_GetDisplayUsableBounds(display, &usable) && usable.w > 0 && usable.h > title_room) {
@@ -85,6 +90,8 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     runtime_pad_load_mappings();
     const SDL_DisplayID display = MonitorDisplay();
     const bool too_large = StartSize(width_, height_, display);
+    width = width_;
+    height = height_;
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title);
     SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, SDL_WINDOWPOS_CENTERED_DISPLAY(display));
@@ -145,8 +152,14 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
 // mode. Window thread only (SDL). The swapchain follows the size events.
 void WindowSDL::ApplyDisplayMode(int mode) {
     display_mode = mode;
-    if (mode == SpartanGraphics::Windowed) {
+    if (mode == SpartanGraphics::Borderless && width >= 3840) {
         SDL_SetWindowFullscreen(window, false);
+        SDL_SetWindowBordered(window, false);
+        SDL_SetWindowPosition(window, 0, 0);
+        SDL_SetWindowSize(window, width, height);
+    } else if (mode == SpartanGraphics::Windowed) {
+        SDL_SetWindowFullscreen(window, false);
+        SDL_SetWindowBordered(window, true);
     } else {
         const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(window));
         const bool exclusive = mode == SpartanGraphics::Fullscreen && desktop;
@@ -202,6 +215,11 @@ bool WindowSDL::PollEvents() {
     }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F8) {
+            auto& settings = SpartanSettings::Get();
+            settings.dual_monitor_mirror = !settings.dual_monitor_mirror.load();
+            LOG_INFO(Frontend, "Dual monitor mirror toggled: {}", settings.dual_monitor_mirror.load());
+        }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
             if (event.type == SDL_EVENT_TEXT_INPUT) {
