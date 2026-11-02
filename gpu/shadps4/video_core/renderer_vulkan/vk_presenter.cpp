@@ -96,6 +96,24 @@ bool CanBlitToSwapchain(const vk::PhysicalDevice physical_device, vk::Format for
     };
 }
 
+[[nodiscard]] vk::ImageBlit MakeImageBlitRegion(s32 src_x, s32 src_y, s32 src_width, s32 src_height,
+                                                s32 dst_x, s32 dst_y, s32 dst_width, s32 dst_height) {
+    return vk::ImageBlit{
+        .srcSubresource = MakeImageSubresourceLayers(),
+        .srcOffsets =
+            std::array{
+                vk::Offset3D{.x = src_x, .y = src_y, .z = 0},
+                vk::Offset3D{.x = src_x + src_width, .y = src_y + src_height, .z = 1},
+            },
+        .dstSubresource = MakeImageSubresourceLayers(),
+        .dstOffsets =
+            std::array{
+                vk::Offset3D{.x = dst_x, .y = dst_y, .z = 0},
+                vk::Offset3D{.x = dst_x + dst_width, .y = dst_y + dst_height, .z = 1},
+            },
+    };
+}
+
 [[nodiscard]] vk::ImageBlit MakeImageBlitStretch(s32 frame_width, s32 frame_height,
                                                  s32 swapchain_width, s32 swapchain_height) {
     return MakeImageBlit(frame_width, frame_height, swapchain_width, swapchain_height, 0, 0);
@@ -947,15 +965,31 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         };
         cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer,
                                vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
-        if (extent.width >= 3840 && extent.height <= 1440 && SpartanSettings::Get().dual_monitor_mirror.load()) {
-            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                             vk::ImageLayout::eTransferDstOptimal,
-                             MakeImageBlit(frame->width, frame->height, extent.width / 2, extent.height, 0, 0),
-                             vk::Filter::eLinear);
-            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                             vk::ImageLayout::eTransferDstOptimal,
-                             MakeImageBlit(frame->width, frame->height, extent.width / 2, extent.height, extent.width / 2, 0),
-                             vk::Filter::eLinear);
+        if (extent.width >= 3840 && extent.height <= 1440) {
+            const s32 half_dst_w = static_cast<s32>(extent.width / 2);
+            const s32 dst_h = static_cast<s32>(extent.height);
+            if (SpartanSettings::Get().dual_monitor_mirror.load()) {
+                // Menu Mirroring mode: copy full 16:9 frame to both monitors
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(0, 0, frame->width, frame->height, 0, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(0, 0, frame->width, frame->height, half_dst_w, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+            } else {
+                // Battle Split mode: left half (Player 1) to Monitor 1, right half (Player 2) to Monitor 2
+                const s32 half_src_w = frame->width / 2;
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(0, 0, half_src_w, frame->height, 0, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(half_src_w, 0, half_src_w, frame->height, half_dst_w, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+            }
         } else {
             cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
                              vk::ImageLayout::eTransferDstOptimal,

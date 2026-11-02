@@ -218,7 +218,7 @@ bool WindowSDL::PollEvents() {
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F8) {
             auto& settings = SpartanSettings::Get();
             settings.dual_monitor_mirror = !settings.dual_monitor_mirror.load();
-            LOG_INFO(Frontend, "Dual monitor mirror toggled: {}", settings.dual_monitor_mirror.load());
+            LOG_INFO(Frontend, "[Dual Monitor] Toggled mode: {}", settings.dual_monitor_mirror.load() ? "Menu Mirroring" : "Battle Split (P1 Left / P2 Right)");
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
