@@ -23,6 +23,9 @@ LIMITER = ("c5 e2 5c d0 c5 f2 59 ca c5 f8 2e 0d ?? ?? ?? ?? 72 20 c4 e1 fa 2c c1
            "c5 fb 10 4d d0 0f 86 ?? ?? ?? ??")
 SLEEP_JB, SPIN_JBE = 16, 59
 
+SPLIT_TABLE = ("fa fe ff ff fd ff ff ff 00 ff ff ff 0a ff ff ff 14 ff ff ff "
+               "32 ff ff ff 50 ff ff ff 6f ff ff ff 8e ff ff ff c6 ff ff ff")
+
 
 def eboot_image(elf):
     """The PT_LOAD bytes of eboot.elf at their virtual addresses."""
@@ -74,6 +77,15 @@ def unlimited_fps(image):
             (jbe, b'\xe9' + struct.pack('<i', disp + 1) + b'\x90')]
 
 
+def vertical_splitscreen(image):
+    """[(image offset, bytes)] that changes splitscreen viewport mode from horizontal to vertical."""
+    sites = find(image, SPLIT_TABLE)
+    if len(sites) != 1:
+        raise LookupError('split table not found' if not sites else 'split table found twice')
+    table_site = sites[0]
+    return [(table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff')]
+
+
 def write_patches(path, writes):
     blob = struct.pack('<8sQQ', b'G3PATCH2', EBOOT_BASE, len(writes))
     for offset, data in writes:
@@ -81,7 +93,7 @@ def write_patches(path, writes):
     Path(path).write_bytes(blob)
 
 
-def build(elf_path, out_path, unlimited):
+def build(elf_path, out_path, unlimited, vertical_split=False):
     writes = []
     notes = []
     image = eboot_image(Path(elf_path).read_bytes())
@@ -91,6 +103,12 @@ def build(elf_path, out_path, unlimited):
             notes.append('unlimited fps')
         except LookupError as error:
             notes.append(f'unlimited fps skipped: {error}')
+    if vertical_split:
+        try:
+            writes += vertical_splitscreen(image)
+            notes.append('vertical split')
+        except LookupError as error:
+            notes.append(f'vertical split skipped: {error}')
     write_patches(out_path, writes)
     return writes, notes
 
@@ -100,8 +118,9 @@ if __name__ == '__main__':
     ap.add_argument('elf')
     ap.add_argument('out')
     ap.add_argument('--unlimited-fps', action='store_true')
+    ap.add_argument('--vertical-split', action='store_true')
     a = ap.parse_args()
-    writes, notes = build(a.elf, a.out, a.unlimited_fps)
+    writes, notes = build(a.elf, a.out, a.unlimited_fps, vertical_split=a.vertical_split)
     for offset, data in writes:
         print(f'  {offset + EBOOT_BASE:#x}: {data.hex()}')
     print('Patches:', ', '.join(notes) or 'none', f'({len(writes)} writes)')

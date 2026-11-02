@@ -23,7 +23,14 @@ import urllib.request
 from pathlib import Path
 
 FROZEN = getattr(sys, "frozen", False)
-ROOT = (Path(sys.executable) if FROZEN else Path(__file__)).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
+if "SPARTAN_ROOT" in os.environ:
+    ROOT = Path(os.environ["SPARTAN_ROOT"]).resolve()
+elif FROZEN:
+    ROOT = Path(sys.executable).resolve().parent
+elif (Path.cwd() / "user").is_dir() and (Path.cwd() / "bin").is_dir():
+    ROOT = Path.cwd().resolve()
+else:
+    ROOT = Path(__file__).resolve().parent.parent
 try:
     os.chdir(str(ROOT))
 except OSError:
@@ -233,7 +240,8 @@ DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
-            "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto"}
+            "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto",
+            "vertical_splitscreen": False}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -584,6 +592,7 @@ ROW_EN = {
     "aniso": ("Anisotropic", "Texture filtering: sharper at a slant, costs a little speed."),
     "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
     "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
+    "vertical_splitscreen": ("Vertical split-screen (Dual monitor)", "Reconfigures co-op horizontal split into vertical left/right split for dual monitor / widescreen play."),
     "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
     "p1_control": ("Player 1 Control", "Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."),
     "p2_control": ("Player 2 Control", "Assign input device for Player 2 (local co-op) or disable for single player."),
@@ -627,6 +636,7 @@ ROW_ID = {
     "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
     "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
     "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
+    "vertical_splitscreen": ("Split-screen vertikal (Dual monitor)", "Mengubah mode split-screen horizontal co-op menjadi vertikal kiri/kanan untuk layar ganda / monitor lebar."),
     "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Deteksi Ulang untuk memindai ulang."),
     "p1_control": ("Kontrol Player 1", "Pilih perangkat input untuk Player 1. Otomatis ke Keyboard & Mouse jika stik dilepas."),
     "p2_control": ("Kontrol Player 2", "Pilih perangkat input untuk Player 2 (co-op lokal) atau nonaktifkan untuk single player."),
@@ -1012,6 +1022,7 @@ class Launcher(tk.Tk):
         self.res_var, self.up_var = tk.StringVar(), tk.StringVar()
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
+        self.vertical_splitscreen_var = tk.BooleanVar(value=self.cfg.get("vertical_splitscreen", False))
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)
         self.english_var = tk.BooleanVar(value=self.cfg.get("english_patch", False))
@@ -1287,6 +1298,7 @@ class Launcher(tk.Tk):
         self._combo_row(page, "aniso", self.aniso_var, [n for n, _ in ANISO])
         self._check_row(page, "vsync", self.vsync_var)
         self._check_row(page, "rcas", self.rcas_var)
+        self._check_row(page, "vertical_splitscreen", self.vertical_splitscreen_var)
 
     def _page_controls(self, page):
         canvas = tk.Canvas(page, bg=PANEL, highlightthickness=0, bd=0)
@@ -1719,7 +1731,9 @@ class Launcher(tk.Tk):
             game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
             dlc_folder=self.dlc_var.get().strip() if hasattr(self, "dlc_var") else "",
             display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
-            rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
+            rcas=self.rcas_var.get(),
+            vertical_splitscreen=self.vertical_splitscreen_var.get(),
+            fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
             resolution=dict(RESOLUTIONS)[self.res_var.get()],
             upscale=dict(UPSCALERS).get(self.up_var.get(), "off"),
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
@@ -2082,14 +2096,19 @@ class Launcher(tk.Tk):
         if not image_ready(effective_game):
             error = prepare_image(effective_game, self._progress)
         patch_args, notice = [], ""
-        if not error and self.cfg.get("fps_limit", 60) != 60:
+        fps_unlimited = self.cfg.get("fps_limit", 60) != 60
+        vertical_split = self.cfg.get("vertical_splitscreen", False)
+        if not error and (fps_unlimited or vertical_split):
             try:
-                writes, _ = basara4_patches.build(OUT / "eboot.elf", OUT / "patches.bin", True)
+                writes, notes = basara4_patches.build(
+                    OUT / "eboot.elf", OUT / "patches.bin", fps_unlimited, vertical_split=vertical_split
+                )
             except OSError:
                 writes = []
+                notes = []
             if writes:
                 patch_args = ["--patches", str(OUT / "patches.bin")]
-            else:
+            if fps_unlimited and any(n.startswith("unlimited fps skipped") for n in notes):
                 self.cfg["fps_limit"] = 60
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
 
