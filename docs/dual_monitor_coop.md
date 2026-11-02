@@ -186,8 +186,8 @@ Because MT Framework already contains the complete code for vertical left-half (
      In vertical split mode on a 1920x1080 canvas, each half has an 8:9 aspect ratio (~0.888). Doubling this to 16:9 (~1.777) ensures the 3D projection renders with correct proportions when each viewport is presented/stretched across a 16:9 monitor.
 
 3. **Player 2 HUD Repositioning to Monitor 2**:
-   - Signature: `HUD_P2_SITE` (`c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? c4 c1 7a 58 47 58`)
-   - Offset: `hud_site + 6`
+   - Signature: `HUD_P2_SITE` (`c5 f8 57 c0 c4 c1 7a 58 4f 50 c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? c4 c1 7a 58 47 58 c5 fa 11 48 50`)
+   - Offset: `hud_site + 16`
    - Original instruction (8 bytes): `vaddss xmm2, xmm2, [rip + 0xe96e45]` (adds 540.0f to Y, positioning P2 at bottom half)
    - Replacement bytes: `b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'` (`vaddss xmm1, xmm1, [rip + 0x10a07a1]`)
    - Logic: Leaves Y unshifted at the top (top alignment intact) and adds `960.0f` to X, shifting Player 2's HUD from Monitor 1 to the top-left of Monitor 2.
@@ -197,7 +197,7 @@ The runtime loader (`patches.bin` format `G3PATCH2`) locates all three signature
 [
     (table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'),
     (aspect_site + 8, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'),
-    (hud_site + 6, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'),
+    (hud_site, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'),
 ]
 ```
 

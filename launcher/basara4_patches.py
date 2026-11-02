@@ -26,7 +26,8 @@ SLEEP_JB, SPIN_JBE = 16, 59
 SPLIT_TABLE = ("fa fe ff ff fd ff ff ff 00 ff ff ff 0a ff ff ff 14 ff ff ff "
                "32 ff ff ff 50 ff ff ff 6f ff ff ff 8e ff ff ff c6 ff ff ff")
 ASPECT_SITE = "c5 ea 5e c9 c5 fa 59 c1 c3"
-HUD_P2_SITE = "c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? c4 c1 7a 58 47 58"
+HUD_P2_SITE = ("c5 f8 57 c0 c4 c1 7a 58 4f 50 c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? "
+               "c4 c1 7a 58 47 58 c5 fa 11 48 50")
 
 
 def eboot_image(elf):
@@ -95,7 +96,7 @@ def vertical_splitscreen(image):
     hud_sites = find(image, HUD_P2_SITE)
     if len(hud_sites) != 1:
         raise LookupError('hud site not found' if not hud_sites else 'hud site found twice')
-    hud_site = hud_sites[0] + 6
+    hud_site = hud_sites[0] + 16
 
     return [
         (table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'),

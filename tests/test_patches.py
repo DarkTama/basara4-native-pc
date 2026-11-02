@@ -487,7 +487,10 @@ def make_mock_elf(payload, vaddr=0x1000):
 class Basara4VerticalSplitPatchTests(unittest.TestCase):
     SPLIT_TABLE_BYTES = bytes.fromhex(basara4_patches.SPLIT_TABLE)
     ASPECT_SITE_BYTES = bytes.fromhex(basara4_patches.ASPECT_SITE)
-    HUD_P2_SITE_BYTES = bytes.fromhex("c4 c1 7a 10 57 54 c5 ea 58 15 45 6e e9 00 c4 c1 7a 58 47 58")
+    HUD_P2_SITE_BYTES = bytes.fromhex(
+        "c5 f8 57 c0 c4 c1 7a 58 4f 50 c4 c1 7a 10 57 54 c5 ea 58 15 45 6e e9 00 "
+        "c4 c1 7a 58 47 58 c5 fa 11 48 50"
+    )
 
     def test_vertical_splitscreen_finds_site_and_returns_correct_patch(self):
         site_table = 0xd90b50
@@ -524,7 +527,7 @@ class Basara4VerticalSplitPatchTests(unittest.TestCase):
 
         # 3. Player 2 HUD reposition to Monitor 2
         offset_hud, data_hud = writes[2]
-        self.assertEqual(offset_hud, site_hud + 6)
+        self.assertEqual(offset_hud, site_hud + 16)
         self.assertEqual(data_hud, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01')
 
     def test_vertical_splitscreen_missing_raises_lookup_error(self):
@@ -596,7 +599,7 @@ class Basara4VerticalSplitPatchTests(unittest.TestCase):
             expected_hud = expected_aspect + len(self.ASPECT_SITE_BYTES) + 0x20
             self.assertEqual(writes[0], (expected_table + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'))
             self.assertEqual(writes[1], (expected_aspect + 8, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'))
-            self.assertEqual(writes[2], (expected_hud + 6, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'))
+            self.assertEqual(writes[2], (expected_hud + 16, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'))
 
             # Check binary patches.bin format
             blob = out_path.read_bytes()
