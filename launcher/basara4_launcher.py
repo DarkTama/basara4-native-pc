@@ -238,13 +238,14 @@ import dlc  # noqa: E402
 import patches  # noqa: E402
 import basara4_nav as nav  # noqa: E402
 import basara4_theme as theme_mod  # noqa: E402
+import basara4_report as report_mod  # noqa: E402
 
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
             "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto",
-            "dual_monitor_coop": False, "launcher_theme": "yoshiteru"}
+            "dual_monitor_coop": False, "launcher_theme": "yoshiteru", "crash_report_prompt": True}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -673,6 +674,7 @@ ROW_EN = {
     "audio_log": ("Audio debug log", "One timestamped line per audio event, for bug reports."),
     "audio_wav": ("WAV capture (up to 3 GB)", "Next game start only; about 70 MB per minute. Turns the audio log on."),
     "launcher_theme": ("Launcher theme", "Colors of the launcher. Applies immediately and is remembered."),
+    "report_problem": ("Report a problem", "Send an anonymous bug report, feature request or crash report to CrashPulse."),
 }
 
 ROW_ID = {
@@ -718,6 +720,7 @@ ROW_ID = {
     "audio_log": ("Log debug audio", "Satu baris bertanda waktu per peristiwa audio, untuk laporan bug."),
     "audio_wav": ("Perekaman WAV (hingga 3 GB)", "Hanya untuk sesi mulai berikutnya; ~70 MB per menit. Mengaktifkan log audio."),
     "launcher_theme": ("Tema launcher", "Warna tema launcher. Berlaku langsung dan tersimpan."),
+    "report_problem": ("Laporkan masalah", "Kirim laporan bug, permintaan fitur, atau masukan secara anonim ke CrashPulse."),
 }
 
 UI_STRINGS_EN = {
@@ -1335,6 +1338,910 @@ class LauncherDialog(tk.Toplevel):
         return self.result
 
 
+def make_dialog_button(parent, text, is_primary, command, theme):
+    """Creates a styled dialog button matching theme specifications."""
+    btn = tk.Button(
+        parent,
+        text=text,
+        command=command,
+        font=("Segoe UI Semibold" if is_primary else "Segoe UI", 9),
+        padx=14,
+        pady=3,
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        takefocus=1,
+    )
+    if is_primary:
+        btn.config(
+            bg=theme["play_bg"],
+            fg="#ffffff",
+            highlightthickness=2,
+            highlightbackground=theme["play_border"],
+            highlightcolor=theme["play_border"],
+        )
+        def on_enter(_e):
+            btn.config(bg=theme["play_hover"])
+        def on_leave(_e):
+            btn.config(bg=theme["play_bg"])
+    else:
+        btn.config(
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            highlightthickness=1,
+            highlightbackground=theme["border_card"],
+            highlightcolor=theme["accent_primary"],
+        )
+        def on_enter(_e):
+            btn.config(bg=theme["bg_hover"])
+        def on_leave(_e):
+            btn.config(bg=theme["bg_control"])
+
+    def on_focus_in(_e):
+        btn.config(highlightthickness=2, highlightbackground=theme["accent_primary"])
+    def on_focus_out(_e):
+        if is_primary:
+            btn.config(highlightthickness=2, highlightbackground=theme["play_border"])
+        else:
+            btn.config(highlightthickness=1, highlightbackground=theme["border_card"])
+
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
+    btn.bind("<FocusIn>", on_focus_in)
+    btn.bind("<FocusOut>", on_focus_out)
+    return btn
+
+
+class ReportPreviewDialog(tk.Toplevel):
+    """Modal viewer displaying the exact sanitized payload sent to CrashPulse."""
+
+    def __init__(self, parent, payload_dict, is_id=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.is_id = is_id
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+        self.title("Report Preview" if not is_id else "Pratinjau Laporan")
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=16, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="PREVIEW" if not is_id else "PRATINJAU",
+            bg=theme["accent_secondary"],
+            fg=theme["bg_main"],
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text="Sanitized Report Payload" if not is_id else "Payload Laporan (Telah Disanitasi)",
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=16, pady=10)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(
+            body,
+            text=("The following sanitized data will be sent anonymously to CrashPulse:"
+                  if not is_id else "Data terverifikasi berikut akan dikirim secara anonim ke CrashPulse:"),
+            bg=theme["bg_card"],
+            fg=theme["fg_muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        txt_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        txt_frame.pack(fill="both", expand=True)
+        txt = tk.Text(
+            txt_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            font=("Consolas", 9),
+            relief="flat",
+            wrap="none",
+            padx=8,
+            pady=8,
+        )
+        scroll_y = ttk.Scrollbar(txt_frame, orient="vertical", command=txt.yview)
+        scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal", command=txt.xview)
+        txt.configure(xscrollcommand=scroll_x.set, yscrollcommand=scroll_y.set)
+        scroll_y.pack(side="right", fill="y")
+        scroll_x.pack(side="bottom", fill="x")
+        txt.pack(side="left", fill="both", expand=True)
+
+        pretty_json = json.dumps(payload_dict, indent=2, ensure_ascii=False)
+        txt.insert("1.0", pretty_json)
+        txt.config(state="disabled")
+
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=16, pady=8)
+        footer.pack(fill="x")
+
+        self.close_btn = make_dialog_button(footer, "Close" if not is_id else "Tutup", is_primary=True,
+                                            command=self._close, theme=theme)
+        self.close_btn.pack(side="right")
+
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Return>", lambda _e: self._close())
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
+        self.update_idletasks()
+        w, h = 640, 480
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.close_btn.focus_set()
+        self.grab_set()
+
+    def handle_pad(self, action: str):
+        if action in ("a", "b", "escape", "start"):
+            self._close()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
+class ReportProblemDialog(tk.Toplevel):
+    """Themed modal dialog for submitting bug reports, feature requests, or general feedback."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.is_id = getattr(parent, "cfg", {}).get("language") == "id"
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+
+        title_txt = "Laporkan Masalah" if self.is_id else "Report a problem"
+        self.title(title_txt)
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+        self.resizable(False, False)
+
+        self.key, self.url = report_mod.load_crashpulse_config()
+        self.category_var = tk.StringVar(value="Bug Report")
+        self.attach_diag_var = tk.BooleanVar(value=True)
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        # Header
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="MASUKAN" if self.is_id else "FEEDBACK",
+            bg=theme["accent_secondary"],
+            fg=theme["bg_main"],
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text="Kirim Masukan Anonim" if self.is_id else "Send Anonymous Report",
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        # Body
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        # Warning banner if key is not configured in this build
+        if not self.key:
+            warn_box = tk.Frame(body, bg=theme["bg_control"], padx=10, pady=6,
+                                highlightthickness=1, highlightbackground=theme["accent_primary"])
+            warn_box.pack(fill="x", pady=(0, 10))
+            warn_msg = (
+                "⚠️ Pelaporan langsung belum dikonfigurasi pada build ini.\n"
+                "Anda tetap dapat membuat issue secara langsung di GitHub."
+                if self.is_id else
+                "⚠️ Direct reporting is unavailable in this build (no CrashPulse project key).\n"
+                "You can still submit an issue directly on GitHub."
+            )
+            tk.Label(warn_box, text=warn_msg, bg=theme["bg_control"], fg=theme["accent_primary"],
+                     font=("Segoe UI", 8), justify="left").pack(anchor="w")
+
+        # Category selection
+        cat_frame = tk.Frame(body, bg=theme["bg_card"])
+        cat_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(cat_frame, text="Kategori:" if self.is_id else "Category:",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(anchor="w", pady=(0, 4))
+
+        cat_btn_box = tk.Frame(cat_frame, bg=theme["bg_card"])
+        cat_btn_box.pack(fill="x")
+
+        self.cat_buttons = []
+        categories = [
+            ("Bug Report", "Laporan Bug" if self.is_id else "Bug report"),
+            ("Feature Request", "Permintaan Fitur" if self.is_id else "Feature request"),
+            ("Other", "Lainnya" if self.is_id else "Other"),
+        ]
+        for key_cat, label_cat in categories:
+            b = tk.Button(
+                cat_btn_box,
+                text=label_cat,
+                command=lambda k=key_cat: self._set_category(k),
+                font=("Segoe UI", 9),
+                padx=10,
+                pady=3,
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                takefocus=1,
+            )
+            b.pack(side="left", padx=(0, 6))
+            self.cat_buttons.append((key_cat, b))
+        self._update_cat_buttons_style()
+
+        # Description text
+        desc_hdr = tk.Frame(body, bg=theme["bg_card"])
+        desc_hdr.pack(fill="x", pady=(4, 2))
+        tk.Label(desc_hdr, text="Deskripsi (wajib, min 10 karakter):" if self.is_id else "Description (required, min 10 chars):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(side="left")
+        tk.Label(desc_hdr, text="(Mengetik memerlukan keyboard)" if self.is_id else "(Typing requires keyboard)",
+                 bg=theme["bg_card"], fg=theme["fg_muted"], font=("Segoe UI", 8, "italic")).pack(side="left", padx=(6, 0))
+
+        self.char_count_lbl = tk.Label(desc_hdr, text="0 / 4000", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                       font=("Segoe UI", 8))
+        self.char_count_lbl.pack(side="right")
+
+        txt_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        txt_frame.pack(fill="x", pady=(0, 8))
+        self.desc_text = tk.Text(
+            txt_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            height=5,
+            wrap="word",
+            relief="flat",
+            padx=6,
+            pady=6,
+            takefocus=1,
+        )
+        self.desc_text.pack(fill="x")
+        self.desc_text.bind("<KeyRelease>", lambda _e: self._on_text_change())
+
+        # Contact field
+        contact_frame = tk.Frame(body, bg=theme["bg_card"])
+        contact_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(contact_frame, text="Kontak (opsional — email atau Discord):" if self.is_id else "Contact (optional — email or Discord):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(anchor="w", pady=(0, 2))
+
+        entry_frame = tk.Frame(contact_frame, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        entry_frame.pack(fill="x")
+        self.contact_entry = tk.Entry(
+            entry_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            relief="flat",
+            bd=0,
+            takefocus=1,
+        )
+        self.contact_entry.pack(fill="x", padx=6, pady=4)
+
+        # Toggle attach system info & log
+        toggle_frame = tk.Frame(body, bg=theme["bg_card"])
+        toggle_frame.pack(fill="x", pady=(0, 8))
+        self.attach_toggle = ToggleSwitch(toggle_frame, variable=self.attach_diag_var)
+        self.attach_toggle.pack(side="left")
+        self.attach_lbl = tk.Label(
+            toggle_frame,
+            text="Sertakan info sistem & log sesi terakhir" if self.is_id else "Attach system info and the last game log",
+            bg=theme["bg_card"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI", 9),
+            cursor="hand2",
+        )
+        self.attach_lbl.pack(side="left", padx=(8, 0))
+        self.attach_lbl.bind("<Button-1>", lambda _e: self.attach_toggle.invoke())
+
+        # Status / Feedback label
+        self.status_lbl = tk.Label(body, text="", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.status_lbl.pack(fill="x", pady=(0, 4))
+
+        # Bottom buttons: Preview, Send, Cancel
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        btn_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=8)
+        btn_bar.pack(fill="x")
+
+        self.preview_btn = make_dialog_button(btn_bar, "Pratinjau" if self.is_id else "Preview", is_primary=False,
+                                              command=self._preview, theme=theme)
+        self.preview_btn.pack(side="left")
+
+        self.cancel_btn = make_dialog_button(btn_bar, "Batal" if self.is_id else "Cancel", is_primary=False,
+                                             command=self._close, theme=theme)
+        self.cancel_btn.pack(side="right", padx=(8, 0))
+
+        send_txt = "Kirim" if self.is_id else "Send"
+        self.send_btn = make_dialog_button(btn_bar, send_txt, is_primary=True, command=self._send, theme=theme)
+        self.send_btn.pack(side="right")
+        if not self.key:
+            self.send_btn.config(state="disabled")
+
+        # GitHub issues link bar
+        link_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=4)
+        link_bar.pack(fill="x", pady=(0, 8))
+        gh_lbl_txt = "Lebih suka GitHub? Buka issue" if self.is_id else "Prefer GitHub? Open an issue"
+        self.github_link = tk.Label(
+            link_bar,
+            text=f"↗ {gh_lbl_txt}",
+            bg=theme["bg_card"],
+            fg=theme["accent_primary"],
+            font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+            takefocus=1,
+        )
+        self.github_link.pack(side="left")
+        self.github_link.bind("<Button-1>", lambda _e: self._open_github())
+        self.github_link.bind("<Return>", lambda _e: self._open_github())
+
+        # Footer hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=6)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        # Keyboard & Navigation bindings
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Key>", lambda _e: self._on_key())
+
+        # Nav focus list
+        self.interactive_items = [
+            self.cat_buttons[0][1],
+            self.desc_text,
+            self.contact_entry,
+            self.attach_toggle,
+            self.preview_btn,
+            self.send_btn,
+            self.cancel_btn,
+            self.github_link,
+        ]
+        self.focused_idx = 1
+
+        # Center dialog
+        self.update_idletasks()
+        w = max(540, self.winfo_reqwidth())
+        h = max(520, self.winfo_reqheight())
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.desc_text.focus_set()
+        self.grab_set()
+
+    def _set_category(self, cat):
+        self.category_var.set(cat)
+        if cat == "Bug Report":
+            self.attach_diag_var.set(True)
+        else:
+            self.attach_diag_var.set(False)
+        self._update_cat_buttons_style()
+
+    def _update_cat_buttons_style(self):
+        cur = self.category_var.get()
+        for k, btn in self.cat_buttons:
+            if k == cur:
+                btn.config(bg=self.theme["accent_primary"], fg=self.theme["bg_main"],
+                           font=("Segoe UI Semibold", 9))
+            else:
+                btn.config(bg=self.theme["bg_control"], fg=self.theme["fg_muted"],
+                           font=("Segoe UI", 9))
+
+    def _cycle_category(self, delta):
+        cur = self.category_var.get()
+        keys = [k for k, _ in self.cat_buttons]
+        idx = keys.index(cur) if cur in keys else 0
+        new_cat = keys[(idx + delta) % len(keys)]
+        self._set_category(new_cat)
+
+    def _on_text_change(self):
+        desc = self.desc_text.get("1.0", "end-1c")
+        n = len(desc)
+        self.char_count_lbl.config(
+            text=f"{n} / 4000",
+            fg=self.theme["play_bg"] if (n < 10 or n > 4000) else self.theme["fg_muted"],
+        )
+
+    def _build_payload(self):
+        desc = self.desc_text.get("1.0", "end-1c").strip()
+        contact = self.contact_entry.get().strip()
+        cat = self.category_var.get()
+        attach = self.attach_diag_var.get()
+
+        log_tail = ""
+        if attach:
+            log_tail = report_mod.get_sanitized_log_tail(LOG, max_lines=40)
+
+        gpu_name = ""
+        try:
+            if SYSTEM_GPUS:
+                gpu_name = SYSTEM_GPUS[0][1]
+        except Exception:
+            pass
+
+        settings = {
+            "display_mode": self.parent.cfg.get("display_mode", "borderless"),
+            "resolution": self.parent.cfg.get("resolution", "native"),
+            "dual_monitor_coop": self.parent.cfg.get("dual_monitor_coop", False),
+            "english_patch": self.parent.cfg.get("english_patch", False),
+            "upscaler": self.parent.cfg.get("upscale", "off"),
+            "fps_limit": self.parent.cfg.get("fps_limit", 60),
+        }
+
+        import platform
+        return report_mod.build_feedback_payload(
+            category=cat,
+            description=desc,
+            contact=contact,
+            app_version=VERSION,
+            os_info=f"{platform.system()} {platform.release()} (Build {platform.version()})",
+            attach_diagnostics=attach,
+            settings_summary=settings,
+            gpu_name=gpu_name,
+            log_tail=log_tail,
+        )
+
+    def _preview(self):
+        payload = self._build_payload()
+        ReportPreviewDialog(self, payload, is_id=self.is_id)
+
+    def _send(self):
+        if not self.key:
+            import webbrowser
+            webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+            return
+
+        desc = self.desc_text.get("1.0", "end-1c").strip()
+        if len(desc) < report_mod.MIN_DESCRIPTION_LENGTH:
+            msg = ("Deskripsi minimal 10 karakter." if self.is_id
+                   else "Please provide at least 10 characters in the description.")
+            self.status_lbl.config(text=f"⚠️ {msg}", fg=self.theme["accent_primary"])
+            self.desc_text.focus_set()
+            return
+        if len(desc) > report_mod.MAX_DESCRIPTION_LENGTH:
+            msg = ("Deskripsi melebihi batas 4000 karakter." if self.is_id
+                   else "Description exceeds maximum of 4000 characters.")
+            self.status_lbl.config(text=f"⚠️ {msg}", fg=self.theme["accent_primary"])
+            return
+
+        self.send_btn.config(state="disabled")
+        sending_txt = "Mengirim…" if self.is_id else "Sending…"
+        self.status_lbl.config(text=f"⏳ {sending_txt}", fg=self.theme["fg_muted"])
+        payload = self._build_payload()
+
+        def worker():
+            success, result_msg = report_mod.send_report(
+                payload, key=self.key, url=self.url, timeout=10.0
+            )
+            self.after(0, lambda: self._on_send_done(success, result_msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_send_done(self, success, result_msg):
+        if not self.winfo_exists():
+            return
+        if success:
+            ok_txt = "Laporan berhasil dikirim. Terima kasih!" if self.is_id else "Report sent successfully. Thank you!"
+            self.status_lbl.config(text=f"✓ {ok_txt}", fg=self.theme["ok"])
+            self.after(1600, self._close)
+        else:
+            self.send_btn.config(state="normal")
+            self.status_lbl.config(text=f"✕ {result_msg}", fg=self.theme["play_bg"])
+
+    def _open_github(self):
+        import webbrowser
+        webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        if dev == "pad":
+            hints = ("[A] Pilih/Beralih   [B] Batal   [Kiri/Kanan] Kategori   [Start] Kirim   (Ketik butuh keyboard)"
+                     if self.is_id else
+                     "[A] Select/Toggle   [B] Cancel   [Left/Right] Category   [Start] Send   (Typing needs keyboard)")
+        else:
+            hints = ("Tab/Panah Navigasi   Enter Pilih   Esc Tutup"
+                     if self.is_id else
+                     "Tab/Arrow Navigate   Enter Select   Esc Close")
+        self.hint_label.config(text=hints)
+
+    def _cycle_focus(self, delta):
+        self.focused_idx = (self.focused_idx + delta) % len(self.interactive_items)
+        target = self.interactive_items[self.focused_idx]
+        try:
+            target.focus_set()
+        except Exception:
+            pass
+
+    def _invoke_focused(self):
+        item = self.interactive_items[self.focused_idx]
+        if item == self.attach_toggle:
+            self.attach_toggle.invoke()
+        elif isinstance(item, tk.Button):
+            item.invoke()
+        elif item == self.github_link:
+            self._open_github()
+
+    def handle_pad(self, action: str):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("pad")
+        self._update_hint()
+        if action in ("b", "escape"):
+            self._close()
+        elif action == "up":
+            self._cycle_focus(-1)
+        elif action == "down":
+            self._cycle_focus(1)
+        elif action == "left":
+            if self.focused_idx == 0:
+                self._cycle_category(-1)
+            elif self.focused_idx in (4, 5, 6):
+                self._cycle_focus(-1)
+        elif action == "right":
+            if self.focused_idx == 0:
+                self._cycle_category(1)
+            elif self.focused_idx in (4, 5, 6):
+                self._cycle_focus(1)
+        elif action == "a":
+            self._invoke_focused()
+        elif action == "start":
+            self._send()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
+class CrashPromptDialog(tk.Toplevel):
+    """Themed modal prompt shown when the game crashes or writes a minidump."""
+
+    def __init__(self, parent, code=None, minidump_present=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.code = code if code is not None else 0
+        self.minidump_present = minidump_present
+        self.is_id = getattr(parent, "cfg", {}).get("language") == "id"
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+
+        title_txt = "Game Berhenti Mendadak" if self.is_id else "Game Closed Unexpectedly"
+        self.title(title_txt)
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+        self.resizable(False, False)
+
+        self.key, self.url = report_mod.load_crashpulse_config()
+        self.dont_ask_var = tk.BooleanVar(value=False)
+
+        # Extract failure summary from log
+        self.failure_summary = report_mod.extract_failure_summary(LOG)
+        exit_hex = f"{self.code & 0xFFFFFFFF:#x}" if isinstance(self.code, int) else "Unknown"
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        # Header
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="CRASH",
+            bg=theme["play_bg"],
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text=title_txt,
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        # Body
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        q_txt = (
+            "Game berhenti secara tidak terduga. Kirim laporan crash anonim ke CrashPulse?"
+            if self.is_id else
+            "The game closed unexpectedly. Send an anonymous crash report to CrashPulse?"
+        )
+        tk.Label(body, text=q_txt, bg=theme["bg_card"], fg=theme["fg_primary"],
+                 font=("Segoe UI Semibold", 9), wraplength=480, justify="left").pack(anchor="w", pady=(0, 6))
+
+        # Details summary card
+        details_box = tk.Frame(body, bg=theme["bg_control"], padx=10, pady=8,
+                               highlightthickness=1, highlightbackground=theme["border_card"])
+        details_box.pack(fill="x", pady=(0, 8))
+
+        tk.Label(details_box, text=f"Exit Code: {exit_hex}", bg=theme["bg_control"], fg=theme["accent_primary"],
+                 font=("Consolas", 9, "bold")).pack(anchor="w")
+        if self.failure_summary:
+            tk.Label(details_box, text=f"• {self.failure_summary}", bg=theme["bg_control"], fg=theme["fg_primary"],
+                     font=("Consolas", 8), wraplength=460, justify="left").pack(anchor="w", pady=(2, 0))
+        if self.minidump_present:
+            tk.Label(details_box,
+                     text="• Crash dump generated in user/crash (dump file will NOT be uploaded)",
+                     bg=theme["bg_control"], fg=theme["fg_muted"], font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(2, 0))
+
+        # Optional user comment
+        tk.Label(body, text="Komentar opsional (apa yang sedang Anda lakukan?):" if self.is_id
+                 else "Optional comment (what were you doing when it crashed?):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 2))
+
+        entry_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        entry_frame.pack(fill="x", pady=(0, 8))
+        self.comment_entry = tk.Entry(
+            entry_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            relief="flat",
+            bd=0,
+            takefocus=1,
+        )
+        self.comment_entry.pack(fill="x", padx=6, pady=4)
+
+        # "Don't ask again" toggle
+        toggle_frame = tk.Frame(body, bg=theme["bg_card"])
+        toggle_frame.pack(fill="x", pady=(0, 4))
+        self.dont_ask_toggle = ToggleSwitch(toggle_frame, variable=self.dont_ask_var,
+                                            command=self._on_dont_ask_toggled)
+        self.dont_ask_toggle.pack(side="left")
+        self.dont_ask_lbl = tk.Label(
+            toggle_frame,
+            text="Jangan tanya lagi" if self.is_id else "Don't ask again",
+            bg=theme["bg_card"],
+            fg=theme["fg_muted"],
+            font=("Segoe UI", 8),
+            cursor="hand2",
+        )
+        self.dont_ask_lbl.pack(side="left", padx=(8, 0))
+        self.dont_ask_lbl.bind("<Button-1>", lambda _e: self.dont_ask_toggle.invoke())
+
+        # Status label
+        self.status_lbl = tk.Label(body, text="", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.status_lbl.pack(fill="x", pady=(2, 0))
+
+        # Bottom buttons
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        btn_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=8)
+        btn_bar.pack(fill="x")
+
+        self.preview_btn = make_dialog_button(btn_bar, "Pratinjau" if self.is_id else "Preview", is_primary=False,
+                                              command=self._preview, theme=theme)
+        self.preview_btn.pack(side="left")
+
+        self.diag_btn = make_dialog_button(btn_bar, "Detail Log" if self.is_id else "View Log", is_primary=False,
+                                           command=self._open_diagnostic, theme=theme)
+        self.diag_btn.pack(side="left", padx=(6, 0))
+
+        dont_send_txt = "Jangan Kirim" if self.is_id else "Don't Send"
+        self.cancel_btn = make_dialog_button(btn_bar, dont_send_txt, is_primary=False, command=self._close, theme=theme)
+        self.cancel_btn.pack(side="right", padx=(8, 0))
+
+        send_txt = "Kirim Laporan" if self.is_id else "Send Report"
+        self.send_btn = make_dialog_button(btn_bar, send_txt, is_primary=True, command=self._send, theme=theme)
+        self.send_btn.pack(side="right")
+        if not self.key:
+            self.send_btn.config(state="disabled")
+
+        # Footer hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=6)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        # Keyboard & Nav
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Key>", lambda _e: self._on_key())
+
+        self.interactive_items = [
+            self.comment_entry,
+            self.dont_ask_toggle,
+            self.preview_btn,
+            self.diag_btn,
+            self.send_btn,
+            self.cancel_btn,
+        ]
+        self.focused_idx = 4  # Default focus on Send button
+
+        # Center dialog
+        self.update_idletasks()
+        w = max(520, self.winfo_reqwidth())
+        h = max(390, self.winfo_reqheight())
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.send_btn.focus_set()
+        self.grab_set()
+
+    def _on_dont_ask_toggled(self):
+        self.parent.cfg["crash_report_prompt"] = not self.dont_ask_var.get()
+        save_config(self.parent.cfg)
+
+    def _build_payload(self):
+        comment = self.comment_entry.get().strip()
+        log_tail = report_mod.get_sanitized_log_tail(LOG, max_lines=40)
+        gpu_name = ""
+        try:
+            if SYSTEM_GPUS:
+                gpu_name = SYSTEM_GPUS[0][1]
+        except Exception:
+            pass
+
+        settings = {
+            "display_mode": self.parent.cfg.get("display_mode", "borderless"),
+            "resolution": self.parent.cfg.get("resolution", "native"),
+            "dual_monitor_coop": self.parent.cfg.get("dual_monitor_coop", False),
+            "english_patch": self.parent.cfg.get("english_patch", False),
+            "upscaler": self.parent.cfg.get("upscale", "off"),
+            "fps_limit": self.parent.cfg.get("fps_limit", 60),
+        }
+
+        import platform
+        return report_mod.build_crash_payload(
+            exit_code=self.code,
+            failure_summary=self.failure_summary,
+            app_version=VERSION,
+            os_info=f"{platform.system()} {platform.release()} (Build {platform.version()})",
+            gpu_name=gpu_name,
+            settings_summary=settings,
+            minidump_present=self.minidump_present,
+            log_tail=log_tail,
+            user_comment=comment,
+        )
+
+    def _preview(self):
+        payload = self._build_payload()
+        ReportPreviewDialog(self, payload, is_id=self.is_id)
+
+    def _open_diagnostic(self):
+        self.parent._show_crash_dialog(self.code)
+
+    def _send(self):
+        if not self.key:
+            import webbrowser
+            webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+            return
+
+        self.send_btn.config(state="disabled")
+        sending_txt = "Mengirim…" if self.is_id else "Sending…"
+        self.status_lbl.config(text=f"⏳ {sending_txt}", fg=self.theme["fg_muted"])
+        payload = self._build_payload()
+
+        def worker():
+            success, result_msg = report_mod.send_report(
+                payload, key=self.key, url=self.url, timeout=10.0
+            )
+            self.after(0, lambda: self._on_send_done(success, result_msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_send_done(self, success, result_msg):
+        if not self.winfo_exists():
+            return
+        if success:
+            ok_txt = "Laporan crash terkirim. Terima kasih!" if self.is_id else "Crash report sent. Thank you!"
+            self.status_lbl.config(text=f"✓ {ok_txt}", fg=self.theme["ok"])
+            self.after(1500, self._close)
+        else:
+            self.send_btn.config(state="normal")
+            self.status_lbl.config(text=f"✕ {result_msg}", fg=self.theme["play_bg"])
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        if dev == "pad":
+            hints = ("[A] Konfirmasi   [B] Jangan Kirim   [Navigasi]"
+                     if self.is_id else
+                     "[A] Confirm   [B] Don't Send   [Navigate]")
+        else:
+            hints = ("Tab/Panah Navigasi   Enter Pilih   Esc Tutup"
+                     if self.is_id else
+                     "Tab/Arrow Navigate   Enter Select   Esc Close")
+        self.hint_label.config(text=hints)
+
+    def _cycle_focus(self, delta):
+        self.focused_idx = (self.focused_idx + delta) % len(self.interactive_items)
+        target = self.interactive_items[self.focused_idx]
+        try:
+            target.focus_set()
+        except Exception:
+            pass
+
+    def _invoke_focused(self):
+        item = self.interactive_items[self.focused_idx]
+        if item == self.dont_ask_toggle:
+            self.dont_ask_toggle.invoke()
+        elif isinstance(item, tk.Button):
+            item.invoke()
+
+    def handle_pad(self, action: str):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("pad")
+        self._update_hint()
+        if action in ("b", "escape"):
+            self._close()
+        elif action == "up":
+            self._cycle_focus(-1)
+        elif action == "down":
+            self._cycle_focus(1)
+        elif action in ("left", "right"):
+            delta = -1 if action == "left" else 1
+            self._cycle_focus(delta)
+        elif action == "a":
+            self._invoke_focused()
+        elif action == "start":
+            self._send()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
 class Launcher(tk.Tk):
     def __init__(self, play_now=False):
         super().__init__()
@@ -1398,7 +2305,7 @@ class Launcher(tk.Tk):
                 new_h = int(round(h * (dock_w / w)))
                 resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", 1))
                 im = im.resize((dock_w, new_h), resample)
-                self.cover = ImageTk.PhotoImage(im)
+                self.cover = ImageTk.PhotoImage(im, master=self)
         except OSError:
             pass
 
@@ -1475,6 +2382,13 @@ class Launcher(tk.Tk):
         theme_mod.REGISTRY.register(self.version_label, bg="bg_card", fg="fg_muted")
         self.check_btn = ttk.Button(bottom, text="Check for updates", command=self.check_update_manual)
         self.check_btn.pack(fill="x")
+        is_id = self.cfg.get("language") == "id"
+        self.report_btn = ttk.Button(
+            bottom,
+            text="Laporkan Masalah" if is_id else "Report a problem",
+            command=self.open_report_ui,
+        )
+        self.report_btn.pack(fill="x", pady=(4, 0))
         credit = tk.Frame(bottom, bg=PANEL, cursor="hand2")  # clicking it opens the credits
         credit.pack(pady=(10, 0))
         theme_mod.REGISTRY.register(credit, bg="bg_card")
@@ -2109,6 +3023,7 @@ class Launcher(tk.Tk):
         self._button_row(page, "open_log", "Open", self.open_log)
         self._button_row(page, "open_audio_log", "Open", self.open_audio_log)
         self._button_row(page, "open_saves", "Open", self.open_saves)
+        self._button_row(page, "report_problem", "Report…", self.open_report_ui)
         self._check_row(page, "audio_log", self.audio_var, self._audio_toggled)
         self._check_row(page, "audio_wav", self.wav_var, self._wav_toggled, sub=True)
         self._group(page, "appearance")
@@ -2891,6 +3806,12 @@ class Launcher(tk.Tk):
         if isa_table.is_file():
             extra_args = ["--isa-rewrite", str(isa_table)]
 
+        crash_dir = USER / "crash"
+        try:
+            self._pre_launch_dumps = set(crash_dir.iterdir()) if crash_dir.is_dir() else set()
+        except Exception:
+            self._pre_launch_dumps = set()
+
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
@@ -2976,6 +3897,9 @@ class Launcher(tk.Tk):
                 ))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def open_report_ui(self):
+        ReportProblemDialog(self)
 
     def prompt_update(self):
         if not self.update_info:
@@ -3215,6 +4139,7 @@ class Launcher(tk.Tk):
             import webbrowser
             webbrowser.open(f"https://github.com/{GITHUB_REPO}/issues")
 
+        ttk.Button(btn_bar, text="⚡ Laporkan ke CrashPulse", command=lambda: CrashPromptDialog(self, code=code)).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="📋 Copy Error ke Clipboard", command=copy_details).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="📁 Buka File Log", command=self.open_log).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="Report on GitHub", command=open_issues).pack(side="left", padx=4)
@@ -3425,8 +4350,11 @@ class Launcher(tk.Tk):
     def _check_exit_error(self, code):
         if code in (0, None) or not LOG.is_file():
             return None
-        self._show_crash_dialog(code)
-        return f"Game crash (exit code {code & 0xFFFFFFFF:#x}). Silakan cek jendela diagnostik."
+        if self.cfg.get("crash_report_prompt", True):
+            CrashPromptDialog(self, code=code, minidump_present=False)
+        else:
+            self._show_crash_dialog(code)
+        return f"Game crash (exit code {code & 0xFFFFFFFF:#x})."
 
     def _poll(self):
         if self.proc and self.proc.poll() is not None:
@@ -3434,14 +4362,27 @@ class Launcher(tk.Tk):
             self.proc = None
             self.play.config(state="normal")
             self.stop.config(state="disabled")
-            if code not in (0, None) and not self.user_stopped:
+
+            crash_dir = USER / "crash"
+            try:
+                post_dumps = set(crash_dir.iterdir()) if crash_dir.is_dir() else set()
+            except Exception:
+                post_dumps = set()
+            new_dump = bool(post_dumps - getattr(self, "_pre_launch_dumps", set()))
+
+            has_crashed = (code not in (0, None) or new_dump) and not self.user_stopped
+            if has_crashed:
                 self._deiconify()
-                self._show_crash_dialog(code)
+                if self.cfg.get("crash_report_prompt", True):
+                    CrashPromptDialog(self, code=code, minidump_present=new_dump)
+                else:
+                    self._show_crash_dialog(code)
+
             if self.play_now:
-                if code in (0, None) or self.user_stopped:
+                if not has_crashed:
                     self.destroy()
                 return
-            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if (code not in (0, None) and not self.user_stopped) else None
+            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if has_crashed else None
             self.status.config(text=err_msg if err_msg else "Game closed.")
             self._update_cheats_state(running=False)
             self._load_ini_into_ui()
@@ -3609,7 +4550,7 @@ class Launcher(tk.Tk):
 
     def _get_left_buttons(self):
         btns = []
-        for b in (self.play, self.stop, self.check_btn):
+        for b in (self.play, self.stop, self.check_btn, getattr(self, "report_btn", None)):
             if b and b.winfo_exists():
                 try:
                     if str(b.cget("state")) != "disabled":
