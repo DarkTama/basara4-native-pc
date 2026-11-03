@@ -99,6 +99,8 @@ def main():
            "--icon", LAUNCHER / "basara4.ico", "--paths", LAUNCHER, "--add-data", f"{LAUNCHER / 'basara4.ico'};.",
            "--collect-data", "archspec",
            "--distpath", work / "dist", "--workpath", work / "build", "--specpath", work]
+    if (LAUNCHER / "assets").is_dir():
+        pyi += ["--add-data", f"{LAUNCHER / 'assets'};launcher/assets"]
     for module in STDLIB + ["iced_x86", "etcpak", "numpy", "PIL", "concurrent.futures", "multiprocessing"]:
         pyi += ["--hidden-import", module]
     pyi.append(LAUNCHER / "basara4_launcher.py")
@@ -134,6 +136,8 @@ def main():
     for name in (
         "basara4_launcher.py",
         "basara4_patches.py",
+        "basara4_theme.py",
+        "basara4_nav.py",
         "basara4_translation.py",
         "basara4_translation_extract.py",
         "basara4_tex.py",
@@ -142,7 +146,15 @@ def main():
         "gmdarc.py",
         "basara4.ico",
     ):
-        shutil.copy2(LAUNCHER / name, target / "launcher" / name)
+        if (LAUNCHER / name).is_file():
+            shutil.copy2(LAUNCHER / name, target / "launcher" / name)
+    assets_dir = LAUNCHER / "assets"
+    if assets_dir.is_dir():
+        target_assets = target / "launcher" / "assets"
+        target_assets.mkdir(parents=True, exist_ok=True)
+        for item in assets_dir.iterdir():
+            if item.is_file():
+                shutil.copy2(item, target_assets / item.name)
 
     # translation patch manifest and gamepad mapping database
     data_dir = target / "data"

@@ -237,13 +237,14 @@ import game_update  # noqa: E402
 import dlc  # noqa: E402
 import patches  # noqa: E402
 import basara4_nav as nav  # noqa: E402
+import basara4_theme as theme_mod  # noqa: E402
 
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
             "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto",
-            "dual_monitor_coop": False}
+            "dual_monitor_coop": False, "launcher_theme": "yoshiteru"}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -547,10 +548,56 @@ RESOLUTION_MAP = {
     "3840 x 1080  (Dual 1080p)": "3840x1080", "3840x1080": "3840x1080"
 }
 
-BG, PANEL, FG, MUTED, GOLD, RED = "#12100e", "#1c1916", "#eadfcb", "#8d8374", "#c9a24a", "#9c2b24"
+def sync_color_constants(theme):
+    global BG, PANEL, FG, MUTED, GOLD, RED, FIELD, EDGE, LINE, RULE, HOVER, OK
+    BG = theme["bg_main"]
+    PANEL = theme["bg_card"]
+    FG = theme["fg_primary"]
+    MUTED = theme["fg_muted"]
+    GOLD = theme["accent_primary"]
+    RED = theme["play_bg"]
+    FIELD = theme["bg_control"]
+    EDGE = theme["border_card"]
+    LINE = theme["border_card"]
+    RULE = theme["border_card"]
+    HOVER = theme["bg_hover"]
+    OK = theme.get("ok", "#7da36b")
+
+
+_init_theme = theme_mod.get_theme("yoshiteru")
+BG, PANEL, FG, MUTED, GOLD, RED = (
+    _init_theme["bg_main"],
+    _init_theme["bg_card"],
+    _init_theme["fg_primary"],
+    _init_theme["fg_muted"],
+    _init_theme["accent_primary"],
+    _init_theme["play_bg"],
+)
 RAZZ = "#e0526a"  # the accent of the by-Razz mark
-FIELD, EDGE, LINE, RULE, HOVER, OK = "#12100e", "#3f382f", "#332d27", "#26211d", "#221e1a", "#7da36b"
+FIELD, EDGE, LINE, RULE, HOVER, OK = (
+    _init_theme["bg_control"],
+    _init_theme["border_card"],
+    _init_theme["border_card"],
+    _init_theme["border_card"],
+    _init_theme["bg_hover"],
+    _init_theme["ok"],
+)
+theme_mod.REGISTRY.register_callback(sync_color_constants)
+
+
+def pick_font_family(candidates, fallback="Segoe UI"):
+    try:
+        fams = set(tkfont.families())
+        for cand in candidates:
+            if cand in fams:
+                return cand
+    except Exception:
+        pass
+    return fallback
+
+
 FONT, FONT_SMALL = ("Segoe UI", 10), ("Segoe UI", 8)
+JP_TITLE_FONT = ("Yu Mincho", 17, "bold")
 CHEAT_HINT_EN = "Can also be toggled in game (Insert / R3+L2)"
 CHEAT_HINT_ID = "Dapat diatur juga di dalam game (Insert / R3+L2)"
 CHEAT_COINS_HINT_EN = "Sets special coins (小判) directly to 999,999. Applies the next time coins are added."
@@ -580,8 +627,8 @@ PAGE_HINT_ID = {
     "tools": "Buka log: log launcher dan runtime dari sesi permainan terakhir.",
 }
 
-GROUP_EN = {"translation": "Translation", "cheats": "Cheats"}
-GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat"}
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls", "appearance": "Appearance"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse", "appearance": "Tampilan"}
 
 ROW_EN = {
     "game_folder": ("Game folder", "The folder that holds eboot.bin."),
@@ -597,7 +644,7 @@ ROW_EN = {
     "aniso": ("Anisotropic", "Texture filtering: sharper at a slant, costs a little speed."),
     "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
     "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
-    "dual_monitor_coop": ("Dual-monitor co-op (experimental)", "Experimental 1920x2160 tall canvas for dual side-by-side 1080p monitors. Requires 6 GB+ VRAM, more system RAM, and a 3840x1080 borderless window. Minimap shows on one screen only. Menus/cutscenes are mirrored (F8 toggles mirror/split). May have visual glitches."),
+    "dual_monitor_coop": ("Dual-monitor co-op (experimental)", "Experimental 1920x2160 tall canvas for dual 1080p monitors (3840x1080 borderless)."),
     "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
     "p1_control": ("Player 1 Control", "Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."),
     "p2_control": ("Player 2 Control", "Assign input device for Player 2 (local co-op) or disable for single player."),
@@ -625,6 +672,7 @@ ROW_EN = {
     "open_saves": ("Open saves", "Opens user\\savedata in Explorer."),
     "audio_log": ("Audio debug log", "One timestamped line per audio event, for bug reports."),
     "audio_wav": ("WAV capture (up to 3 GB)", "Next game start only; about 70 MB per minute. Turns the audio log on."),
+    "launcher_theme": ("Launcher theme", "Colors of the launcher. Applies immediately and is remembered."),
 }
 
 ROW_ID = {
@@ -641,7 +689,7 @@ ROW_ID = {
     "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
     "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
     "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
-    "dual_monitor_coop": ("Co-op dual monitor (eksperimental)", "Canvas tinggi 1920x2160 eksperimental untuk dua monitor 1080p berdampingan. Membutuhkan VRAM 6 GB+, RAM lebih besar, dan jendela borderless 3840x1080. Minimap hanya muncul di satu layar. Menu/cutscene dimirror (tekan F8 untuk beralih mirror/split). Mungkin ada glitch visual."),
+    "dual_monitor_coop": ("Co-op dual monitor (eksperimental)", "Canvas 1920x2160 eksperimental untuk dua monitor 1080p (borderless 3840x1080)."),
     "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Deteksi Ulang untuk memindai ulang."),
     "p1_control": ("Kontrol Player 1", "Pilih perangkat input untuk Player 1. Otomatis ke Keyboard & Mouse jika stik dilepas."),
     "p2_control": ("Kontrol Player 2", "Pilih perangkat input untuk Player 2 (co-op lokal) atau nonaktifkan untuk single player."),
@@ -669,6 +717,7 @@ ROW_ID = {
     "open_saves": ("Buka savedata", "Membuka folder user\\savedata di Explorer."),
     "audio_log": ("Log debug audio", "Satu baris bertanda waktu per peristiwa audio, untuk laporan bug."),
     "audio_wav": ("Perekaman WAV (hingga 3 GB)", "Hanya untuk sesi mulai berikutnya; ~70 MB per menit. Mengaktifkan log audio."),
+    "launcher_theme": ("Tema launcher", "Warna tema launcher. Berlaku langsung dan tersimpan."),
 }
 
 UI_STRINGS_EN = {
@@ -807,6 +856,8 @@ def load_config():
         cfg["p2_control"] = "none"
     if cfg.get("language") not in ("id", "en"):
         cfg["language"] = "id"
+    if cfg.get("launcher_theme") not in ("yoshiteru", "hisahide"):
+        cfg["launcher_theme"] = "yoshiteru"
     if not cfg["game"] or not (Path(cfg["game"]) / "eboot.bin").is_file():
         cfg["game"] = find_game()
     return cfg
@@ -930,54 +981,176 @@ def prepare_image(game, progress):
     return None
 
 
+class ToggleSwitch(tk.Canvas):
+    """Canvas-based toggle switch (40x22 pill track with knob) matching redesign mockup."""
+
+    def __init__(self, parent, variable=None, command=None, bg=None):
+        super().__init__(parent, width=40, height=22, bd=0, highlightthickness=0, cursor="hand2")
+        self._is_toggle = True
+        self._state = "normal"
+        self.variable = variable or tk.BooleanVar(value=False)
+        self.command = command
+        self._bg_color = bg or theme_mod.get_theme()["bg_card"]
+        self.configure(bg=self._bg_color)
+
+        self.bind("<Button-1>", lambda _e: self.invoke())
+        self.bind("<Return>", lambda _e: self.invoke())
+        self.bind("<space>", lambda _e: self.invoke())
+        self.configure(takefocus=1)
+
+        try:
+            self.variable.trace_add("write", lambda *_: self._redraw())
+        except Exception:
+            pass
+
+        theme_mod.REGISTRY.register_callback(self._on_theme_changed)
+        self._redraw()
+
+    def invoke(self):
+        if self._state == "disabled":
+            return
+        self.variable.set(not self.variable.get())
+        self._redraw()
+        if callable(self.command):
+            self.command()
+
+    def set_bg(self, bg_color):
+        self._bg_color = bg_color
+        self.configure(bg=bg_color)
+        self._redraw()
+
+    def config(self, **kwargs):
+        if "state" in kwargs:
+            self._state = kwargs.pop("state")
+            self.configure(cursor="" if self._state == "disabled" else "hand2")
+        if kwargs:
+            super().configure(**kwargs)
+
+    def cget(self, key):
+        if key == "state":
+            return self._state
+        return super().cget(key)
+
+    def _on_theme_changed(self, _theme):
+        self._redraw()
+
+    def _redraw(self):
+        self.delete("all")
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        on = bool(self.variable.get())
+        track_fill = theme["toggle_track_on"] if on else theme["toggle_track_off"]
+        track_border = theme["toggle_track_on"] if on else theme["border_card"]
+        knob_fill = theme["toggle_knob_on"] if on else theme["fg_muted"]
+
+        self.create_oval(1, 1, 21, 21, fill=track_fill, outline=track_border)
+        self.create_oval(19, 1, 39, 21, fill=track_fill, outline=track_border)
+        self.create_rectangle(11, 1, 29, 21, fill=track_fill, outline=track_border)
+
+        if on:
+            self.create_oval(22, 4, 36, 18, fill=knob_fill, outline="")
+        else:
+            self.create_oval(4, 4, 18, 18, fill=knob_fill, outline="")
+
+
 class LauncherDialog(tk.Toplevel):
-    """Theme-consistent modal dialog supporting keyboard and gamepad navigation."""
+    """Theme-consistent modal dialog supporting keyboard and gamepad navigation matching mockup."""
 
     def __init__(self, parent, title, msg, kind="yesno", default_yes=True, is_id=False):
         super().__init__(parent)
         self.parent = parent
         self.title(title)
-        self.configure(bg=PANEL)
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.configure(bg=theme["bg_main"])
         self.resizable(False, False)
         self.transient(parent)
         self.result = False
         self.is_id = is_id
         self.kind = kind
+        self.theme = theme
 
-        outer = tk.Frame(self, bg=PANEL, highlightbackground=GOLD, highlightthickness=1, padx=22, pady=18)
+        # 1px accent_primary border frame
+        outer = tk.Frame(
+            self,
+            bg=theme["bg_card"],
+            highlightbackground=theme["accent_primary"],
+            highlightthickness=1,
+            bd=0,
+        )
         outer.pack(fill="both", expand=True)
 
-        tk.Label(outer, text=title, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12)).pack(anchor="w", pady=(0, 10))
-        tk.Frame(outer, bg=LINE, height=1).pack(fill="x", pady=(0, 12))
-        tk.Label(outer, text=msg, bg=PANEL, fg=FG, font=FONT, wraplength=460, justify="left").pack(
-            anchor="w", pady=(0, 18)
-        )
+        # Header: bg_dock, border-bottom border_card
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=20, pady=12)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
 
-        btn_box = tk.Frame(outer, bg=PANEL)
-        btn_box.pack(fill="x", pady=(0, 10))
+        # Badge in header if experimental
+        is_exp = "experimental" in title.lower() or "eksperimental" in title.lower()
+        if is_exp:
+            exp_txt = "EKSPERIMENTAL" if is_id else "EXPERIMENTAL"
+            badge = tk.Label(
+                header,
+                text=exp_txt,
+                bg=theme["accent_secondary"],
+                fg=theme["bg_main"],
+                font=("Segoe UI", 8, "bold"),
+                padx=6,
+                pady=1,
+            )
+            badge.pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text=title,
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 12),
+        ).pack(side="left")
+
+        # Body: bg_card
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=20, pady=14)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(
+            body,
+            text=msg,
+            bg=theme["bg_card"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI", 9),
+            wraplength=480,
+            justify="left",
+        ).pack(anchor="w")
+
+        # Button box: bg_card
+        btn_box = tk.Frame(outer, bg=theme["bg_card"], padx=20, pady=10)
+        btn_box.pack(fill="x")
 
         self.buttons = []
         if kind == "yesno":
             yes_txt = "Ya" if is_id else "Yes"
             no_txt = "Tidak" if is_id else "No"
-            b_yes = ttk.Button(btn_box, text=yes_txt, command=self._on_yes)
-            b_no = ttk.Button(btn_box, text=no_txt, command=self._on_no)
-            b_yes.pack(side="right", padx=(8, 0))
+            b_yes = self._create_dialog_button(btn_box, yes_txt, is_primary=True, command=self._on_yes)
+            b_no = self._create_dialog_button(btn_box, no_txt, is_primary=False, command=self._on_no)
+            b_yes.pack(side="right", padx=(10, 0))
             b_no.pack(side="right")
             self.buttons = [b_yes, b_no]
             self.focused_idx = 0 if default_yes else 1
         else:
-            b_ok = ttk.Button(btn_box, text="OK", command=self._on_yes)
+            b_ok = self._create_dialog_button(btn_box, "OK", is_primary=True, command=self._on_yes)
             b_ok.pack(side="right")
             self.buttons = [b_ok]
             self.focused_idx = 0
 
-        hint_sep = tk.Frame(outer, bg=LINE, height=1)
-        hint_sep.pack(fill="x", pady=(8, 6))
-        self.hint_label = tk.Label(outer, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 8), anchor="w")
+        # Footer: bg_dock with hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=20, pady=7)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(
+            footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"], font=("Segoe UI", 8), anchor="w"
+        )
         self.hint_label.pack(fill="x")
         self._update_hint()
 
+        # Keyboard shortcuts
         self.bind("<Left>", lambda _e: self._cycle_button(-1))
         self.bind("<Right>", lambda _e: self._cycle_button(1))
         self.bind("<Up>", lambda _e: self._cycle_button(-1))
@@ -988,6 +1161,60 @@ class LauncherDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self._on_no() if kind == "yesno" else self._on_yes())
         self.bind("<Key>", lambda _e: self._on_key())
         self.protocol("WM_DELETE_WINDOW", self._on_no)
+
+    def _create_dialog_button(self, parent, text, is_primary, command):
+        """Creates a styled dialog button matching mockup specifications."""
+        theme = self.theme
+        btn = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            font=("Segoe UI Semibold" if is_primary else "Segoe UI", 9),
+            padx=16,
+            pady=4,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            takefocus=1,
+        )
+        if is_primary:
+            btn.config(
+                bg=theme["play_bg"],
+                fg="#ffffff",
+                highlightthickness=2,
+                highlightbackground=theme["play_border"],
+                highlightcolor=theme["play_border"],
+            )
+            def on_enter(_e):
+                btn.config(bg=theme["play_hover"])
+            def on_leave(_e):
+                btn.config(bg=theme["play_bg"])
+        else:
+            btn.config(
+                bg=theme["bg_control"],
+                fg=theme["fg_primary"],
+                highlightthickness=1,
+                highlightbackground=theme["border_card"],
+                highlightcolor=theme["accent_primary"],
+            )
+            def on_enter(_e):
+                btn.config(bg=theme["bg_hover"])
+            def on_leave(_e):
+                btn.config(bg=theme["bg_control"])
+
+        def on_focus_in(_e):
+            btn.config(highlightthickness=2, highlightbackground=theme["accent_primary"])
+        def on_focus_out(_e):
+            if is_primary:
+                btn.config(highlightthickness=2, highlightbackground=theme["play_border"])
+            else:
+                btn.config(highlightthickness=1, highlightbackground=theme["border_card"])
+
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        btn.bind("<FocusIn>", on_focus_in)
+        btn.bind("<FocusOut>", on_focus_out)
+        return btn
 
     def _on_key(self):
         if hasattr(self.parent, "_set_last_input_device"):
@@ -1038,8 +1265,8 @@ class LauncherDialog(tk.Toplevel):
 
     def show(self):
         self.update_idletasks()
-        w = max(420, self.winfo_reqwidth())
-        h = max(180, self.winfo_reqheight())
+        w = max(520, self.winfo_reqwidth())
+        h = max(240, self.winfo_reqheight())
         px = self.parent.winfo_rootx()
         py = self.parent.winfo_rooty()
         pw = self.parent.winfo_width()
