@@ -71,12 +71,19 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 Five gameplay cheats (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) are available from the launcher's **Mods & Cheats** page or in game via the overlay (**Insert** / **R3 + L2**). Cheats are off by default. They are authored for game version 01.02 and located by signature pattern on other versions.
 
 ## Dual-monitor co-op (experimental)
-Local 2-player cooperative play across two side-by-side monitors using a native 1920x2160 tall canvas, presenting each player with a full 1920x1080 16:9 viewport on their own screen.
+> **Experimental Warning**: Dual-monitor co-op is currently in an experimental state (development is paused for v1.2.0). Battle split-screen works, but several visual and UI quirks exist due to hardcoded single-canvas engine assumptions.
 
-- **Requirements**: Two side-by-side 1920x1080 monitors arranged horizontally in Windows display settings, spanning a 3840x1080 borderless window.
-- **Hardware Demands**: Renders at 1920x2160 (2x pixels / ~4.15 million pixels), requiring noticeably more GPU power, VRAM (6 GB+ recommended), and system RAM.
-- **Menu Mirroring & Hotkey**: Menus, cutscenes, and stage preparation screens are authored for single-screen 16:9; press **F8** during gameplay to toggle between battle split and menu mirroring.
-- **Known Limitations**: The in-game minimap only displays on Monitor 1 (game engine limitation). Minor visual glitches may occur.
+Local 2-player cooperative play across two side-by-side monitors using a native 1920x2160 tall canvas, presenting each player with a full 1920x1080 16:9 viewport on their own physical screen.
+
+- **What works**: In-battle 2-player split screen with full 16:9 1080p unstretched viewports and independent HUDs. Press **F8** anytime to toggle mirror mode.
+- **Known issues**:
+  - **Vertically squashed UI & cutscenes**: Menus, stage preparation, victory screens, and cutscenes are rendered for a single 16:9 screen and appear vertically squashed ("fat" characters), even in F8 mirror mode.
+  - **Split fullscreen banners**: With mirror off, tutorial popups and announcements (e.g. festival banners) are cut in half at the monitor seam.
+  - **Distorted 2D effects**: Roulette / spinning wheels and 2D minigame overlays appear distorted.
+  - **Minimap split & missing markers**: The minimap is sliced across the monitor seam, and minimap markers/pointers are missing due to GUI coordinate scaling.
+  - **High hardware requirements**: Renders at 1920x2160 (~4.15M pixels, 2x standard 1080p, 6 GB direct memory pool); in-battle framerates can drop significantly under heavy load.
+  - **Fixed display layout**: Requires two 1920x1080 monitors side-by-side as a single 3840x1080 borderless window.
+- **Issue tracker & reports**: Tracked in [#1](https://github.com/DarkTama/basara4-native-pc/issues/1). Feedback, bug reports, and logs (`user/last_run.log`) are welcome via GitHub issues or the launcher's **"Report a problem"** feature.
 - Full technical documentation: see [docs/dual_monitor_coop.md](docs/dual_monitor_coop.md).
 
 ## Controls

@@ -114,5 +114,56 @@ Presentation across dual monitors is handled in `Presenter::Present`:
    - Requires two side-by-side 1920x1080 monitors arranged horizontally in Windows Display Settings.
    - The launcher automatically forces window mode to **3840x1080 Borderless**.
 4. **Known Engine Limitations:**
-   - **Minimap:** MT Framework creates only one shared minimap instance (`uGUINaviMap`) in split-screen mode, positioned on Monitor 1.
-   - **Menus & FMVs:** Authored for single 16:9 display. Use the **F8** toggle to mirror menus cleanly to both screens during battle preparation.
+   - See [Section 6: Status and Known Issues](#6-status-and-known-issues-v120-experimental) below for detailed technical root causes regarding UI squashing, minimap positioning, missing markers, and banner seams.
+
+---
+
+## 6. Status and Known Issues (v1.2.0 Experimental)
+
+> **Development Status**: Feature development for dual-monitor co-op is currently paused at this implementation state and ships as **EXPERIMENTAL** in v1.2.0. Known issues are tracked in GitHub issue [#1](https://github.com/DarkTama/basara4-native-pc/issues/1).
+
+### Verified Working
+- In-battle 2-player split rendering using native MT Framework horizontal split logic doubled to a 1920x2160 tall canvas.
+- Unstretched 16:9 1080p perspective and projection for each player without 3D aspect ratio distortion.
+- Independent Player 1 and Player 2 HUD elements (health bars, Basara meters) mapped to respective monitors.
+- **F8 Hotkey**: Live toggle between dual-monitor battle split and mirrored canvas blit.
+
+### Known Issues & Technical Root Causes
+
+1. **Vertically Squashed Menus, Preparation, Results & Cutscenes:**
+   - **Symptom:** UI menus, battle preparation screens, end-of-stage results, and in-engine 3D cutscenes appear vertically squashed (characters appear wide / "fat"), even when pressing F8 for mirror mode.
+   - **Root Cause:** All non-split engine phases (menus, cutscenes, stage prep) are hardcoded in MT Framework to render into the full viewport of the primary `sRender` render target assuming a standard 16:9 canvas. Because the patched canvas is 1920x2160 (8:9 aspect ratio), the full canvas presentation squashes the vertical dimension by half.
+
+2. **Fullscreen Banners and Popups Sliced at Seam:**
+   - **Symptom:** When mirror mode is disabled, full-screen notifications, festival banners, and stage tutorial dialogues are cut directly in half at the seam between the two monitors (top half on the left monitor, bottom half on the right monitor).
+   - **Root Cause:** These 2D banners are drawn across the entire vertical height of the tall canvas rather than restricted to a single player's viewport.
+
+3. **Distorted Fullscreen 2D Effects (Roulette / Spinning Wheel):**
+   - **Symptom:** Mini-game roulette wheels and certain 2D post-processing overlays exhibit stretching and distortion.
+   - **Root Cause:** These effects render directly to the tall canvas backbuffer using hardcoded 1080p UV coordinates and projection parameters without awareness of the 2160-height render target.
+
+4. **Minimap Cut at Center Seam:**
+   - **Symptom:** The in-game minimap is sliced across the horizontal boundary separating Player 1 and Player 2 viewports.
+   - **Root Cause:** The minimap is positioned based on engine split-screen coordinates that sit across the vertical halfway line on the 2160 canvas.
+
+5. **Missing Minimap Markers (Player, Ally, and Enemy Pointers):**
+   - **Symptom:** Minimap navigation markers (character arrows, ally markers, enemy indicators) do not appear on the minimap display.
+   - **Root Cause:** In the MT Framework GUI coordinate scaling routine at virtual address **VA `0x1d9b90`**, the engine calculates interface scale factors dynamically:
+     $$\text{scale\_x} = \frac{\text{width}}{1280.0}, \quad \text{scale\_y} = \frac{\text{height}}{720.0}$$
+     Under native 1080p, $\text{scale\_y} = \frac{1080}{720} = 1.5$.
+     With the 1920x2160 tall canvas patch, `height` is 2160, yielding:
+     $$\text{scale\_y} = \frac{2160}{720} = 3.0$$
+     This doubles the vertical coordinate calculations for `uGUINaviIcon` and `uGUINaviMap` marker rendering, placing the marker coordinates far outside the visible viewport boundaries. (Currently unpatched).
+
+6. **High Hardware Demands & In-Battle FPS Drops:**
+   - **Symptom:** Framerate can drop significantly during intense battles with many enemy units and particle effects (e.g. dropping to ~53–90 FPS on an AMD Radeon RX 6700 XT compared to 165 FPS in single-player mode).
+   - **Root Cause:** The tall canvas renders ~4.15 million pixels per frame ($2\times$ the rasterization, fill rate, and shader workload of standard 1080p) and requires an expanded 6 GiB direct memory pool (`SPARTAN_DMEM_MB=6144`).
+
+7. **Rigid Dual-Monitor Display Setup Requirement:**
+   - Requires two physical 1920x1080 displays aligned horizontally side-by-side in Windows Display Settings to form a continuous 3840x1080 desktop. Vertical setups, mixed resolutions (e.g., 1440p + 1080p), and single ultrawide monitors without borderless positioning are currently unsupported.
+
+### Feedback and Issue Reporting
+To report additional issues, visual defects, or performance profiles:
+- GitHub Issue tracker: [#1](https://github.com/DarkTama/basara4-native-pc/issues/1)
+- Launcher: Use the built-in **"Report a problem"** feature.
+- Please include your GPU model, monitor resolution and arrangement, screenshots of the glitch, and your log file: `user/last_run.log`.
