@@ -14,6 +14,8 @@ Without it the folder must not exist yet; empty game\\, user\\ and out\\ folders
 The game itself is never copied.
 """
 import argparse
+import json
+import os
 import shutil
 import subprocess
 import sys
@@ -136,6 +138,7 @@ def main():
     for name in (
         "basara4_launcher.py",
         "basara4_patches.py",
+        "basara4_report.py",
         "basara4_theme.py",
         "basara4_nav.py",
         "basara4_translation.py",
@@ -155,6 +158,13 @@ def main():
         for item in assets_dir.iterdir():
             if item.is_file():
                 shutil.copy2(item, target_assets / item.name)
+
+    # crashpulse anonymous reporting config (if key provided in build environment)
+    cp_key = os.environ.get("CRASHPULSE_PROJECT_KEY", "").strip()
+    if cp_key:
+        cp_url = os.environ.get("CRASHPULSE_URL", "https://crashpulse.darktama.dev/api/v1/report").strip()
+        cp_cfg = json.dumps({"url": cp_url, "key": cp_key}, indent=2)
+        (target / "launcher" / "crashpulse.json").write_text(cp_cfg, encoding="utf-8")
 
     # translation patch manifest and gamepad mapping database
     data_dir = target / "data"

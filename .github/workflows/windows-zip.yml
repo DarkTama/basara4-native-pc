@@ -59,6 +59,8 @@ jobs:
           python-version: '3.13'
       - name: Package
         shell: pwsh
+        env:
+          CRASHPULSE_PROJECT_KEY: ${{ secrets.CRASHPULSE_PROJECT_KEY }}
         run: |
           & "${{ steps.python.outputs.python-path }}" -m pip install --upgrade --disable-pip-version-check pyinstaller pillow numpy etcpak iced-x86==1.21.0
           & "${{ steps.python.outputs.python-path }}" packaging/basara4/make_package.py --out dist/basara4-windows
