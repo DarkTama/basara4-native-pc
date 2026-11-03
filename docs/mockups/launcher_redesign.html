@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Basara 4 launcher redesign mockup (Yoshiteru / Hisahide)</title>
+<!-- MOCKUP ONLY. Flat boxes, text, borders, canvas-style toggles: all Tk-drawable. System fonts only (same as Tk). -->
+<style>
+:root{
+  --bg_main:#0D0A14;--bg_dock:#110D1B;--bg_card:#151022;--bg_control:#1C152E;--bg_hover:#271D40;--border_card:#261E3A;
+  --fg_primary:#F2ECE1;--fg_muted:#8A829E;--accent_primary:#E8B949;--accent_secondary:#9D4EDD;
+  --toggle_knob_on:#E8B949;--toggle_track_off:#2A2438;--toggle_track_on:#9D4EDD;
+  --play_bg:#9E192E;--play_hover:#C41E3A;--play_border:#E8B949;
+  --ui:"Segoe UI",Tahoma,sans-serif;--display:"Yu Mincho","MS Mincho","Noto Serif JP",serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#050507;color:#ccc;font-family:var(--ui);padding:14px 18px 30px}
+body.shot{padding:0;background:var(--bg_main)}
+body.shot #bar,body.shot #note{display:none}
+#bar{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:13px}
+#bar b{color:#888;font-weight:600;margin-right:6px}
+#bar button{background:#1a1a20;color:#ccc;border:1px solid #333;padding:5px 12px;font:inherit;cursor:pointer}
+#bar button.on{background:#e8e8f0;color:#111;border-color:#e8e8f0}
+#note{font-size:12px;color:#777;margin-top:10px;max-width:1000px;line-height:1.5}
+#win{position:relative;width:1000px;height:650px;background:var(--bg_main);color:var(--fg_primary);
+  display:grid;grid-template-columns:250px 158px 592px;grid-template-rows:622px 28px;overflow:hidden;font-size:13px;user-select:none}
+#dock{background:var(--bg_dock);border-right:1px solid var(--border_card);padding:18px 18px 12px;display:flex;flex-direction:column}
+#cover{height:168px;border:1px dashed var(--border_card);background:var(--bg_card);display:flex;align-items:center;justify-content:center;
+  color:var(--fg_muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+#title{font-family:var(--display);font-size:25px;font-weight:700;margin-top:14px;line-height:1.15}
+#subtitle{color:var(--fg_muted);font-size:12px;margin-top:3px}
+#serial{color:var(--accent_primary);font-size:11px;letter-spacing:.1em;margin-top:8px}
+#status{margin-top:12px;font-size:12px;color:var(--fg_muted);display:flex;align-items:center;gap:7px}
+#status i{width:8px;height:8px;border-radius:50%;background:#7da36b;display:inline-block}
+#play{margin-top:10px;height:52px;background:var(--play_bg);color:#fff;border:2px solid var(--play_border);
+  font:700 19px/48px var(--ui);letter-spacing:.2em;text-align:center;cursor:pointer}
+#play:hover,#play.hov{background:var(--play_hover)}
+#stop{margin-top:8px;height:30px;border:1px solid var(--border_card);background:var(--bg_control);color:var(--fg_muted);text-align:center;line-height:28px;font-size:12px;opacity:.6}
+#dockfoot{margin-top:auto;font-size:11px;color:var(--fg_muted);line-height:1.5}
+#dockfoot .vr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#dockfoot a{color:var(--accent_primary);cursor:pointer}
+#dockfoot a:hover{text-decoration:underline}
+#dockfoot .credit{border-top:1px solid var(--border_card);padding-top:7px}
+#dockfoot .credit em{font-style:normal;color:#e0a952}
+#nav{background:var(--bg_main);padding:22px 0 0;border-right:1px solid var(--border_card)}
+#nav div{position:relative;height:40px;line-height:40px;padding-left:22px;font-size:14px;color:var(--fg_muted);cursor:pointer}
+#nav div:hover{background:var(--bg_hover);color:var(--fg_primary)}
+#nav div.sel{color:var(--accent_primary);font-weight:600;background:var(--bg_card)}
+#nav div.sel::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:4px;background:var(--accent_primary)}
+#main{padding:20px 22px 0;display:flex;flex-direction:column;min-height:0}
+#ptitle{font-size:22px;font-weight:600;line-height:1.1}
+#ptitle::after{content:"";display:block;width:34px;height:3px;background:var(--accent_primary);margin-top:7px}
+#psub{color:var(--fg_muted);font-size:12px;margin-top:6px;height:16px}
+#rows{margin-top:6px;flex:1;overflow-y:auto;padding:2px 8px 8px 2px;min-height:0}
+#rows::-webkit-scrollbar{width:8px}
+#rows::-webkit-scrollbar-thumb{background:var(--bg_hover)}
+#rows::-webkit-scrollbar-track{background:var(--bg_main)}
+.grp{margin:12px 0 6px 2px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent_primary)}
+.grp:first-child{margin-top:4px}
+.row{position:relative;display:flex;align-items:center;gap:12px;min-height:40px;margin-bottom:4px;padding:3px 10px 3px 14px;
+  background:var(--bg_card);border:1px solid var(--border_card)}
+.row.stack{flex-direction:column;align-items:stretch;padding-top:8px;padding-bottom:8px}
+.row.sub{margin-left:22px}
+.row:hover,.row.hov{background:var(--bg_hover)}
+.row.foc{border:2px solid var(--accent_primary);padding:2px 9px 2px 13px}
+.row.foc::before{content:"";position:absolute;left:-2px;top:-2px;bottom:-2px;width:5px;background:var(--accent_primary)}
+.lbl{flex:1;min-width:0;display:flex;align-items:center;gap:8px;line-height:1.2}
+.ctl{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.badge{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--bg_main);background:var(--accent_secondary);padding:2px 6px}
+.muted{color:var(--fg_muted)}.small{font-size:12px}
+.entry{height:26px;line-height:24px;background:var(--bg_control);border:1px solid var(--border_card);padding:0 8px;font-size:12px;overflow:hidden;white-space:nowrap;width:190px}
+.btn{height:26px;line-height:24px;padding:0 12px;background:var(--bg_control);border:1px solid var(--border_card);font-size:12px;cursor:pointer}
+.btn:hover{background:var(--bg_hover);border-color:var(--accent_primary)}
+.seg{display:flex;border:1px solid var(--border_card);background:var(--bg_control)}
+.seg span{padding:0 12px;height:26px;line-height:25px;font-size:12px;cursor:pointer;display:flex;align-items:center}
+.seg span:hover{background:var(--bg_hover)}
+.seg span.sel{background:var(--accent_primary);color:var(--bg_main);font-weight:600}
+.combo{width:252px;height:28px;line-height:26px;padding:0 28px 0 9px;background:var(--bg_control);border:1px solid var(--border_card);position:relative;font-size:12px;overflow:hidden;white-space:nowrap;cursor:pointer}
+.combo::after{content:"\25BE";position:absolute;right:9px;top:0;color:var(--accent_primary)}
+.combo:hover{border-color:var(--accent_primary)}
+.tog{width:40px;height:22px;border-radius:11px;background:var(--toggle_track_off);position:relative;cursor:pointer;flex:none;border:1px solid var(--border_card)}
+.tog::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--fg_muted)}
+.tog.on{background:var(--toggle_track_on);border-color:var(--toggle_track_on)}
+.tog.on::after{left:21px;background:var(--toggle_knob_on)}
+.tlabel{font-size:11px;width:22px;text-align:right;color:var(--fg_muted)}
+.slider{width:150px;height:4px;background:var(--toggle_track_off);position:relative;margin-right:6px}
+.slider i{position:absolute;left:0;top:0;bottom:0;background:var(--accent_primary)}
+.slider b{position:absolute;top:-6px;width:8px;height:16px;background:var(--accent_primary);margin-left:-4px}
+.pad{background:var(--bg_control);border:1px solid var(--border_card);padding:6px 10px;font-size:12px;line-height:1.6;margin-top:6px}
+.pad b{color:var(--accent_primary);font-weight:600}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#7da36b;margin-right:6px}
+.swatch{display:inline-flex;gap:2px;margin-right:7px}
+.swatch i{width:9px;height:14px;display:block}
+#hint{margin-top:auto;border-top:1px solid var(--border_card);padding:9px 6px 8px 0;display:flex;gap:10px;height:66px;flex:none;color:var(--fg_muted);font-size:12px;line-height:1.4;overflow:hidden}
+#hint .q{flex:none;width:20px;height:20px;border-radius:50%;border:1px solid var(--accent_primary);color:var(--accent_primary);text-align:center;line-height:18px;font-weight:700;font-size:12px}
+#strip{grid-column:1 / 4;background:var(--bg_dock);border-top:1px solid var(--border_card);display:flex;align-items:center;gap:20px;padding:0 18px;font-size:11.5px;color:var(--fg_muted)}
+.k{display:inline-block;min-width:20px;padding:0 5px;margin-right:6px;text-align:center;border:1px solid var(--fg_muted);color:var(--fg_primary);font-size:10.5px;line-height:15px;border-radius:3px}
+.k.pk{border-radius:9px;border-color:var(--accent_primary);color:var(--accent_primary)}
+#strip .dev{margin-left:auto}
+#dd{position:absolute;display:none;z-index:20;background:var(--bg_control);border:1px solid var(--accent_primary);max-height:190px;overflow:auto}
+#dd div{height:26px;line-height:26px;padding:0 9px;font-size:12px;white-space:nowrap;cursor:pointer}
+#dd div:hover{background:var(--bg_hover)}#dd div.sel{color:var(--accent_primary)}
+#scrim{position:absolute;inset:0;background:rgba(0,0,0,.62);display:none;z-index:30;align-items:center;justify-content:center}
+#scrim.show{display:flex}
+#dlg{width:520px;background:var(--bg_card);border:1px solid var(--accent_primary);box-shadow:0 0 0 4px var(--bg_main)}
+#dlg .hd{padding:14px 20px 12px;background:var(--bg_dock);border-bottom:1px solid var(--border_card);display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600}
+#dlg .bd{padding:14px 20px 4px;font-size:12.5px;line-height:1.5}
+#dlg ul{margin:8px 0;margin-left:18px;color:var(--fg_muted)}
+#dlg li{margin-bottom:3px}#dlg li::marker{color:var(--accent_primary)}
+#dlg .bt{display:flex;justify-content:flex-end;gap:10px;padding:10px 20px 14px}
+#dlg .bt div{min-width:92px;height:32px;line-height:30px;text-align:center;border:1px solid var(--border_card);background:var(--bg_control);cursor:pointer;font-size:13px}
+#dlg .bt div:hover{background:var(--bg_hover)}
+#dlg .bt div.def{background:var(--play_bg);border:2px solid var(--play_border);line-height:28px;font-weight:600;color:#fff}
+#dlg .bt div.def:hover{background:var(--play_hover)}
+#dlg .bt div.foc{outline:2px solid var(--accent_primary);outline-offset:2px}
+#dlg .ft{background:var(--bg_dock);border-top:1px solid var(--border_card);padding:7px 20px;font-size:11.5px;color:var(--fg_muted)}
+#dlg .ft span.s{margin-right:16px}
+</style>
+</head>
+<body>
+<div id="bar">
+  <div><b>Theme</b><button data-th="yoshiteru">Ashikaga Yoshiteru</button> <button data-th="hisahide">Matsunaga Hisahide</button></div>
+  <div><b>Page</b><span id="pgbtns"></span></div>
+  <div><b>Hints</b><button data-dev="pad">Gamepad</button> <button data-dev="keyboard">Keyboard</button></div>
+  <div><b>Preview</b><button id="showdlg">Dual-monitor dialog</button></div>
+</div>
+<div id="win">
+  <div id="dock">
+    <div id="cover">cover art</div>
+    <div id="title">戦国BASARA4 皇</div>
+    <div id="subtitle">Sengoku Basara 4 Sumeragi</div>
+    <div id="serial">CUSA01159</div>
+    <div id="status"><i></i><span>Ready</span></div>
+    <div id="play">PLAY</div>
+    <div id="stop">Stop game</div>
+    <div id="dockfoot">
+      <div class="vr"><span>v1.1.8</span><a>Check for updates</a></div>
+      <div class="credit">Basara 4 PC (<em>DarkTama</em> Fork) · Original port by Razz</div>
+    </div>
+  </div>
+  <div id="nav"></div>
+  <div id="main">
+    <div id="ptitle"></div><div id="psub"></div>
+    <div id="rows"></div>
+    <div id="hint"><div class="q">?</div><div id="hinttext"></div></div>
+  </div>
+  <div id="strip"></div>
+  <div id="dd"></div>
+  <div id="scrim"><div id="dlg"></div></div>
+</div>
+<div id="note">
+  Client area 1000x650 (OS title bar not drawn). Hover is live; focus ring follows Up/Down or clicks (Q/E = page, Enter = activate, Esc = close dialog).
+  Turning on "Dual-monitor co-op" opens the confirmation dialog like the real launcher. Controller list is sample data.
+  URL params for static states: <code>?theme=hisahide&amp;page=display&amp;device=pad&amp;hover=vsync&amp;focus=resolution&amp;shot=1</code>.
+  "PLAY hover" is shown by hovering the button; add <code>&amp;playhover=1</code> to freeze it.
+</div>
+<script>
+const THEMES={
+ yoshiteru:{name:"Ashikaga Yoshiteru",motif:"\u25C6",
+  bg_main:"#0D0A14",bg_dock:"#110D1B",bg_card:"#151022",bg_control:"#1C152E",bg_hover:"#271D40",border_card:"#261E3A",
+  fg_primary:"#F2ECE1",fg_muted:"#8A829E",accent_primary:"#E8B949",accent_secondary:"#9D4EDD",
+  toggle_knob_on:"#E8B949",toggle_track_off:"#2A2438",play_bg:"#9E192E",play_hover:"#C41E3A",play_border:"#E8B949",
+  toggle_track_on:"#9D4EDD"},
+ hisahide:{name:"Matsunaga Hisahide",motif:"\u25B8",
+  bg_main:"#0B0E14",bg_dock:"#0F131C",bg_card:"#131822",bg_control:"#19202E",bg_hover:"#222C40",border_card:"#212A3A",
+  fg_primary:"#E6EDF5",fg_muted:"#7D8B9E",accent_primary:"#4DA6FF",accent_secondary:"#E09F3E",
+  toggle_knob_on:"#0F131C",toggle_track_off:"#1E2636",play_bg:"#9E192E",play_hover:"#C41E3A",play_border:"#E8B949",
+  toggle_track_on:"#4DA6FF"}
+};
+// toggle_track_on is NOT in the brief's token list: derived (yoshiteru: accent_secondary, hisahide: accent_primary)
+const NAV=[["game","Game"],["display","Display"],["controls","Controls"],["mods","Mods & Cheats"],["tools","Tools"]];
+const PAGE_HINT={game:"The game image is made on the first start (about a minute).",display:"In-game menu: Insert, or R3 + L2 on the pad (it changes these too).",
+ controls:"Controller management, routing (P1 / P2 co-op), button mapping, and KBM settings.",mods:"Import needs your own PS3 patch files. Cheats can also be toggled in game.",tools:"Open log: the launcher and runtime log of the last run."};
+const PAGE_SUB={display:"Applied the next time you press PLAY."};
+const CH="Can also be toggled in game (Insert / R3+L2)";
+const H={
+ game_folder:["Game folder","The folder that holds eboot.bin."],
+ game_image:["Game image","Made from eboot.bin on the first start; again if eboot.bin changes."],
+ game_update:["Game update folder","Separate update dump, e.g. CUSA01159-patch (v01.02). Your dump is not modified."],
+ dlc_folder:["DLC folder","Folder holding extracted add-ons: <root>/CUSA01159/<entitlement>/"],
+ display_mode:["Display mode","Windowed, borderless fullscreen or exclusive fullscreen."],
+ gpu:["Graphics card","Auto picks the discrete GPU when there is one."],
+ resolution:["Window size","The game draws at 1080p. Window size sets windowed mode."],
+ fps:["Frame limit","Above 60 turns off the game's own limiter. VSync still caps at monitor refresh."],
+ upscale:["Upscaling","FSR 1 spatial sharpening or FSR 3.1 temporal reconstruction / DLSS for higher clarity."],
+ aniso:["Anisotropic","Texture filtering: sharper at a slant, costs a little speed."],
+ vsync:["VSync","Caps the frame rate at the monitor refresh."],
+ rcas:["Sharpening (RCAS)","Sharpens the final image."],
+ dual:["Dual-monitor co-op","Experimental 1920x2160 tall canvas for dual side-by-side 1080p monitors. Requires 6 GB+ VRAM, more system RAM, and a 3840x1080 borderless window. Minimap shows on one screen only. Menus/cutscenes are mirrored (F8 toggles mirror/split). May have visual glitches."],
+ pad_detect:["Connected Gamepads","Lists controllers detected via SDL3. Click Refresh to scan again."],
+ p1_control:["Player 1 Control","Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."],
+ p2_control:["Player 2 Control","Assign input device for Player 2 (local co-op) or disable for single player."],
+ prompt_layout:["Button Prompts","In-game HUD button prompt style: Xbox (A/B/X/Y) or PlayStation default."],
+ pad:["Gamepad Mapping","Custom controller mapping state (gamepad_mapping.txt vs default)."],
+ pad_actions:["Mapping Actions","Configure gamepad buttons/sticks or reset back to default database."],
+ keymap:["Keyboard & Mouse controls","Choose the key and mouse bindings and the mouse camera."],
+ mouse_camera:["Enable Mouse Camera","Free camera look using mouse movement."],
+ mouse_sens:["Mouse Camera Sensitivity","Mouse camera rotation sensitivity (20% - 300%, default 100%)."],
+ mouse_invert_x:["Invert X","Invert mouse horizontal camera axis (SPARTAN_MOUSE_INVERT_X=1)."],
+ mouse_invert_y:["Invert Y","Invert mouse vertical camera axis (SPARTAN_MOUSE_INVERT_Y=1)."],
+ english:["English Translation Patch","PS3 v0.85 port. Needs an imported patch; applied when you press PLAY."],
+ import_patch:["Import PS3 English Patch","Pick your own PS3 (BLJM61248) English patch folder."],
+ rebuild_patch:["Rebuild Translation Patch","Builds the patch again from the imported files."],
+ cheat_gold:["Gold won't decrease",CH],
+ cheat_coins:["Special Coins: max (999,999)","Sets special coins directly to 999,999. Applies the next time coins are added."],
+ cheat_growth_points:["Growth points won't decrease",CH],
+ cheat_weapon_points:["Weapon points won't decrease",CH],
+ cheat_weapon_rank:["Weapon rank points won't decrease",CH],
+ open_log:["Open log","The launcher and runtime log of the last run."],
+ open_audio_log:["Open audio log","Needs \"Audio debug log\" on, then a game start."],
+ open_saves:["Open saves","Opens user\\savedata in Explorer."],
+ audio_log:["Audio debug log","One timestamped line per audio event, for bug reports."],
+ audio_wav:["WAV capture (up to 3 GB)","Next game start only; about 70 MB per minute. Turns the audio log on."],
+ theme:["Launcher theme","Colors of the launcher. New in the redesign; applies immediately and is remembered."]
+};
+const OPT={
+ gpu:["Auto (discrete GPU)","NVIDIA GeForce RTX 3060","AMD Radeon Graphics"],
+ resolution:["1920 x 1080  (native)","1280 x 720","1600 x 900","2560 x 1440","3200 x 1800","3840 x 2160  (4K)","3840 x 1080  (Dual 1080p)"],
+ fps:["60 (game default)","90","120","144","165"],
+ upscale:["Off (Native 1080p)","FSR 1 (Spatial Sharpening)"],
+ aniso:["Off","2x","4x","8x","16x"],
+ p1_control:["Gamepad 1 (Primary / First detected)","Gamepad 2 (Secondary)","Keyboard & Mouse Only"],
+ p2_control:["None (Disabled / Single Player)","Gamepad 2 (Secondary)","Gamepad 1 (Co-op with P1 on KBM)","Keyboard & Mouse"],
+ prompt_layout:["Xbox (A/B/X/Y)","PlayStation (default)"]
+};
+const S={theme:"yoshiteru",page:"display",device:"pad",focus:"display_mode",mode:"borderless",
+ val:{gpu:0,resolution:0,fps:0,upscale:0,aniso:4,p1_control:0,p2_control:0,prompt_layout:1},
+ on:{vsync:true,rcas:false,dual:false,mouse_camera:true,mouse_invert_x:false,mouse_invert_y:false,english:true,
+  cheat_gold:false,cheat_coins:false,cheat_growth_points:false,cheat_weapon_points:false,cheat_weapon_rank:false,audio_log:false,audio_wav:false}};
+let hovKey=null,dlgOpen=false,dlgChoice=0,rowOrder=[];
+const el=id=>document.getElementById(id);
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function applyTheme(){
+  const t=THEMES[S.theme];
+  for(const k in t) if(k!=="name"&&k!=="motif") document.documentElement.style.setProperty("--"+k,t[k]);
+  document.querySelectorAll("[data-th]").forEach(b=>b.classList.toggle("on",b.dataset.th===S.theme));
+}
+const toggle=k=>`<div class="tog${S.on[k]?" on":""}" data-tog="${k}"></div><span class="tlabel">${S.on[k]?"On":"Off"}</span>`;
+function row(k,ctl,o={}){
+  const lab=H[k][0];
+  const cls=["row",o.stack?"stack":"",o.sub?"sub":"",S.focus===k?"foc":"",hovKey===k?"hov":""].join(" ");
+  const badge=o.badge?`<span class="badge">${o.badge}</span>`:"";
+  if(o.stack) return `<div class="${cls}" data-k="${k}"><div class="lbl">${lab}</div>${ctl}</div>`;
+  return `<div class="${cls}" data-k="${k}"><div class="lbl">${esc(lab)}${badge}</div><div class="ctl">${ctl}</div></div>`;
+}
+const combo=k=>row(k,`<div class="combo" data-combo="${k}">${esc(OPT[k][S.val[k]])}</div>`);
+const chk=(k,o)=>row(k,toggle(k),o);
+const btn=(k,t)=>row(k,`<div class="btn">${t}</div>`);
+const grp=t=>`<div class="grp">${THEMES[S.theme].motif} ${t}</div>`;
+
+function pageHTML(){
+  rowOrder=[];let h="";
+  const add=(k,s)=>{rowOrder.push(k);h+=s;};
+  const p=S.page;
+  if(p==="game"){
+    add("game_folder",row("game_folder",`<div class="entry">C:\\Games\\PS4\\CUSA01159</div><div class="btn">Browse…</div>`));
+    add("game_image",row("game_image",`<span class="muted small">Game image ready.</span>`));
+    add("game_update",row("game_update",`<div class="entry">D:\\Dumps\\CUSA01159-patch</div><div class="btn">Browse…</div><div class="btn">Clear</div>`));
+    add("dlc_folder",row("dlc_folder",`<div class="entry"></div><div class="btn">Browse…</div><div class="btn">Clear</div>`));
+  }else if(p==="display"){
+    add("display_mode",row("display_mode",`<div class="seg">${[["Windowed","windowed"],["Borderless","borderless"],["Exclusive","fullscreen"]].map(([l,v])=>`<span data-mode="${v}" class="${S.mode===v?"sel":""}">${l}</span>`).join("")}</div>`));
+    ["gpu","resolution","fps","upscale","aniso"].forEach(k=>add(k,combo(k)));
+    add("vsync",chk("vsync"));add("rcas",chk("rcas"));
+    add("dual",row("dual",toggle("dual"),{badge:"Experimental"}));
+  }else if(p==="controls"){
+    h+=grp("Controller Management");
+    add("pad_detect",row("pad_detect",`<div class="pad"><div><span class="dot"></span><b>Pad 1</b> &nbsp;Xbox Wireless Controller</div><div class="muted"><span class="dot" style="background:var(--fg_muted)"></span><b style="color:var(--fg_muted)">Pad 2</b> &nbsp;not connected</div></div><div style="display:flex;justify-content:flex-end;margin-top:6px"><div class="btn">Refresh</div></div>`,{stack:true}));
+    ["p1_control","p2_control","prompt_layout"].forEach(k=>add(k,combo(k)));
+    add("pad",row("pad",`<span class="small"><span class="dot"></span>Default XInput / SDL Database active</span>`));
+    add("pad_actions",row("pad_actions",`<div class="btn">Map…</div><div class="btn">Map sticks…</div><div class="btn">Reset</div>`));
+    h+=grp("Keyboard & Mouse Controls");
+    add("keymap",btn("keymap","Edit Custom Keymap…"));
+    add("mouse_camera",chk("mouse_camera"));
+    add("mouse_sens",row("mouse_sens",`<div class="slider"><i style="width:30%"></i><b style="left:30%"></b></div><span class="small" style="width:36px;text-align:right">100%</span>`));
+    add("mouse_invert_x",chk("mouse_invert_x"));add("mouse_invert_y",chk("mouse_invert_y"));
+  }else if(p==="mods"){
+    h+=grp("Translation");
+    add("english",chk("english"));add("import_patch",btn("import_patch","Import…"));add("rebuild_patch",btn("rebuild_patch","Rebuild"));
+    h+=grp("Cheats");
+    ["cheat_gold","cheat_coins","cheat_growth_points","cheat_weapon_points","cheat_weapon_rank"].forEach(k=>add(k,chk(k)));
+  }else{
+    add("open_log",btn("open_log","Open"));add("open_audio_log",btn("open_audio_log","Open"));add("open_saves",btn("open_saves","Open"));
+    add("audio_log",chk("audio_log"));add("audio_wav",chk("audio_wav",{sub:true}));
+    h+=grp("Appearance");
+    const sw=n=>`<span class="swatch"><i style="background:${THEMES[n].bg_hover};border:1px solid ${THEMES[n].border_card}"></i><i style="background:${THEMES[n].accent_primary}"></i><i style="background:${THEMES[n].accent_secondary}"></i></span>`;
+    add("theme",row("theme",`<div class="seg">${["yoshiteru","hisahide"].map(n=>`<span data-theme="${n}" class="${S.theme===n?"sel":""}">${sw(n)}${THEMES[n].name}</span>`).join("")}</div>`));
+  }
+  return h;
+}
+const HINTS={pad:"[A] Select   [B] Back   [LB/RB] Page   [Start] Play",keyboard:"Enter Select   Esc Back   Q/E Page   F5 Play"};
+const DHINTS={pad:"[A] Confirm   [B] Cancel   [Left/Right] Choose",keyboard:"Enter Confirm   Esc Cancel   Left/Right Choose"};
+function chips(str,dev,cls){
+  return str.split("   ").map(p=>{
+    let key,txt;
+    if(dev==="pad"){const m=p.match(/^\[(.+?)\] (.*)$/);key=m[1];txt=m[2];}
+    else{const i=p.indexOf(" ");key=p.slice(0,i);txt=p.slice(i+1);}
+    return `<span class="${cls||"s"}"><span class="k${dev==="pad"?" pk":""}">${key}</span>${txt}</span>`;
+  }).join("");
+}
+function render(){
+  applyTheme();
+  el("nav").innerHTML=NAV.map(([k,l])=>`<div data-page="${k}" class="${S.page===k?"sel":""}">${l}</div>`).join("");
+  el("ptitle").textContent=NAV.find(n=>n[0]===S.page)[1];
+  el("psub").textContent=PAGE_SUB[S.page]||"";
+  const sc=el("rows").scrollTop;
+  el("rows").innerHTML=pageHTML();
+  el("rows").scrollTop=sc;
+  const hk=hovKey||S.focus;
+  el("hinttext").textContent=hk&&rowOrder.includes(hk)?H[hk][1]:PAGE_HINT[S.page];
+  el("strip").innerHTML=chips(HINTS[S.device],S.device)+`<span class="dev">${S.device==="pad"?"Gamepad":"Keyboard / mouse"} · ${THEMES[S.theme].name}</span>`;
+  document.querySelectorAll("[data-dev]").forEach(b=>b.classList.toggle("on",b.dataset.dev===S.device));
+  el("pgbtns").innerHTML=NAV.map(([k,l])=>`<button data-pg="${k}" class="${S.page===k?"on":""}">${l}</button>`).join(" ");
+  renderDlg();
+}
+function renderDlg(){
+  el("scrim").classList.toggle("show",dlgOpen);
+  if(!dlgOpen)return;
+  el("dlg").innerHTML=`<div class="hd"><span class="badge">Experimental</span>Dual-monitor co-op (experimental)</div>
+  <div class="bd">Dual-monitor co-op is an experimental feature.<ul>
+  <li>Renders at a 1920x2160 tall canvas (2x pixels), requiring noticeably more GPU power, more VRAM (6 GB+ recommended), and more system RAM.</li>
+  <li>Requires two side-by-side 1920x1080 monitors configured as a 3840x1080 borderless window.</li>
+  <li>The in-game minimap only displays on one screen (game engine limitation).</li>
+  <li>Menus and cutscenes are mirrored to both displays (press F8 during play to toggle mirror/split).</li>
+  <li>May exhibit visual glitches.</li></ul>
+  Enable dual-monitor co-op and switch window to 3840x1080 borderless?</div>
+  <div class="bt"><div data-dlg="1" class="${dlgChoice===1?"foc":""}">No</div><div data-dlg="0" class="def ${dlgChoice===0?"foc":""}">Yes</div></div>
+  <div class="ft">${chips(DHINTS[S.device],S.device)}</div>`;
+}
+function closeDlg(yes){
+  dlgOpen=false;
+  if(yes){S.mode="borderless";S.val.resolution=6;}else S.on.dual=false;
+  render();
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-th],[data-theme],[data-pg],[data-page],[data-dev],[data-tog],[data-mode],[data-combo],[data-dlg],#showdlg,#dd div");
+  if(!t){el("dd").style.display="none";return;}
+  if(t.dataset.th||t.dataset.theme){S.theme=t.dataset.th||t.dataset.theme;}
+  else if(t.dataset.pg||t.dataset.page){S.page=t.dataset.pg||t.dataset.page;S.focus=null;}
+  else if(t.dataset.dev){S.device=t.dataset.dev;}
+  else if(t.dataset.tog){const k=t.dataset.tog;S.focus=k;S.on[k]=!S.on[k];if(k==="dual"&&S.on[k]){dlgOpen=true;dlgChoice=0;}}
+  else if(t.dataset.mode){S.mode=t.dataset.mode;S.focus="display_mode";}
+  else if(t.dataset.combo){
+    const k=t.dataset.combo;S.focus=k;const r=t.getBoundingClientRect(),w=el("win").getBoundingClientRect();
+    const dd=el("dd");dd.innerHTML=OPT[k].map((o,i)=>`<div data-i="${i}" class="${S.val[k]===i?"sel":""}">${esc(o)}</div>`).join("");
+    dd.style.cssText=`display:block;left:${r.left-w.left}px;top:${r.bottom-w.top}px;width:${r.width}px`;dd.dataset.k=k;
+    e.stopPropagation();return;
+  }
+  else if(t.dataset.dlg!==undefined){closeDlg(t.dataset.dlg==="0");return;}
+  else if(t.id==="showdlg"){dlgOpen=true;dlgChoice=0;}
+  else if(t.closest("#dd")){const dd=el("dd");S.val[dd.dataset.k]=+t.dataset.i;dd.style.display="none";}
+  render();
+});
+document.addEventListener("mouseover",e=>{
+  const r=e.target.closest(".row");const k=r?r.dataset.k:null;
+  if(k!==hovKey){hovKey=k;const hk=k||S.focus;el("hinttext").textContent=hk&&rowOrder.includes(hk)?H[hk][1]:PAGE_HINT[S.page];
+    document.querySelectorAll(".row.hov").forEach(x=>x.classList.remove("hov"));}
+});
+document.addEventListener("keydown",e=>{
+  if(dlgOpen){
+    if(e.key==="Escape")closeDlg(false);
+    else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){dlgChoice=1-dlgChoice;render();}
+    else if(e.key==="Enter")closeDlg(dlgChoice===0);
+    return;
+  }
+  const i=rowOrder.indexOf(S.focus);
+  if(e.key==="ArrowDown"){S.focus=rowOrder[Math.min(rowOrder.length-1,i+1)];}
+  else if(e.key==="ArrowUp"){S.focus=rowOrder[Math.max(0,i-1)];}
+  else if(e.key==="q"||e.key==="e"){const pi=NAV.findIndex(n=>n[0]===S.page);S.page=NAV[(pi+(e.key==="e"?1:4))%5][0];S.focus=null;}
+  else if(e.key==="Enter"||e.key===" "){if(S.on[S.focus]!==undefined){S.on[S.focus]=!S.on[S.focus];if(S.focus==="dual"&&S.on.dual){dlgOpen=true;dlgChoice=0;}}}
+  else return;
+  e.preventDefault();render();
+  const f=document.querySelector(".row.foc");if(f)f.scrollIntoView({block:"nearest"});
+});
+const Q=new URLSearchParams(location.search);
+if(Q.get("theme")&&THEMES[Q.get("theme")])S.theme=Q.get("theme");
+if(Q.get("page"))S.page=Q.get("page");
+if(Q.get("device"))S.device=Q.get("device");
+if(Q.get("focus"))S.focus=Q.get("focus");
+if(Q.get("hover"))hovKey=Q.get("hover");
+if(Q.get("dialog"))dlgOpen=true;
+if(Q.get("shot"))document.body.classList.add("shot");
+if(Q.get("playhover"))el("play").classList.add("hov");
+render();
+</script>
+</body>
+</html>
