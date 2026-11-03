@@ -18,7 +18,7 @@ def test_build_feedback_payload_bug_report():
         category="Bug Report",
         description="The audio stutters during the Osaka stage cutscene.",
         contact="user#1234",
-        app_version="1.1.8",
+        app_version="1.2.0",
         os_info="Windows 11",
         attach_diagnostics=True,
         settings_summary={"display_mode": "borderless", "resolution": "1920x1080"},
@@ -27,7 +27,7 @@ def test_build_feedback_payload_bug_report():
     )
 
     assert payload["app"] == "basara4-native-pc"
-    assert payload["version"] == "1.1.8"
+    assert payload["version"] == "1.2.0"
     assert payload["level"] == "warning"
     assert payload["message"].startswith("[Feedback:Bug Report]")
     assert "audio stutters" in payload["message"]
@@ -47,7 +47,7 @@ def test_build_feedback_payload_feature_request_no_diagnostics():
         category="Feature Request",
         description="Please add 21:9 ultrawide aspect ratio support.",
         contact="test@example.com",
-        app_version="1.1.8",
+        app_version="1.2.0",
         attach_diagnostics=False,
         log_tail="This log tail should not be attached",
     )
@@ -75,7 +75,7 @@ def test_build_crash_payload():
     payload = report.build_crash_payload(
         exit_code=0xC0000005,
         failure_summary="STOP: null pointer dereference in renderer",
-        app_version="1.1.8",
+        app_version="1.2.0",
         os_info="Windows 10.0.19045",
         gpu_name="AMD Radeon RX 6700 XT",
         settings_summary={"dual_monitor_coop": True, "upscaler": "fsr1"},
@@ -170,7 +170,7 @@ def test_send_report_missing_key():
 
 
 def test_send_report_mocked_success():
-    payload = {"app": "basara4", "message": "test", "version": "1.1.8"}
+    payload = {"app": "basara4", "message": "test", "version": "1.2.0"}
     mock_resp = MagicMock()
     mock_resp.status = 201
     mock_resp.read.return_value = json.dumps({"status": "ok", "fingerprint": "a1b2c3d4e5f6"}).encode("utf-8")

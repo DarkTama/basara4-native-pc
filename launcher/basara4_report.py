@@ -219,7 +219,7 @@ def build_feedback_payload(
     category: str,
     description: str,
     contact: str = "",
-    app_version: str = "1.1.8",
+    app_version: str = "1.2.0",
     os_info: str = "",
     attach_diagnostics: bool = False,
     settings_summary: Optional[Dict[str, Any]] = None,
@@ -275,7 +275,7 @@ def build_feedback_payload(
 def build_crash_payload(
     exit_code: int,
     failure_summary: str = "",
-    app_version: str = "1.1.8",
+    app_version: str = "1.2.0",
     os_info: str = "",
     gpu_name: str = "",
     settings_summary: Optional[Dict[str, Any]] = None,
