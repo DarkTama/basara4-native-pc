@@ -1662,7 +1662,7 @@ class Launcher(tk.Tk):
             except Exception:
                 pass
 
-    def _row(self, page, key, make, width=250, sub=False, stack=False, height=30):
+    def _row(self, page, key, make, width=250, sub=False, stack=False, height=30, badge=None):
         """One card row: label left, control right. Card has border_card outline, hover bg_hover."""
         label, hint = ROW[key]
         theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
@@ -1675,9 +1675,27 @@ class Launcher(tk.Tk):
         bar = tk.Frame(row, bg=theme["bg_card"], width=4)
         bar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         theme_mod.REGISTRY.register(bar, bg="bg_card")
-        lbl = tk.Label(row, text=label, bg=theme["bg_card"], fg=theme["fg_primary"], font=FONT)
-        lbl.grid(row=0, column=1, sticky="w", padx=(4 + (20 if sub else 0), 0))
+
+        lbl_box = tk.Frame(row, bg=theme["bg_card"])
+        lbl_box.grid(row=0, column=1, sticky="w", padx=(4 + (20 if sub else 0), 0))
+        theme_mod.REGISTRY.register(lbl_box, bg="bg_card")
+        lbl = tk.Label(lbl_box, text=label, bg=theme["bg_card"], fg=theme["fg_primary"], font=FONT)
+        lbl.pack(side="left")
         theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_primary")
+
+        if badge:
+            badge_lbl = tk.Label(
+                lbl_box,
+                text=badge,
+                bg=theme["accent_secondary"],
+                fg=theme["bg_main"],
+                font=("Segoe UI", 7, "bold"),
+                padx=5,
+                pady=1,
+            )
+            badge_lbl.pack(side="left", padx=(8, 0))
+            theme_mod.REGISTRY.register(badge_lbl, bg="accent_secondary", fg="bg_main")
+
         holder = tk.Frame(row, bg=theme["bg_card"])
         theme_mod.REGISTRY.register(holder, bg="bg_card")
         if stack:  # a value too long for the right column gets the full width under its label
@@ -1693,6 +1711,7 @@ class Launcher(tk.Tk):
             cur_th = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
             col = cur_th["bg_hover"] if hovering else cur_th["bg_card"]
             row.config(bg=col)
+            lbl_box.config(bg=col)
             lbl.config(bg=col)
             holder.config(bg=col)
             if hasattr(self, "_lit_row") and self._lit_row == row:
@@ -1767,7 +1786,7 @@ class Launcher(tk.Tk):
             return cb
         self._row(page, key, make_cb, width=max(250, need), stack=need > 330)
 
-    def _check_row(self, page, key, var, command=None, sub=False):
+    def _check_row(self, page, key, var, command=None, sub=False, badge=None):
         btn = None
         def make(h):
             nonlocal btn
@@ -1780,7 +1799,7 @@ class Launcher(tk.Tk):
                 lbl.config(text="On" if var.get() else "Off")
             var.trace_add("write", update_lbl)
             theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_muted")
-        self._row(page, key, make, sub=sub)
+        self._row(page, key, make, sub=sub, badge=badge)
         return btn
 
     def _slider_row(self, page, key, var, from_, to):
@@ -1847,7 +1866,7 @@ class Launcher(tk.Tk):
         self._check_row(page, "vsync", self.vsync_var)
         self._check_row(page, "rcas", self.rcas_var)
         self._check_row(page, "dual_monitor_coop", self.dual_monitor_coop_var,
-                        command=self._on_dual_monitor_coop_toggled)
+                        command=self._on_dual_monitor_coop_toggled, badge="EXPERIMENTAL")
 
     def _on_dual_monitor_coop_toggled(self):
         if not self.dual_monitor_coop_var.get():
@@ -1856,21 +1875,25 @@ class Launcher(tk.Tk):
         title = "Co-op dual monitor (eksperimental)" if is_id else "Dual-monitor co-op (experimental)"
         msg = (
             "Co-op dual monitor adalah fitur eksperimental.\n\n"
-            "• Merender pada kanvas 1920x2160 (2x piksel), membutuhkan daya GPU lebih tinggi, "
-            "VRAM lebih besar (minimal 6 GB disarankan), dan RAM sistem yang lebih besar.\n"
-            "• Membutuhkan dua monitor 1920x1080 berdampingan dalam mode jendela borderless 3840x1080.\n"
-            "• Minimap hanya muncul pada satu layar (keterbatasan engine game).\n"
-            "• Tampilan menu dan cutscene diduplikasi/mirror ke kedua layar (tekan F8 selama bermain untuk beralih antara mirror dan split).\n"
-            "• Kemungkinan terdapat glitch visual.\n\n"
+            "Masalah yang diketahui:\n"
+            "• Menu dan cutscene terlihat pipih/tertekan (tekan F8 untuk beralih mirror/split).\n"
+            "• Banner layar penuh terpotong di batas pertemuan monitor.\n"
+            "• Roda roulette terdistorsi.\n"
+            "• Minimap terbelah dan tanda petunjuk hilang di layar kedua.\n"
+            "• Beban GPU tinggi: merender pada 1920x2160 (2x piksel; disarankan VRAM 6 GB+).\n\n"
+            "Membutuhkan dua monitor 1920x1080 berdampingan dalam mode jendela borderless 3840x1080.\n"
+            "Laporkan masalah melalui tombol \"Laporkan masalah\" di menu Alat.\n\n"
             "Aktifkan co-op dual monitor dan atur ukuran jendela ke 3840x1080 borderless?"
             if is_id else
             "Dual-monitor co-op is an experimental feature.\n\n"
-            "• Renders at a 1920x2160 tall canvas (2x pixels), requiring noticeably more GPU power, "
-            "more VRAM (6 GB+ recommended), and more system RAM.\n"
-            "• Requires two side-by-side 1920x1080 monitors configured as a 3840x1080 borderless window.\n"
-            "• The in-game minimap only displays on one screen (game engine limitation).\n"
-            "• Menus and cutscenes are mirrored to both displays (press F8 during play to toggle mirror/split).\n"
-            "• May exhibit visual glitches.\n\n"
+            "Known issues:\n"
+            "• Menus and cutscenes look squashed (press F8 to toggle mirror/split).\n"
+            "• Fullscreen banners are cut at the monitor seam.\n"
+            "• Roulette wheel is distorted.\n"
+            "• Minimap split and objective markers missing on second screen.\n"
+            "• High GPU cost: renders at 1920x2160 (2x pixels; 6 GB+ VRAM recommended).\n\n"
+            "Requires two side-by-side 1920x1080 monitors configured as a 3840x1080 borderless window.\n"
+            "Report issues via \"Report a problem\" in Tools.\n\n"
             "Enable dual-monitor co-op and switch window to 3840x1080 borderless?"
         )
         if self.ask_yes_no(title, msg):
