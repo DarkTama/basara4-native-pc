@@ -19,6 +19,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -235,6 +236,7 @@ import basara4_gmd_fix  # noqa: E402
 import game_update  # noqa: E402
 import dlc  # noqa: E402
 import patches  # noqa: E402
+import basara4_nav as nav  # noqa: E402
 
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
@@ -928,6 +930,131 @@ def prepare_image(game, progress):
     return None
 
 
+class LauncherDialog(tk.Toplevel):
+    """Theme-consistent modal dialog supporting keyboard and gamepad navigation."""
+
+    def __init__(self, parent, title, msg, kind="yesno", default_yes=True, is_id=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.title(title)
+        self.configure(bg=PANEL)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.result = False
+        self.is_id = is_id
+        self.kind = kind
+
+        outer = tk.Frame(self, bg=PANEL, highlightbackground=GOLD, highlightthickness=1, padx=22, pady=18)
+        outer.pack(fill="both", expand=True)
+
+        tk.Label(outer, text=title, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12)).pack(anchor="w", pady=(0, 10))
+        tk.Frame(outer, bg=LINE, height=1).pack(fill="x", pady=(0, 12))
+        tk.Label(outer, text=msg, bg=PANEL, fg=FG, font=FONT, wraplength=460, justify="left").pack(
+            anchor="w", pady=(0, 18)
+        )
+
+        btn_box = tk.Frame(outer, bg=PANEL)
+        btn_box.pack(fill="x", pady=(0, 10))
+
+        self.buttons = []
+        if kind == "yesno":
+            yes_txt = "Ya" if is_id else "Yes"
+            no_txt = "Tidak" if is_id else "No"
+            b_yes = ttk.Button(btn_box, text=yes_txt, command=self._on_yes)
+            b_no = ttk.Button(btn_box, text=no_txt, command=self._on_no)
+            b_yes.pack(side="right", padx=(8, 0))
+            b_no.pack(side="right")
+            self.buttons = [b_yes, b_no]
+            self.focused_idx = 0 if default_yes else 1
+        else:
+            b_ok = ttk.Button(btn_box, text="OK", command=self._on_yes)
+            b_ok.pack(side="right")
+            self.buttons = [b_ok]
+            self.focused_idx = 0
+
+        hint_sep = tk.Frame(outer, bg=LINE, height=1)
+        hint_sep.pack(fill="x", pady=(8, 6))
+        self.hint_label = tk.Label(outer, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 8), anchor="w")
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        self.bind("<Left>", lambda _e: self._cycle_button(-1))
+        self.bind("<Right>", lambda _e: self._cycle_button(1))
+        self.bind("<Up>", lambda _e: self._cycle_button(-1))
+        self.bind("<Down>", lambda _e: self._cycle_button(1))
+        self.bind("<Tab>", lambda _e: self._cycle_button(1))
+        self.bind("<Return>", lambda _e: self._invoke_focused())
+        self.bind("<space>", lambda _e: self._invoke_focused())
+        self.bind("<Escape>", lambda _e: self._on_no() if kind == "yesno" else self._on_yes())
+        self.bind("<Key>", lambda _e: self._on_key())
+        self.protocol("WM_DELETE_WINDOW", self._on_no)
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        lang = "id" if self.is_id else "en"
+        self.hint_label.config(text=nav.get_dialog_hints(device=dev, lang=lang))
+
+    def _cycle_button(self, delta):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+        self.focused_idx = (self.focused_idx + delta) % len(self.buttons)
+        self.buttons[self.focused_idx].focus_set()
+
+    def _invoke_focused(self):
+        if 0 <= self.focused_idx < len(self.buttons):
+            self.buttons[self.focused_idx].invoke()
+
+    def handle_pad(self, action: str):
+        self._update_hint()
+        if action in ("left", "up"):
+            self.focused_idx = (self.focused_idx - 1) % len(self.buttons)
+            self.buttons[self.focused_idx].focus_set()
+        elif action in ("right", "down"):
+            self.focused_idx = (self.focused_idx + 1) % len(self.buttons)
+            self.buttons[self.focused_idx].focus_set()
+        elif action == "a":
+            self._invoke_focused()
+        elif action in ("b", "escape"):
+            if len(self.buttons) > 1:
+                self._on_no()
+            else:
+                self._on_yes()
+        elif action == "start":
+            self._on_yes()
+
+    def _on_yes(self):
+        self.result = True
+        self.destroy()
+
+    def _on_no(self):
+        self.result = False
+        self.destroy()
+
+    def show(self):
+        self.update_idletasks()
+        w = max(420, self.winfo_reqwidth())
+        h = max(180, self.winfo_reqheight())
+        px = self.parent.winfo_rootx()
+        py = self.parent.winfo_rooty()
+        pw = self.parent.winfo_width()
+        ph = self.parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.parent._active_dialog = self
+        self.buttons[self.focused_idx].focus_set()
+        self.grab_set()
+        self.wait_window()
+        self.parent._active_dialog = None
+        return self.result
+
+
 class Launcher(tk.Tk):
     def __init__(self, play_now=False):
         super().__init__()
@@ -983,18 +1110,19 @@ class Launcher(tk.Tk):
               indicatorbackground=[("active", FIELD)])
         s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 2), borderwidth=1,
                     bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622")
-        edge = [("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
+        edge = [("focus", GOLD), ("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
         s.map("TButton", background=[("active", "#3a342e"), ("disabled", "#1c1916")],
               foreground=[("disabled", MUTED)], bordercolor=edge, lightcolor=edge, darkcolor=edge)
         s.configure("Play.TButton", background=RED, foreground="#fff", font=("Segoe UI Semibold", 15),
                     padding=(10, 12), bordercolor=RED, lightcolor=RED, darkcolor=RED)
-        play_edge = [("disabled", "#4a2522"), ("active", "#b8362d")]
+        play_edge = [("focus", GOLD), ("disabled", "#4a2522"), ("active", "#b8362d")]
         s.map("Play.TButton", background=[("active", "#b8362d"), ("disabled", "#4a2522")],
               bordercolor=play_edge, lightcolor=play_edge, darkcolor=play_edge)
-        s.configure("Seg.Toolbutton", background="#2a2622", foreground=FG, padding=(10, 6), borderwidth=0,
-                    anchor="center")
+        s.configure("Seg.Toolbutton", background="#2a2622", foreground=FG, padding=(10, 6), borderwidth=1,
+                    bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622", anchor="center")
+        seg_edge = [("focus", GOLD), ("active", "#3a342e")]
         s.map("Seg.Toolbutton", background=[("selected", GOLD), ("active", "#3a342e")],
-              foreground=[("selected", BG)])
+              foreground=[("selected", BG)], bordercolor=seg_edge, lightcolor=seg_edge, darkcolor=seg_edge)
         s.configure("TCombobox", arrowcolor=GOLD, bordercolor=EDGE, lightcolor=EDGE, darkcolor=EDGE,
                     padding=(6, 4), selectbackground=FIELD, selectforeground=FG)
         s.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", FG)],
@@ -1002,6 +1130,7 @@ class Launcher(tk.Tk):
               bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
         s.configure("TEntry", fieldbackground=FIELD, foreground=FG, insertcolor=FG, bordercolor=EDGE,
                     lightcolor=EDGE, darkcolor=EDGE, padding=(6, 4))
+        s.map("TEntry", bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
         self.option_add("*TCombobox*Listbox.background", FIELD)
         self.option_add("*TCombobox*Listbox.foreground", FG)
         self.option_add("*TCombobox*Listbox.selectBackground", GOLD)
@@ -1051,6 +1180,13 @@ class Launcher(tk.Tk):
         self.cheat_checkboxes = {}
         self._current_page = None
         self._pad_poll_id = None
+        self.xi_manager = nav.XInputManager()
+        self.repeat_tracker = nav.KeyRepeatTracker()
+        self._last_input_device = "keyboard"
+        self._prev_pad_buttons = {}
+        self._active_dialog = None
+        self._nav_pad_poll_id = None
+        self.controls_canvas = None
 
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True, padx=14, pady=14)
@@ -1061,6 +1197,10 @@ class Launcher(tk.Tk):
         right = tk.Frame(shell, bg=PANEL)
         right.pack(side="left", fill="both", expand=True)
         self._build_right(right)
+        self._bind_nav_keys()
+        self._update_button_hints()
+        self.after(50, self._poll_gamepad_nav)
+        self.after(100, self._initial_nav_focus)
         game = self.cfg["game"]
         self.show_page("display" if game and (Path(game) / "eboot.bin").is_file() else "game")
 
@@ -1117,10 +1257,21 @@ class Launcher(tk.Tk):
                 widget.bind("<Button-1>", lambda _e, k=key: self.show_page(k))
             label.bind("<Return>", lambda _e, k=key: self.show_page(k))
             label.bind("<space>", lambda _e, k=key: self.show_page(k))
+            label.bind("<FocusIn>", lambda _e, k=key: self._on_nav_focus_in(k))
+            label.bind("<FocusOut>", lambda _e, k=key: self._on_nav_focus_out(k))
             self.nav[key] = (item, bar, label)
 
         content = tk.Frame(right, bg=PANEL)
         content.pack(side="left", fill="both", expand=True)
+        hint_bar = tk.Frame(content, bg=PANEL, height=28)  # on-screen button hints strip
+        hint_bar.pack(side="bottom", fill="x")
+        hint_bar.pack_propagate(False)
+        tk.Frame(hint_bar, bg=LINE, height=1).pack(fill="x")
+        self.button_hints_label = tk.Label(
+            hint_bar, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w", padx=20
+        )
+        self.button_hints_label.pack(side="left", fill="both", expand=True)
+
         tip = tk.Frame(content, bg=PANEL, height=35)  # the docked hint bar
         tip.pack(side="bottom", fill="x")
         tip.pack_propagate(False)
@@ -1153,7 +1304,11 @@ class Launcher(tk.Tk):
             on = name == key
             fill = HOVER if on else PANEL
             item.config(bg=fill)
-            label.config(bg=fill, fg=GOLD if on else MUTED, highlightbackground=fill,
+            is_focused = (self.focus_get() == label)
+            hi_bg = GOLD if is_focused else fill
+            hi_th = 2 if is_focused else 1
+            label.config(bg=fill, fg=GOLD if on else MUTED, highlightbackground=hi_bg,
+                         highlightthickness=hi_th,
                          font=("Segoe UI Semibold" if on else "Segoe UI", 11))
             bar.config(bg=GOLD if on else PANEL)
         self.pages[key].pack(fill="both", expand=True)
@@ -1211,6 +1366,7 @@ class Launcher(tk.Tk):
 
         def show(_event=None):
             self._light(bar)
+            self._scroll_into_view(row)
             if key in CHEAT_KEYS and self._is_game_running():
                 self.hint.config(text=self._running_cheat_hint())
             else:
@@ -1230,8 +1386,13 @@ class Launcher(tk.Tk):
 
     def _combo_row(self, page, key, var, values):
         need = max(self._font.measure(v) for v in values) + 48  # text + arrow + padding: nothing truncated
-        self._row(page, key, lambda h: ttk.Combobox(h, textvariable=var, state="readonly", values=values).pack(
-            fill="both", expand=True), width=max(250, need), stack=need > 330)
+        def make_cb(h):
+            cb = ttk.Combobox(h, textvariable=var, state="readonly", values=values)
+            cb.pack(fill="both", expand=True)
+            cb.bind("<Left>", lambda _e: (self._cycle_combobox(cb, -1), "break")[1])
+            cb.bind("<Right>", lambda _e: (self._cycle_combobox(cb, 1), "break")[1])
+            return cb
+        self._row(page, key, make_cb, width=max(250, need), stack=need > 330)
 
     def _check_row(self, page, key, var, command=None, sub=False):
         btn = None
@@ -1332,7 +1493,7 @@ class Launcher(tk.Tk):
             "• May exhibit visual glitches.\n\n"
             "Enable dual-monitor co-op and switch window to 3840x1080 borderless?"
         )
-        if messagebox.askyesno(title, msg, icon="warning", parent=self):
+        if self.ask_yes_no(title, msg):
             self.mode_var.set("borderless")
             self.res_var.set(next((n for n, v in RESOLUTIONS if v == "3840x1080"), "3840 x 1080  (Dual 1080p)"))
             self.cfg["display_mode"] = "borderless"
@@ -1342,6 +1503,7 @@ class Launcher(tk.Tk):
 
     def _page_controls(self, page):
         canvas = tk.Canvas(page, bg=PANEL, highlightthickness=0, bd=0)
+        self.controls_canvas = canvas
         scrollbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
         content = tk.Frame(canvas, bg=PANEL)
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -1723,9 +1885,9 @@ class Launcher(tk.Tk):
         files, total = wav_captures()
         if not files or total < 50 * 2**20:
             return
-        if messagebox.askyesno("Audio captures", f"user\\audio_wav holds {format_size(total)} of audio captures "
-                               f"({len(files)} files) from an earlier session.\n\nDelete them to free the space?",
-                               default="no", parent=self):
+        if self.ask_yes_no("Audio captures", f"user\\audio_wav holds {format_size(total)} of audio captures "
+                           f"({len(files)} files) from an earlier session.\n\nDelete them to free the space?",
+                           default=False):
             for f in files:
                 try:
                     f.unlink()
@@ -1901,7 +2063,7 @@ class Launcher(tk.Tk):
             return
         avail_mb = check_commit_limit_mb()
         if avail_mb is not None and avail_mb < 2560:
-            if not messagebox.askyesno(
+            if not self.ask_yes_no(
                 "Virtual Memory Sangat Rendah",
                 f"Sisa alokasi memori virtual Windows Anda hanya ~{avail_mb} MB.\n"
                 "Game membutuhkan setidaknya ~3584 MB (3.5 GB) virtual memory.\n\n"
@@ -2389,7 +2551,7 @@ class Launcher(tk.Tk):
             return
         tag = self.update_info["tag"]
         size_mb = self.update_info["size"] / (1024 * 1024)
-        if messagebox.askyesno(
+        if self.ask_yes_no(
             "Update Tersedia",
             f"Versi baru {tag} tersedia di GitHub!\nUkuran unduhan: ~{size_mb:.1f} MB.\n\n"
             "Launcher akan mengunduh dan menerapkan update secara otomatis.\n"
@@ -2868,7 +3030,7 @@ class Launcher(tk.Tk):
         self.after(4000, self._pad_text)
 
     def reset_map(self):
-        if MAPPING.exists() and messagebox.askyesno("Reset mapping", "Delete the saved controller mapping?"):
+        if MAPPING.exists() and self.ask_yes_no("Reset mapping", "Delete the saved controller mapping?"):
             os.replace(MAPPING, str(MAPPING) + ".bak")
             self._pad_text()
 
@@ -2876,23 +3038,571 @@ class Launcher(tk.Tk):
         if LOG.exists():
             os.startfile(LOG)
         else:
-            messagebox.showinfo("Log", "No log yet. Start the game first.")
+            self.show_info("Log", "No log yet. Start the game first.")
 
     def open_audio_log(self):
         if AUDIO_LOG.exists():
             os.startfile(AUDIO_LOG)
         else:
-            messagebox.showinfo("Audio log", "No audio log yet. Tick \"Audio debug log\", then start the game.")
+            self.show_info("Audio log", "No audio log yet. Tick \"Audio debug log\", then start the game.")
 
     def open_saves(self):
         path = USER / "savedata"
         path.mkdir(parents=True, exist_ok=True)
         os.startfile(path)
 
+    # ---- Gamepad & Keyboard Navigation ----
+    def _initial_nav_focus(self):
+        try:
+            if hasattr(self, "nav") and self._current_page in self.nav:
+                self.nav[self._current_page][2].focus_set()
+        except Exception:
+            pass
+
+    def _on_nav_focus_in(self, key):
+        if hasattr(self, "nav") and key in self.nav:
+            _item, _bar, label = self.nav[key]
+            label.config(highlightbackground=GOLD, highlightcolor=GOLD, highlightthickness=2)
+            self._light(None)
+            self.hint.config(text=PAGE_HINT.get(key, ""))
+
+    def _on_nav_focus_out(self, key):
+        if hasattr(self, "nav") and key in self.nav:
+            _item, _bar, label = self.nav[key]
+            fill = HOVER if key == self._current_page else PANEL
+            label.config(highlightbackground=fill, highlightcolor=fill, highlightthickness=1)
+
+    def _update_button_hints(self):
+        if not hasattr(self, "button_hints_label"):
+            return
+        lang = self.cfg.get("language", "en")
+        dev = getattr(self, "_last_input_device", "keyboard")
+        self.button_hints_label.config(text=nav.get_button_hints(device=dev, lang=lang))
+
+    def _set_last_input_device(self, device: str):
+        if getattr(self, "_last_input_device", None) != device:
+            self._last_input_device = device
+            self._update_button_hints()
+            if getattr(self, "_active_dialog", None):
+                self._active_dialog._update_hint()
+
+    def _bind_nav_keys(self):
+        self.bind("<Up>", lambda _e: self._nav_up("keyboard"))
+        self.bind("<Down>", lambda _e: self._nav_down("keyboard"))
+        self.bind("<Left>", lambda _e: self._nav_left("keyboard"))
+        self.bind("<Right>", lambda _e: self._nav_right("keyboard"))
+        self.bind("<Return>", lambda _e: self._nav_activate("keyboard"))
+        self.bind("<space>", lambda _e: self._nav_activate("keyboard"))
+        self.bind("<Escape>", lambda _e: self._nav_back("keyboard"))
+        self.bind("<Prior>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Next>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<Key-q>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Key-Q>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Key-e>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<Key-E>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<F5>", lambda _e: self._nav_play("keyboard"))
+        self.bind("<Key>", lambda _e: self._set_last_input_device("keyboard"))
+
+    def _scroll_into_view(self, widget):
+        if not hasattr(self, "controls_canvas") or not self.controls_canvas:
+            return
+        canvas = self.controls_canvas
+        if getattr(self, "_current_page", None) != "controls":
+            return
+        try:
+            self.update_idletasks()
+            c_h = canvas.winfo_height()
+            bbox = canvas.bbox("all")
+            if not bbox:
+                return
+            tot_h = bbox[3] - bbox[1]
+            if tot_h <= c_h:
+                return
+            wy = widget.winfo_rooty() - canvas.winfo_rooty()
+            top_y = canvas.canvasy(0)
+            widget_canvas_y = canvas.canvasy(wy)
+            wh = widget.winfo_height()
+
+            margin = 35
+            if widget_canvas_y < top_y + margin:
+                target = max(0, widget_canvas_y - margin)
+                canvas.yview_moveto(target / tot_h)
+            elif widget_canvas_y + wh > top_y + c_h - margin:
+                target = max(0, widget_canvas_y + wh + margin - c_h)
+                canvas.yview_moveto(target / tot_h)
+        except Exception:
+            pass
+
+    def _cycle_combobox(self, cb, delta: int):
+        values = list(cb["values"])
+        if not values:
+            return
+        cur = cb.get()
+        try:
+            idx = values.index(cur)
+        except ValueError:
+            idx = 0
+        new_idx = max(0, min(len(values) - 1, idx + delta))
+        if new_idx != idx:
+            cb.current(new_idx)
+            cb.event_generate("<<ComboboxSelected>>")
+
+    def _is_combobox_open(self, cb):
+        try:
+            p = cb.tk.eval(f"ttk::combobox::PopdownWindow {cb}")
+            return cb.tk.eval(f"winfo ismapped {p}") == "1"
+        except Exception:
+            return False
+
+    def _open_combobox(self, cb):
+        try:
+            cb.tk.eval(f"ttk::combobox::Post {cb}")
+        except Exception:
+            pass
+
+    def _close_combobox(self, cb):
+        try:
+            cb.tk.eval(f"ttk::combobox::Unpost {cb}")
+        except Exception:
+            pass
+
+    def _send_combobox_listbox_key(self, cb, keysym: str):
+        try:
+            p = cb.tk.eval(f"ttk::combobox::PopdownWindow {cb}")
+            lb = p + ".f.l"
+            self.tk.eval(f"event generate {lb} <{keysym}>")
+        except Exception:
+            pass
+
+    def _get_left_buttons(self):
+        btns = []
+        for b in (self.play, self.stop, self.check_btn):
+            if b and b.winfo_exists():
+                try:
+                    if str(b.cget("state")) != "disabled":
+                        btns.append(b)
+                except Exception:
+                    pass
+        return btns
+
+    def _get_nav_labels(self):
+        return [self.nav[k][2] for k, _ in NAV if k in self.nav]
+
+    def _get_page_control_rows(self, page_key: str):
+        page = self.pages.get(page_key)
+        if not page:
+            return []
+        interactive = []
+
+        def collect(w):
+            cls = w.winfo_class()
+            if cls in (
+                "TButton", "Button", "TCheckbutton", "Checkbutton",
+                "TRadiobutton", "Radiobutton", "TCombobox", "TEntry", "Entry",
+                "TScale", "Scale"
+            ):
+                try:
+                    state = str(w.cget("state"))
+                    if state != "disabled":
+                        interactive.append(w)
+                except Exception:
+                    pass
+            for child in w.winfo_children():
+                collect(child)
+
+        collect(page)
+        if not interactive:
+            return []
+
+        rows = []
+        for w in sorted(interactive, key=lambda w: w.winfo_rooty()):
+            if not rows:
+                rows.append([w])
+            elif abs(w.winfo_rooty() - rows[-1][0].winfo_rooty()) <= 15:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+
+        for r in rows:
+            r.sort(key=lambda w: w.winfo_rootx())
+
+        return rows
+
+    def _get_current_zone(self):
+        focused = self.focus_get()
+        if focused is None:
+            return "nav", None, 0, 0
+        left_btns = self._get_left_buttons()
+        if focused in left_btns:
+            return "left", focused, left_btns.index(focused), 0
+        nav_labels = self._get_nav_labels()
+        if focused in nav_labels:
+            return "nav", focused, nav_labels.index(focused), 0
+        rows = self._get_page_control_rows(self._current_page)
+        for r_idx, r in enumerate(rows):
+            if focused in r:
+                return "page", focused, r_idx, r.index(focused)
+        for r_idx, r in enumerate(rows):
+            for c_idx, ctrl in enumerate(r):
+                if focused == ctrl or str(focused).startswith(str(ctrl)):
+                    return "page", ctrl, r_idx, c_idx
+        cur_page_widget = self.pages.get(self._current_page)
+        if cur_page_widget and str(focused).startswith(str(cur_page_widget)):
+            return "page", focused, 0, 0
+        return "nav", self.nav[self._current_page][2], 0, 0
+
+    def _nav_up(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("up")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._send_combobox_listbox_key(focused, "Up")
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            nav_labels = self._get_nav_labels()
+            new_idx = max(0, r - 1)
+            key = NAV[new_idx][0]
+            self.show_page(key)
+            nav_labels[new_idx].focus_set()
+        elif zone == "left":
+            btns = self._get_left_buttons()
+            new_idx = max(0, r - 1)
+            btns[new_idx].focus_set()
+        elif zone == "page":
+            rows = self._get_page_control_rows(self._current_page)
+            if not rows:
+                return
+            if r > 0:
+                target_row = rows[r - 1]
+                target_col = nav.find_closest_column(len(target_row), c)
+                target = target_row[target_col]
+                target.focus_set()
+                self._scroll_into_view(target)
+
+    def _nav_down(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("down")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._send_combobox_listbox_key(focused, "Down")
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            nav_labels = self._get_nav_labels()
+            new_idx = min(len(nav_labels) - 1, r + 1)
+            key = NAV[new_idx][0]
+            self.show_page(key)
+            nav_labels[new_idx].focus_set()
+        elif zone == "left":
+            btns = self._get_left_buttons()
+            new_idx = min(len(btns) - 1, r + 1)
+            btns[new_idx].focus_set()
+        elif zone == "page":
+            rows = self._get_page_control_rows(self._current_page)
+            if not rows:
+                return
+            if r < len(rows) - 1:
+                target_row = rows[r + 1]
+                target_col = nav.find_closest_column(len(target_row), c)
+                target = target_row[target_col]
+                target.focus_set()
+                self._scroll_into_view(target)
+
+    def _nav_left(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("left")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            btns = self._get_left_buttons()
+            if btns:
+                btns[0].focus_set()
+        elif zone == "left":
+            pass
+        elif zone == "page":
+            if isinstance(widget, ttk.Combobox):
+                self._cycle_combobox(widget, -1)
+            elif isinstance(widget, (ttk.Radiobutton, tk.Radiobutton)):
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows):
+                    if c > 0:
+                        prev_btn = rows[r][c - 1]
+                        prev_btn.focus_set()
+                        prev_btn.invoke()
+                    else:
+                        self.nav[self._current_page][2].focus_set()
+            elif isinstance(widget, (ttk.Scale, tk.Scale)):
+                try:
+                    from_ = float(widget.cget("from"))
+                    val = float(widget.get())
+                    widget.set(max(from_, val - 5))
+                except Exception:
+                    pass
+            elif isinstance(widget, (ttk.Entry, tk.Entry)) and device == "keyboard":
+                return
+            else:
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows):
+                    if c > 0:
+                        target = rows[r][c - 1]
+                        target.focus_set()
+                        self._scroll_into_view(target)
+                    else:
+                        self.nav[self._current_page][2].focus_set()
+
+    def _nav_right(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("right")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "left":
+            self.nav[self._current_page][2].focus_set()
+        elif zone == "nav":
+            rows = self._get_page_control_rows(self._current_page)
+            if rows and rows[0]:
+                target = rows[0][0]
+                target.focus_set()
+                self._scroll_into_view(target)
+        elif zone == "page":
+            if isinstance(widget, ttk.Combobox):
+                self._cycle_combobox(widget, 1)
+            elif isinstance(widget, (ttk.Radiobutton, tk.Radiobutton)):
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows) and c < len(rows[r]) - 1:
+                    next_btn = rows[r][c + 1]
+                    next_btn.focus_set()
+                    next_btn.invoke()
+            elif isinstance(widget, (ttk.Scale, tk.Scale)):
+                try:
+                    to_ = float(widget.cget("to"))
+                    val = float(widget.get())
+                    widget.set(min(to_, val + 5))
+                except Exception:
+                    pass
+            elif isinstance(widget, (ttk.Entry, tk.Entry)) and device == "keyboard":
+                return
+            else:
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows) and c < len(rows[r]) - 1:
+                    target = rows[r][c + 1]
+                    target.focus_set()
+                    self._scroll_into_view(target)
+
+    def _nav_activate(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("a")
+            else:
+                self._active_dialog._invoke_focused()
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox):
+            if self._is_combobox_open(focused):
+                self._send_combobox_listbox_key(focused, "Return")
+            else:
+                self._open_combobox(focused)
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            rows = self._get_page_control_rows(self._current_page)
+            if rows and rows[0]:
+                target = rows[0][0]
+                target.focus_set()
+                self._scroll_into_view(target)
+        elif zone in ("left", "page"):
+            if hasattr(widget, "invoke"):
+                try:
+                    widget.invoke()
+                except Exception:
+                    pass
+
+    def _nav_back(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("b")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone in ("page", "left"):
+            self.nav[self._current_page][2].focus_set()
+
+    def _nav_prev_page(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        focused = self.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry)) and device == "keyboard":
+            return
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+
+        keys = [k for k, _ in NAV]
+        cur_idx = keys.index(self._current_page) if self._current_page in keys else 0
+        new_idx = (cur_idx - 1) % len(keys)
+        self.show_page(keys[new_idx])
+        self.nav[keys[new_idx]][2].focus_set()
+
+    def _nav_next_page(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        focused = self.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry)) and device == "keyboard":
+            return
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+
+        keys = [k for k, _ in NAV]
+        cur_idx = keys.index(self._current_page) if self._current_page in keys else 0
+        new_idx = (cur_idx + 1) % len(keys)
+        self.show_page(keys[new_idx])
+        self.nav[keys[new_idx]][2].focus_set()
+
+    def _nav_play(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        self.on_play()
+
+    def _poll_gamepad_nav(self):
+        self._nav_pad_poll_id = self.after(25, self._poll_gamepad_nav)
+
+        try:
+            if self.focus_displayof() is None:
+                return
+            if self.state() == "iconic":
+                return
+        except Exception:
+            return
+
+        if self._is_game_running():
+            try:
+                fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
+                root_hwnd = self.winfo_id()
+                dialog_hwnd = self._active_dialog.winfo_id() if self._active_dialog else 0
+                if fg_hwnd not in (root_hwnd, dialog_hwnd):
+                    return
+            except Exception:
+                return
+
+        if not self.xi_manager.is_available:
+            return
+
+        now = time.monotonic()
+        for slot in range(4):
+            res = self.xi_manager.poll_slot(slot)
+            if res is None:
+                continue
+            buttons, lx, ly = res
+            up, down, left, right = nav.stick_to_directions(lx, ly)
+            is_up = buttons["up"] or up
+            is_down = buttons["down"] or down
+            is_left = buttons["left"] or left
+            is_right = buttons["right"] or right
+
+            has_any = (
+                is_up or is_down or is_left or is_right
+                or buttons["a"] or buttons["b"] or buttons["x"] or buttons["y"]
+                or buttons["lb"] or buttons["rb"] or buttons["start"] or buttons["back"]
+            )
+            if has_any:
+                self._set_last_input_device("pad")
+
+            if self.repeat_tracker.update("up", is_up, now):
+                self._nav_up(device="pad")
+            if self.repeat_tracker.update("down", is_down, now):
+                self._nav_down(device="pad")
+            if self.repeat_tracker.update("left", is_left, now):
+                self._nav_left(device="pad")
+            if self.repeat_tracker.update("right", is_right, now):
+                self._nav_right(device="pad")
+
+            prev = self._prev_pad_buttons.get(slot, {})
+            if buttons["a"] and not prev.get("a"):
+                self._nav_activate(device="pad")
+            if buttons["b"] and not prev.get("b"):
+                self._nav_back(device="pad")
+            if buttons["lb"] and not prev.get("lb"):
+                self._nav_prev_page(device="pad")
+            if buttons["rb"] and not prev.get("rb"):
+                self._nav_next_page(device="pad")
+            if buttons["start"] and not prev.get("start"):
+                self._nav_play(device="pad")
+            if buttons["y"] and not prev.get("y"):
+                self.check_update_manual()
+
+            self._prev_pad_buttons[slot] = buttons
+            if has_any:
+                break
+
+    def ask_yes_no(self, title, msg, icon="question", default=True):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="yesno", default_yes=default, is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.askyesno(title, msg, parent=self)
+
+    def show_info(self, title, msg):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="info", is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.showinfo(title, msg, parent=self)
+
+    def show_error(self, title, msg):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="error", is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.showerror(title, msg, parent=self)
+
     def _close(self):
+        if hasattr(self, "_nav_pad_poll_id") and self._nav_pad_poll_id:
+            try:
+                self.after_cancel(self._nav_pad_poll_id)
+            except Exception:
+                pass
+            self._nav_pad_poll_id = None
         self._cleanup_update_view()
         if self.proc and self.proc.poll() is None:
-            if not messagebox.askyesno("Game running", "Stop the game and close the launcher?"):
+            if not self.ask_yes_no("Game running", "Stop the game and close the launcher?"):
                 return
             self.proc.kill()
         try:
