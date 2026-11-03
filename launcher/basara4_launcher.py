@@ -1597,20 +1597,23 @@ class Launcher(tk.Tk):
 
     def show_page(self, key):
         self._current_page = key
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
         for name, page in self.pages.items():
             page.pack_forget()
             item, bar, label = self.nav[name]
             on = name == key
-            fill = HOVER if on else PANEL
+            fill = theme["bg_card"] if on else theme["bg_main"]
             item.config(bg=fill)
             is_focused = (self.focus_get() == label)
-            hi_bg = GOLD if is_focused else fill
+            hi_bg = theme["accent_primary"] if is_focused else fill
             hi_th = 2 if is_focused else 1
-            label.config(bg=fill, fg=GOLD if on else MUTED, highlightbackground=hi_bg,
+            label.config(bg=fill, fg=theme["accent_primary"] if on else theme["fg_muted"],
+                         highlightbackground=hi_bg,
                          highlightthickness=hi_th,
                          font=("Segoe UI Semibold" if on else "Segoe UI", 11))
-            bar.config(bg=GOLD if on else PANEL)
+            bar.config(bg=theme["accent_primary"] if on else fill)
         self.pages[key].pack(fill="both", expand=True)
+        self._light(None)
         self._light(None)
         if key == "mods" and self._is_game_running():
             self.hint.config(text=self._running_cheat_hint())
@@ -1633,44 +1636,101 @@ class Launcher(tk.Tk):
             self._pad_poll_id = self.after(1500, self._schedule_pad_poll)
 
     # ---- settings rows ----
-    def _light(self, bar):
-        """The gold bar of the row being hovered or focused (None: no row)."""
-        if self._lit_bar is not None:
-            self._lit_bar.config(bg=PANEL)
+    def _light(self, bar, row=None):
+        """The accent bar and focus outline of the row being hovered or focused (None: no row)."""
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        if hasattr(self, "_lit_bar") and self._lit_bar is not None and self._lit_bar.winfo_exists():
+            try:
+                self._lit_bar.config(bg=self._lit_bar.master.cget("bg"))
+            except Exception:
+                pass
+        if hasattr(self, "_lit_row") and self._lit_row is not None and self._lit_row.winfo_exists():
+            try:
+                self._lit_row.config(highlightbackground=theme["border_card"])
+            except Exception:
+                pass
         self._lit_bar = bar
-        if bar is not None:
-            bar.config(bg=GOLD)
+        self._lit_row = row
+        if bar is not None and bar.winfo_exists():
+            try:
+                bar.config(bg=theme["accent_primary"])
+            except Exception:
+                pass
+        if row is not None and row.winfo_exists():
+            try:
+                row.config(highlightbackground=theme["accent_primary"])
+            except Exception:
+                pass
 
     def _row(self, page, key, make, width=250, sub=False, stack=False, height=30):
-        """One ruled row: label left, the control `make(holder)` right. Hovering or focusing it shows its hint."""
+        """One card row: label left, control right. Card has border_card outline, hover bg_hover."""
         label, hint = ROW[key]
-        row = tk.Frame(page, bg=PANEL)
-        row.pack(fill="x")
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        row = tk.Frame(page, bg=theme["bg_card"], highlightthickness=1,
+                       highlightbackground=theme["border_card"], padx=10, pady=4)
+        row.pack(fill="x", pady=2)
         row.columnconfigure(1, weight=1)
-        row.rowconfigure(0, minsize=40)
+        row.rowconfigure(0, minsize=32)
         theme_mod.REGISTRY.register(row, bg="bg_card")
-        bar = tk.Frame(row, bg=PANEL, width=3)
-        bar.grid(row=0, column=0, sticky="ns")
+        bar = tk.Frame(row, bg=theme["bg_card"], width=4)
+        bar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         theme_mod.REGISTRY.register(bar, bg="bg_card")
-        lbl = tk.Label(row, text=label, bg=PANEL, fg=FG, font=FONT)
-        lbl.grid(row=0, column=1, sticky="w", padx=(10 + (23 if sub else 0), 0))
+        lbl = tk.Label(row, text=label, bg=theme["bg_card"], fg=theme["fg_primary"], font=FONT)
+        lbl.grid(row=0, column=1, sticky="w", padx=(4 + (20 if sub else 0), 0))
         theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_primary")
-        holder = tk.Frame(row, bg=PANEL)
+        holder = tk.Frame(row, bg=theme["bg_card"])
         theme_mod.REGISTRY.register(holder, bg="bg_card")
         if stack:  # a value too long for the right column gets the full width under its label
-            holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(13, 10), pady=(0, 8))
+            holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(10, 6), pady=(4, 6))
         else:
-            holder.grid(row=0, column=2, sticky="e", padx=(0, 10))
+            holder.grid(row=0, column=2, sticky="e", padx=(0, 6))
         if width and not stack:
             holder.config(width=width, height=height)
             holder.pack_propagate(False)
         make(holder)
-        rule = tk.Frame(row, bg=RULE, height=1)
-        rule.grid(row=2, column=0, columnspan=3, sticky="ew")
-        theme_mod.REGISTRY.register(rule, bg="border_card")
 
-        def show(_event=None):
-            self._light(bar)
+        def set_card_hover(hovering):
+            cur_th = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+            col = cur_th["bg_hover"] if hovering else cur_th["bg_card"]
+            row.config(bg=col)
+            lbl.config(bg=col)
+            holder.config(bg=col)
+            if hasattr(self, "_lit_row") and self._lit_row == row:
+                bar.config(bg=cur_th["accent_primary"])
+            else:
+                bar.config(bg=col)
+            for child in holder.winfo_children():
+                if hasattr(child, "set_bg"):
+                    child.set_bg(col)
+                elif isinstance(child, (tk.Label, tk.Frame)):
+                    try:
+                        child.config(bg=col)
+                    except Exception:
+                        pass
+
+        def on_enter(_event=None):
+            set_card_hover(True)
+            self._light(bar, row)
+            self._scroll_into_view(row)
+            if key in CHEAT_KEYS and self._is_game_running():
+                self.hint.config(text=self._running_cheat_hint())
+            else:
+                self.hint.config(text=hint)
+
+        def on_leave(_event=None):
+            try:
+                x, y = row.winfo_pointerxy()
+                rx = row.winfo_rootx()
+                ry = row.winfo_rooty()
+                rw = row.winfo_width()
+                rh = row.winfo_height()
+                if not (rx <= x < rx + rw and ry <= y < ry + rh):
+                    set_card_hover(False)
+            except Exception:
+                set_card_hover(False)
+
+        def on_focus_in(_event=None):
+            self._light(bar, row)
             self._scroll_into_view(row)
             if key in CHEAT_KEYS and self._is_game_running():
                 self.hint.config(text=self._running_cheat_hint())
@@ -1678,8 +1738,9 @@ class Launcher(tk.Tk):
                 self.hint.config(text=hint)
 
         def wire(widget):
-            widget.bind("<Enter>", show, add="+")
-            widget.bind("<FocusIn>", show, add="+")  # the same hint for keyboard and pad users
+            widget.bind("<Enter>", on_enter, add="+")
+            widget.bind("<Leave>", on_leave, add="+")
+            widget.bind("<FocusIn>", on_focus_in, add="+")
             for child in widget.winfo_children():
                 wire(child)
         wire(row)
@@ -1821,10 +1882,13 @@ class Launcher(tk.Tk):
             self.dual_monitor_coop_var.set(False)
 
     def _page_controls(self, page):
-        canvas = tk.Canvas(page, bg=PANEL, highlightthickness=0, bd=0)
+        cur_th = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        canvas = tk.Canvas(page, bg=cur_th["bg_main"], highlightthickness=0, bd=0)
+        theme_mod.REGISTRY.register(canvas, bg="bg_main")
         self.controls_canvas = canvas
         scrollbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
-        content = tk.Frame(canvas, bg=PANEL)
+        content = tk.Frame(canvas, bg=cur_th["bg_main"])
+        theme_mod.REGISTRY.register(content, bg="bg_main")
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         cwin = canvas.create_window((0, 0), window=content, anchor="nw")
 
@@ -3405,15 +3469,17 @@ class Launcher(tk.Tk):
 
     def _on_nav_focus_in(self, key):
         if hasattr(self, "nav") and key in self.nav:
+            theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
             _item, _bar, label = self.nav[key]
-            label.config(highlightbackground=GOLD, highlightcolor=GOLD, highlightthickness=2)
+            label.config(highlightbackground=theme["accent_primary"], highlightcolor=theme["accent_primary"], highlightthickness=2)
             self._light(None)
             self.hint.config(text=PAGE_HINT.get(key, ""))
 
     def _on_nav_focus_out(self, key):
         if hasattr(self, "nav") and key in self.nav:
+            theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
             _item, _bar, label = self.nav[key]
-            fill = HOVER if key == self._current_page else PANEL
+            fill = theme["bg_card"] if key == self._current_page else theme["bg_main"]
             label.config(highlightbackground=fill, highlightcolor=fill, highlightthickness=1)
 
     def _update_button_hints(self):
