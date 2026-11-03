@@ -985,13 +985,14 @@ class ToggleSwitch(tk.Canvas):
     """Canvas-based toggle switch (40x22 pill track with knob) matching redesign mockup."""
 
     def __init__(self, parent, variable=None, command=None, bg=None):
-        super().__init__(parent, width=40, height=22, bd=0, highlightthickness=0, cursor="hand2")
+        super().__init__(parent, width=40, height=22, bd=0, highlightthickness=1, cursor="hand2")
         self._is_toggle = True
         self._state = "normal"
         self.variable = variable or tk.BooleanVar(value=False)
         self.command = command
-        self._bg_color = bg or theme_mod.get_theme()["bg_card"]
-        self.configure(bg=self._bg_color)
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        self._bg_color = bg or theme["bg_card"]
+        self.configure(bg=self._bg_color, highlightbackground=self._bg_color, highlightcolor=theme.get("accent_primary", "#E8B949"))
 
         self.bind("<Button-1>", lambda _e: self.invoke())
         self.bind("<Return>", lambda _e: self.invoke())
@@ -1016,31 +1017,79 @@ class ToggleSwitch(tk.Canvas):
 
     def set_bg(self, bg_color):
         self._bg_color = bg_color
-        self.configure(bg=bg_color)
+        try:
+            super().configure(bg=bg_color, highlightbackground=bg_color)
+        except Exception:
+            pass
         self._redraw()
 
     def config(self, **kwargs):
         if "state" in kwargs:
             self._state = kwargs.pop("state")
-            self.configure(cursor="" if self._state == "disabled" else "hand2")
+            super().configure(cursor="" if self._state == "disabled" else "hand2")
         if kwargs:
             super().configure(**kwargs)
+        self._redraw()
+
+    def configure(self, **kwargs):
+        self.config(**kwargs)
 
     def cget(self, key):
         if key == "state":
             return self._state
         return super().cget(key)
 
-    def _on_theme_changed(self, _theme):
+    def state(self, statespec=None):
+        if statespec is None:
+            return ("disabled",) if self._state == "disabled" else ()
+        for s in statespec:
+            if s == "disabled":
+                self.config(state="disabled")
+            elif s in ("!disabled", "normal"):
+                self.config(state="normal")
+            elif s == "selected":
+                self.variable.set(True)
+            elif s == "!selected":
+                self.variable.set(False)
+        return self.state()
+
+    def instate(self, statespec, callback=None, *args, **kwargs):
+        cur = self.state()
+        match = True
+        for s in statespec:
+            if s.startswith("!"):
+                if s[1:] in cur:
+                    match = False
+                    break
+            else:
+                if s not in cur:
+                    match = False
+                    break
+        if match and callable(callback):
+            return callback(*args, **kwargs)
+        return match
+
+    def _on_theme_changed(self, theme):
+        if isinstance(theme, dict) and "bg_card" in theme:
+            self._bg_color = theme["bg_card"]
+            try:
+                super().configure(bg=self._bg_color, highlightbackground=self._bg_color, highlightcolor=theme.get("accent_primary", "#E8B949"))
+            except Exception:
+                pass
         self._redraw()
 
     def _redraw(self):
         self.delete("all")
         theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
         on = bool(self.variable.get())
-        track_fill = theme["toggle_track_on"] if on else theme["toggle_track_off"]
-        track_border = theme["toggle_track_on"] if on else theme["border_card"]
-        knob_fill = theme["toggle_knob_on"] if on else theme["fg_muted"]
+        if self._state == "disabled":
+            track_fill = theme["toggle_track_off"]
+            track_border = theme["border_card"]
+            knob_fill = theme["border_card"]
+        else:
+            track_fill = theme["toggle_track_on"] if on else theme["toggle_track_off"]
+            track_border = theme["toggle_track_on"] if on else theme["border_card"]
+            knob_fill = theme["toggle_knob_on"] if on else theme["fg_muted"]
 
         self.create_oval(1, 1, 21, 21, fill=track_fill, outline=track_border)
         self.create_oval(19, 1, 39, 21, fill=track_fill, outline=track_border)
@@ -1637,8 +1686,15 @@ class Launcher(tk.Tk):
         btn = None
         def make(h):
             nonlocal btn
-            btn = ttk.Checkbutton(h, text="On", variable=var, command=command)
+            btn = ToggleSwitch(h, variable=var, command=command)
             btn.pack(side="left")
+            lbl = tk.Label(h, text="On" if var.get() else "Off", bg=PANEL, fg=MUTED, font=FONT_SMALL, width=3, anchor="w", cursor="hand2")
+            lbl.pack(side="left", padx=(8, 0))
+            lbl.bind("<Button-1>", lambda _e: btn.invoke())
+            def update_lbl(*_):
+                lbl.config(text="On" if var.get() else "Off")
+            var.trace_add("write", update_lbl)
+            theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_muted")
         self._row(page, key, make, sub=sub)
         return btn
 
@@ -3439,7 +3495,7 @@ class Launcher(tk.Tk):
                 "TButton", "Button", "TCheckbutton", "Checkbutton",
                 "TRadiobutton", "Radiobutton", "TCombobox", "TEntry", "Entry",
                 "TScale", "Scale"
-            ):
+            ) or isinstance(w, ToggleSwitch) or getattr(w, "_is_toggle", False):
                 try:
                     state = str(w.cget("state"))
                     if state != "disabled":

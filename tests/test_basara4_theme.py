@@ -110,6 +110,47 @@ class TestBasara4Theme(unittest.TestCase):
         self.assertEqual(received[-1], "Ashikaga Yoshiteru")
         self.assertEqual(w.attrs["bg"], theme_mod.THEMES["yoshiteru"]["bg_card"])
 
+    def test_toggle_switch_semantics_and_compat(self):
+        """Verifies ToggleSwitch behaves like ttk.Checkbutton and supports state/instate/invoke."""
+        import tkinter as tk
+        root = tk.Tk()
+        try:
+            var = tk.BooleanVar(value=False)
+            invoked = []
+            ts = launcher.ToggleSwitch(root, variable=var, command=lambda: invoked.append(True))
+
+            # Initial state
+            self.assertFalse(var.get())
+            self.assertEqual(ts.state(), ())
+            self.assertTrue(ts.instate(["!disabled"]))
+            self.assertFalse(ts.instate(["disabled"]))
+
+            # Invoke
+            ts.invoke()
+            self.assertTrue(var.get())
+            self.assertEqual(len(invoked), 1)
+
+            # State manipulation
+            ts.state(["disabled"])
+            self.assertEqual(ts.state(), ("disabled",))
+            self.assertEqual(ts.cget("state"), "disabled")
+            self.assertTrue(ts.instate(["disabled"]))
+
+            # Invoke when disabled does nothing
+            ts.invoke()
+            self.assertTrue(var.get())
+            self.assertEqual(len(invoked), 1)
+
+            # Re-enable
+            ts.state(["!disabled"])
+            self.assertEqual(ts.state(), ())
+            self.assertEqual(ts.cget("state"), "normal")
+            ts.invoke()
+            self.assertFalse(var.get())
+            self.assertEqual(len(invoked), 2)
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
