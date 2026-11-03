@@ -14,6 +14,7 @@
 
 #include <vk_mem_alloc.h>
 
+#include "core/emulator_settings.h"
 #include "spartanport_settings.h"
 #include "spartanport_toggles.h"
 #include "ffx_vk_portable.h"
@@ -187,6 +188,9 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
             target_width = w;
             target_height = h;
         }
+    } else if (EmulatorSettings.GetInternalScreenHeight() >= 2160) {
+        target_width = EmulatorSettings.GetInternalScreenWidth();
+        target_height = EmulatorSettings.GetInternalScreenHeight();
     }
     // Explicit resolution overrides retain the old compatibility path. Normal presets
     // keep guest allocations/UI native and change only host raster targets at frame boundaries.
@@ -299,8 +303,13 @@ bool TemporalUpscaler::OnFrameStart() {
     const int output = settings.output_res.load();
     const bool output_changed = !scaled_session && applied_output != output;
     if (output_changed) {
-        target_width = SpartanSettings::OutputWidths[output];
-        target_height = SpartanSettings::OutputHeights[output];
+        if (EmulatorSettings.GetInternalScreenHeight() >= 2160) {
+            target_width = EmulatorSettings.GetInternalScreenWidth();
+            target_height = EmulatorSettings.GetInternalScreenHeight();
+        } else {
+            target_width = SpartanSettings::OutputWidths[output];
+            target_height = SpartanSettings::OutputHeights[output];
+        }
         std::printf("Output resolution: %ux%u (live)\n", target_width, target_height);
         failed = false;
         fsr4_failed = false;
@@ -1285,6 +1294,9 @@ float TemporalUpscaler::SceneMipBias() const {
 }
 
 bool TemporalUpscaler::Scaled() const {
+    if (EmulatorSettings.GetInternalScreenHeight() >= 2160) {
+        return false;
+    }
     return scaled_session || target_width != 1920 || target_height != 1080;
 }
 
