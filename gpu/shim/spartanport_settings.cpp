@@ -94,6 +94,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.show_fps = i != 0;
     } else if (key == "display_mode") {
         v.display_mode = SpartanGraphics::ParseDisplayMode(value);
+    } else if (key == "dual_monitor_mirror") {
+        v.dual_monitor_mirror = std::atoi(value.c_str()) != 0;
     } else if (key == "vsync") {
         v.vsync = i != 0;
     } else if (key == "fps_limit") {
@@ -369,6 +371,7 @@ void Save() {
                        "mouse_aim_sensitivity=%d\n",
                  v.anisotropy.load(), v.vibration.load(), v.mouse_prompt_distance.load(), int(v.mouse_lock.load()),
                  v.mouse_aim_style.load(), v.mouse_aim_sensitivity.load());
+    std::fprintf(file, "dual_monitor_mirror=%d\n", v.dual_monitor_mirror.load() ? 1 : 0);
     // Read by run.sh at start.
     std::fprintf(file, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");

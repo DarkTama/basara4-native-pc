@@ -19,11 +19,19 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
 FROZEN = getattr(sys, "frozen", False)
-ROOT = (Path(sys.executable) if FROZEN else Path(__file__)).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
+if "SPARTAN_ROOT" in os.environ:
+    ROOT = Path(os.environ["SPARTAN_ROOT"]).resolve()
+elif FROZEN:
+    ROOT = Path(sys.executable).resolve().parent
+elif (Path.cwd() / "user").is_dir() and (Path.cwd() / "bin").is_dir():
+    ROOT = Path.cwd().resolve()
+else:
+    ROOT = Path(__file__).resolve().parent.parent
 try:
     os.chdir(str(ROOT))
 except OSError:
@@ -41,7 +49,7 @@ INI = USER / "basara4.ini"
 OLD_INI = USER / "spartanport.ini"
 WINDOW_ICON = USER / "window_icon.bmp"
 CORE = BIN / "basara4-core.exe"
-VERSION = "1.1.8"
+VERSION = "1.2.0"
 BRAND = "Basara 4 PC"
 AUTHOR = "Razz"
 FORK = "DarkTama"
@@ -228,12 +236,16 @@ import basara4_gmd_fix  # noqa: E402
 import game_update  # noqa: E402
 import dlc  # noqa: E402
 import patches  # noqa: E402
+import basara4_nav as nav  # noqa: E402
+import basara4_theme as theme_mod  # noqa: E402
+import basara4_report as report_mod  # noqa: E402
 
 DEFAULTS = {"language": "en", "game": "", "game_update": "", "dlc_folder": "", "display_mode": "borderless", "vsync": True, "fps_limit": 60, "rcas": False,
             "anisotropy": 0, "resolution": "native", "upscale": "off", "audio_log": False, "audio_wav": False,
             "gpu_index": -1, "keymap": {}, "mouse_camera": True, "mouse_sens": 100, "mouse_invert_x": False,
             "mouse_invert_y": False, "english_patch": False, "ps3_patch_source": "",
-            "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto"}
+            "p1_control": "pad1", "p2_control": "none", "prompt_layout": "auto",
+            "dual_monitor_coop": False, "launcher_theme": "yoshiteru", "crash_report_prompt": True}
 
 DEFAULT_PC_KEYMAP = {
     "square": "Mouse Left",       # Serangan Biasa (Normal Attack)
@@ -446,9 +458,11 @@ FPS_LIMITS_ID = [("60 (standar game)", 60), ("90", 90), ("120", 120), ("144", 14
                  ("240", 240), ("Tanpa Batas", 0)]
 
 RESOLUTIONS_EN = [("1920 x 1080  (native)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
-                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
+                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K"),
+                  ("3840 x 1080  (Dual 1080p)", "3840x1080")]
 RESOLUTIONS_ID = [("1920 x 1080  (asli)", "native"), ("1280 x 720", "720p"), ("1600 x 900", "900p"),
-                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K")]
+                  ("2560 x 1440", "1440p"), ("3200 x 1800", "1800p"), ("3840 x 2160  (4K)", "4K"),
+                  ("3840 x 1080  (Dual 1080p)", "3840x1080")]
 
 UPSCALERS_EN = [("Off (Native 1080p)", "off"), ("FSR 1 (Spatial Sharpening)", "fsr1"),
                 ("FSR 3.1 (Temporal Reconstruction)", "fsr3"), ("DLSS (NVIDIA RTX)", "dlss")]
@@ -531,13 +545,60 @@ RESOLUTION_MAP = {
     "1600 x 900": "900p", "900p": "900p",
     "2560 x 1440": "1440p", "1440p": "1440p",
     "3200 x 1800": "1800p", "1800p": "1800p",
-    "3840 x 2160  (4K)": "4K", "4K": "4K"
+    "3840 x 2160  (4K)": "4K", "4K": "4K",
+    "3840 x 1080  (Dual 1080p)": "3840x1080", "3840x1080": "3840x1080"
 }
 
-BG, PANEL, FG, MUTED, GOLD, RED = "#12100e", "#1c1916", "#eadfcb", "#8d8374", "#c9a24a", "#9c2b24"
+def sync_color_constants(theme):
+    global BG, PANEL, FG, MUTED, GOLD, RED, FIELD, EDGE, LINE, RULE, HOVER, OK
+    BG = theme["bg_main"]
+    PANEL = theme["bg_card"]
+    FG = theme["fg_primary"]
+    MUTED = theme["fg_muted"]
+    GOLD = theme["accent_primary"]
+    RED = theme["play_bg"]
+    FIELD = theme["bg_control"]
+    EDGE = theme["border_card"]
+    LINE = theme["border_card"]
+    RULE = theme["border_card"]
+    HOVER = theme["bg_hover"]
+    OK = theme.get("ok", "#7da36b")
+
+
+_init_theme = theme_mod.get_theme("yoshiteru")
+BG, PANEL, FG, MUTED, GOLD, RED = (
+    _init_theme["bg_main"],
+    _init_theme["bg_card"],
+    _init_theme["fg_primary"],
+    _init_theme["fg_muted"],
+    _init_theme["accent_primary"],
+    _init_theme["play_bg"],
+)
 RAZZ = "#e0526a"  # the accent of the by-Razz mark
-FIELD, EDGE, LINE, RULE, HOVER, OK = "#12100e", "#3f382f", "#332d27", "#26211d", "#221e1a", "#7da36b"
+FIELD, EDGE, LINE, RULE, HOVER, OK = (
+    _init_theme["bg_control"],
+    _init_theme["border_card"],
+    _init_theme["border_card"],
+    _init_theme["border_card"],
+    _init_theme["bg_hover"],
+    _init_theme["ok"],
+)
+theme_mod.REGISTRY.register_callback(sync_color_constants)
+
+
+def pick_font_family(candidates, fallback="Segoe UI"):
+    try:
+        fams = set(tkfont.families())
+        for cand in candidates:
+            if cand in fams:
+                return cand
+    except Exception:
+        pass
+    return fallback
+
+
 FONT, FONT_SMALL = ("Segoe UI", 10), ("Segoe UI", 8)
+JP_TITLE_FONT = ("Yu Mincho", 17, "bold")
 CHEAT_HINT_EN = "Can also be toggled in game (Insert / R3+L2)"
 CHEAT_HINT_ID = "Dapat diatur juga di dalam game (Insert / R3+L2)"
 CHEAT_COINS_HINT_EN = "Sets special coins (小判) directly to 999,999. Applies the next time coins are added."
@@ -567,8 +628,8 @@ PAGE_HINT_ID = {
     "tools": "Buka log: log launcher dan runtime dari sesi permainan terakhir.",
 }
 
-GROUP_EN = {"translation": "Translation", "cheats": "Cheats"}
-GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat"}
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls", "appearance": "Appearance"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse", "appearance": "Tampilan"}
 
 ROW_EN = {
     "game_folder": ("Game folder", "The folder that holds eboot.bin."),
@@ -584,6 +645,7 @@ ROW_EN = {
     "aniso": ("Anisotropic", "Texture filtering: sharper at a slant, costs a little speed."),
     "vsync": ("VSync", "Caps the frame rate at the monitor refresh."),
     "rcas": ("Sharpening (RCAS)", "Sharpens the final image."),
+    "dual_monitor_coop": ("Dual-monitor co-op (experimental)", "Experimental 1920x2160 tall canvas for dual 1080p monitors (3840x1080 borderless)."),
     "pad_detect": ("Connected Gamepads", "Lists controllers detected via SDL3. Click Refresh to scan again."),
     "p1_control": ("Player 1 Control", "Assign input device for Player 1. Falls back to Keyboard & Mouse if unplugged."),
     "p2_control": ("Player 2 Control", "Assign input device for Player 2 (local co-op) or disable for single player."),
@@ -611,6 +673,8 @@ ROW_EN = {
     "open_saves": ("Open saves", "Opens user\\savedata in Explorer."),
     "audio_log": ("Audio debug log", "One timestamped line per audio event, for bug reports."),
     "audio_wav": ("WAV capture (up to 3 GB)", "Next game start only; about 70 MB per minute. Turns the audio log on."),
+    "launcher_theme": ("Launcher theme", "Colors of the launcher. Applies immediately and is remembered."),
+    "report_problem": ("Report a problem", "Send an anonymous bug report, feature request or crash report to CrashPulse."),
 }
 
 ROW_ID = {
@@ -627,6 +691,7 @@ ROW_ID = {
     "aniso": ("Anisotropik", "Penyaringan tekstur: lebih tajam pada sudut miring, sedikit beban performa."),
     "vsync": ("VSync", "Membatasi frame rate sesuai refresh rate monitor."),
     "rcas": ("Penajaman (RCAS)", "Mempertajam kualitas gambar akhir."),
+    "dual_monitor_coop": ("Co-op dual monitor (eksperimental)", "Canvas 1920x2160 eksperimental untuk dua monitor 1080p (borderless 3840x1080)."),
     "pad_detect": ("Gamepad Terdeteksi", "Daftar controller yang terdeteksi via SDL3. Klik Deteksi Ulang untuk memindai ulang."),
     "p1_control": ("Kontrol Player 1", "Pilih perangkat input untuk Player 1. Otomatis ke Keyboard & Mouse jika stik dilepas."),
     "p2_control": ("Kontrol Player 2", "Pilih perangkat input untuk Player 2 (co-op lokal) atau nonaktifkan untuk single player."),
@@ -654,6 +719,8 @@ ROW_ID = {
     "open_saves": ("Buka savedata", "Membuka folder user\\savedata di Explorer."),
     "audio_log": ("Log debug audio", "Satu baris bertanda waktu per peristiwa audio, untuk laporan bug."),
     "audio_wav": ("Perekaman WAV (hingga 3 GB)", "Hanya untuk sesi mulai berikutnya; ~70 MB per menit. Mengaktifkan log audio."),
+    "launcher_theme": ("Tema launcher", "Warna tema launcher. Berlaku langsung dan tersimpan."),
+    "report_problem": ("Laporkan masalah", "Kirim laporan bug, permintaan fitur, atau masukan secara anonim ke CrashPulse."),
 }
 
 UI_STRINGS_EN = {
@@ -745,9 +812,13 @@ ROW = ROW_EN
 NAV = NAV_EN
 PAGE_HINT = PAGE_HINT_EN
 PAGE_SUBTITLE = PAGE_SUBTITLE_EN
-GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls"}
-GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse"}
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls", "appearance": "Appearance"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse", "appearance": "Tampilan"}
 GROUP = GROUP_EN
+THEME_OPTIONS = [
+    ("Ashikaga Yoshiteru", "yoshiteru"),
+    ("Matsunaga Hisahide", "hisahide"),
+]
 CHEAT_HINT = CHEAT_HINT_EN
 
 ENGLISH_PATCH_DISCLAIMER = (
@@ -782,12 +853,18 @@ def load_config():
         cfg["p2_control"] = "pad1"
     cfg.pop("pad_routing", None)
     cfg.pop("gamepad_routing", None)
+    if "vertical_splitscreen" in raw:
+        if raw.get("vertical_splitscreen"):
+            cfg["dual_monitor_coop"] = True
+        cfg.pop("vertical_splitscreen", None)
     if cfg.get("p1_control") not in ("pad1", "pad2", "kbm"):
         cfg["p1_control"] = "pad1"
     if cfg.get("p2_control") not in ("none", "pad2", "pad1", "kbm"):
         cfg["p2_control"] = "none"
     if cfg.get("language") not in ("id", "en"):
         cfg["language"] = "id"
+    if cfg.get("launcher_theme") not in ("yoshiteru", "hisahide"):
+        cfg["launcher_theme"] = "yoshiteru"
     if not cfg["game"] or not (Path(cfg["game"]) / "eboot.bin").is_file():
         cfg["game"] = find_game()
     return cfg
@@ -911,10 +988,1267 @@ def prepare_image(game, progress):
     return None
 
 
+class ToggleSwitch(tk.Canvas):
+    """Canvas-based toggle switch (40x22 pill track with knob) matching redesign mockup."""
+
+    def __init__(self, parent, variable=None, command=None, bg=None):
+        super().__init__(parent, width=40, height=22, bd=0, highlightthickness=1, cursor="hand2")
+        self._is_toggle = True
+        self._state = "normal"
+        self.variable = variable or tk.BooleanVar(value=False)
+        self.command = command
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        self._bg_color = bg or theme["bg_card"]
+        self.configure(bg=self._bg_color, highlightbackground=self._bg_color, highlightcolor=theme.get("accent_primary", "#E8B949"))
+
+        self.bind("<Button-1>", lambda _e: self.invoke())
+        self.bind("<Return>", lambda _e: self.invoke())
+        self.bind("<space>", lambda _e: self.invoke())
+        self.configure(takefocus=1)
+
+        try:
+            self.variable.trace_add("write", lambda *_: self._redraw())
+        except Exception:
+            pass
+
+        theme_mod.REGISTRY.register_callback(self._on_theme_changed)
+        self._redraw()
+
+    def invoke(self):
+        if self._state == "disabled":
+            return
+        self.variable.set(not self.variable.get())
+        self._redraw()
+        if callable(self.command):
+            self.command()
+
+    def set_bg(self, bg_color):
+        self._bg_color = bg_color
+        try:
+            super().configure(bg=bg_color, highlightbackground=bg_color)
+        except Exception:
+            pass
+        self._redraw()
+
+    def config(self, **kwargs):
+        if "state" in kwargs:
+            self._state = kwargs.pop("state")
+            super().configure(cursor="" if self._state == "disabled" else "hand2")
+        if kwargs:
+            super().configure(**kwargs)
+        self._redraw()
+
+    def configure(self, **kwargs):
+        self.config(**kwargs)
+
+    def cget(self, key):
+        if key == "state":
+            return self._state
+        return super().cget(key)
+
+    def state(self, statespec=None):
+        if statespec is None:
+            return ("disabled",) if self._state == "disabled" else ()
+        for s in statespec:
+            if s == "disabled":
+                self.config(state="disabled")
+            elif s in ("!disabled", "normal"):
+                self.config(state="normal")
+            elif s == "selected":
+                self.variable.set(True)
+            elif s == "!selected":
+                self.variable.set(False)
+        return self.state()
+
+    def instate(self, statespec, callback=None, *args, **kwargs):
+        cur = self.state()
+        match = True
+        for s in statespec:
+            if s.startswith("!"):
+                if s[1:] in cur:
+                    match = False
+                    break
+            else:
+                if s not in cur:
+                    match = False
+                    break
+        if match and callable(callback):
+            return callback(*args, **kwargs)
+        return match
+
+    def _on_theme_changed(self, theme):
+        if isinstance(theme, dict) and "bg_card" in theme:
+            self._bg_color = theme["bg_card"]
+            try:
+                super().configure(bg=self._bg_color, highlightbackground=self._bg_color, highlightcolor=theme.get("accent_primary", "#E8B949"))
+            except Exception:
+                pass
+        self._redraw()
+
+    def _redraw(self):
+        self.delete("all")
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        on = bool(self.variable.get())
+        if self._state == "disabled":
+            track_fill = theme["toggle_track_off"]
+            track_border = theme["border_card"]
+            knob_fill = theme["border_card"]
+        else:
+            track_fill = theme["toggle_track_on"] if on else theme["toggle_track_off"]
+            track_border = theme["toggle_track_on"] if on else theme["border_card"]
+            knob_fill = theme["toggle_knob_on"] if on else theme["fg_muted"]
+
+        self.create_oval(1, 1, 21, 21, fill=track_fill, outline=track_border)
+        self.create_oval(19, 1, 39, 21, fill=track_fill, outline=track_border)
+        self.create_rectangle(11, 1, 29, 21, fill=track_fill, outline=track_border)
+
+        if on:
+            self.create_oval(22, 4, 36, 18, fill=knob_fill, outline="")
+        else:
+            self.create_oval(4, 4, 18, 18, fill=knob_fill, outline="")
+
+
+class LauncherDialog(tk.Toplevel):
+    """Theme-consistent modal dialog supporting keyboard and gamepad navigation matching mockup."""
+
+    def __init__(self, parent, title, msg, kind="yesno", default_yes=True, is_id=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.title(title)
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.configure(bg=theme["bg_main"])
+        self.resizable(False, False)
+        self.transient(parent)
+        self.result = False
+        self.is_id = is_id
+        self.kind = kind
+        self.theme = theme
+
+        # 1px accent_primary border frame
+        outer = tk.Frame(
+            self,
+            bg=theme["bg_card"],
+            highlightbackground=theme["accent_primary"],
+            highlightthickness=1,
+            bd=0,
+        )
+        outer.pack(fill="both", expand=True)
+
+        # Header: bg_dock, border-bottom border_card
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=20, pady=12)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        # Badge in header if experimental
+        is_exp = "experimental" in title.lower() or "eksperimental" in title.lower()
+        if is_exp:
+            exp_txt = "EKSPERIMENTAL" if is_id else "EXPERIMENTAL"
+            badge = tk.Label(
+                header,
+                text=exp_txt,
+                bg=theme["accent_secondary"],
+                fg=theme["bg_main"],
+                font=("Segoe UI", 8, "bold"),
+                padx=6,
+                pady=1,
+            )
+            badge.pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text=title,
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 12),
+        ).pack(side="left")
+
+        # Body: bg_card
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=20, pady=14)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(
+            body,
+            text=msg,
+            bg=theme["bg_card"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI", 9),
+            wraplength=480,
+            justify="left",
+        ).pack(anchor="w")
+
+        # Button box: bg_card
+        btn_box = tk.Frame(outer, bg=theme["bg_card"], padx=20, pady=10)
+        btn_box.pack(fill="x")
+
+        self.buttons = []
+        if kind == "yesno":
+            yes_txt = "Ya" if is_id else "Yes"
+            no_txt = "Tidak" if is_id else "No"
+            b_yes = self._create_dialog_button(btn_box, yes_txt, is_primary=True, command=self._on_yes)
+            b_no = self._create_dialog_button(btn_box, no_txt, is_primary=False, command=self._on_no)
+            b_yes.pack(side="right", padx=(10, 0))
+            b_no.pack(side="right")
+            self.buttons = [b_yes, b_no]
+            self.focused_idx = 0 if default_yes else 1
+        else:
+            b_ok = self._create_dialog_button(btn_box, "OK", is_primary=True, command=self._on_yes)
+            b_ok.pack(side="right")
+            self.buttons = [b_ok]
+            self.focused_idx = 0
+
+        # Footer: bg_dock with hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=20, pady=7)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(
+            footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"], font=("Segoe UI", 8), anchor="w"
+        )
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        # Keyboard shortcuts
+        self.bind("<Left>", lambda _e: self._cycle_button(-1))
+        self.bind("<Right>", lambda _e: self._cycle_button(1))
+        self.bind("<Up>", lambda _e: self._cycle_button(-1))
+        self.bind("<Down>", lambda _e: self._cycle_button(1))
+        self.bind("<Tab>", lambda _e: self._cycle_button(1))
+        self.bind("<Return>", lambda _e: self._invoke_focused())
+        self.bind("<space>", lambda _e: self._invoke_focused())
+        self.bind("<Escape>", lambda _e: self._on_no() if kind == "yesno" else self._on_yes())
+        self.bind("<Key>", lambda _e: self._on_key())
+        self.protocol("WM_DELETE_WINDOW", self._on_no)
+
+    def _create_dialog_button(self, parent, text, is_primary, command):
+        """Creates a styled dialog button matching mockup specifications."""
+        theme = self.theme
+        btn = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            font=("Segoe UI Semibold" if is_primary else "Segoe UI", 9),
+            padx=16,
+            pady=4,
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            takefocus=1,
+        )
+        if is_primary:
+            btn.config(
+                bg=theme["play_bg"],
+                fg="#ffffff",
+                highlightthickness=2,
+                highlightbackground=theme["play_border"],
+                highlightcolor=theme["play_border"],
+            )
+            def on_enter(_e):
+                btn.config(bg=theme["play_hover"])
+            def on_leave(_e):
+                btn.config(bg=theme["play_bg"])
+        else:
+            btn.config(
+                bg=theme["bg_control"],
+                fg=theme["fg_primary"],
+                highlightthickness=1,
+                highlightbackground=theme["border_card"],
+                highlightcolor=theme["accent_primary"],
+            )
+            def on_enter(_e):
+                btn.config(bg=theme["bg_hover"])
+            def on_leave(_e):
+                btn.config(bg=theme["bg_control"])
+
+        def on_focus_in(_e):
+            btn.config(highlightthickness=2, highlightbackground=theme["accent_primary"])
+        def on_focus_out(_e):
+            if is_primary:
+                btn.config(highlightthickness=2, highlightbackground=theme["play_border"])
+            else:
+                btn.config(highlightthickness=1, highlightbackground=theme["border_card"])
+
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        btn.bind("<FocusIn>", on_focus_in)
+        btn.bind("<FocusOut>", on_focus_out)
+        return btn
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        lang = "id" if self.is_id else "en"
+        self.hint_label.config(text=nav.get_dialog_hints(device=dev, lang=lang))
+
+    def _cycle_button(self, delta):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+        self.focused_idx = (self.focused_idx + delta) % len(self.buttons)
+        self.buttons[self.focused_idx].focus_set()
+
+    def _invoke_focused(self):
+        if 0 <= self.focused_idx < len(self.buttons):
+            self.buttons[self.focused_idx].invoke()
+
+    def handle_pad(self, action: str):
+        self._update_hint()
+        if action in ("left", "up"):
+            self.focused_idx = (self.focused_idx - 1) % len(self.buttons)
+            self.buttons[self.focused_idx].focus_set()
+        elif action in ("right", "down"):
+            self.focused_idx = (self.focused_idx + 1) % len(self.buttons)
+            self.buttons[self.focused_idx].focus_set()
+        elif action == "a":
+            self._invoke_focused()
+        elif action in ("b", "escape"):
+            if len(self.buttons) > 1:
+                self._on_no()
+            else:
+                self._on_yes()
+        elif action == "start":
+            self._on_yes()
+
+    def _on_yes(self):
+        self.result = True
+        self.destroy()
+
+    def _on_no(self):
+        self.result = False
+        self.destroy()
+
+    def show(self):
+        self.update_idletasks()
+        w = max(520, self.winfo_reqwidth())
+        h = max(240, self.winfo_reqheight())
+        px = self.parent.winfo_rootx()
+        py = self.parent.winfo_rooty()
+        pw = self.parent.winfo_width()
+        ph = self.parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.parent._active_dialog = self
+        self.buttons[self.focused_idx].focus_set()
+        self.grab_set()
+        self.wait_window()
+        self.parent._active_dialog = None
+        return self.result
+
+
+def make_dialog_button(parent, text, is_primary, command, theme):
+    """Creates a styled dialog button matching theme specifications."""
+    btn = tk.Button(
+        parent,
+        text=text,
+        command=command,
+        font=("Segoe UI Semibold" if is_primary else "Segoe UI", 9),
+        padx=14,
+        pady=3,
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        takefocus=1,
+    )
+    if is_primary:
+        btn.config(
+            bg=theme["play_bg"],
+            fg="#ffffff",
+            highlightthickness=2,
+            highlightbackground=theme["play_border"],
+            highlightcolor=theme["play_border"],
+        )
+        def on_enter(_e):
+            btn.config(bg=theme["play_hover"])
+        def on_leave(_e):
+            btn.config(bg=theme["play_bg"])
+    else:
+        btn.config(
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            highlightthickness=1,
+            highlightbackground=theme["border_card"],
+            highlightcolor=theme["accent_primary"],
+        )
+        def on_enter(_e):
+            btn.config(bg=theme["bg_hover"])
+        def on_leave(_e):
+            btn.config(bg=theme["bg_control"])
+
+    def on_focus_in(_e):
+        btn.config(highlightthickness=2, highlightbackground=theme["accent_primary"])
+    def on_focus_out(_e):
+        if is_primary:
+            btn.config(highlightthickness=2, highlightbackground=theme["play_border"])
+        else:
+            btn.config(highlightthickness=1, highlightbackground=theme["border_card"])
+
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
+    btn.bind("<FocusIn>", on_focus_in)
+    btn.bind("<FocusOut>", on_focus_out)
+    return btn
+
+
+class ReportPreviewDialog(tk.Toplevel):
+    """Modal viewer displaying the exact sanitized payload sent to CrashPulse."""
+
+    def __init__(self, parent, payload_dict, is_id=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.is_id = is_id
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+        self.title("Report Preview" if not is_id else "Pratinjau Laporan")
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=16, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="PREVIEW" if not is_id else "PRATINJAU",
+            bg=theme["accent_secondary"],
+            fg=theme["bg_main"],
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text="Sanitized Report Payload" if not is_id else "Payload Laporan (Telah Disanitasi)",
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=16, pady=10)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(
+            body,
+            text=("The following sanitized data will be sent anonymously to CrashPulse:"
+                  if not is_id else "Data terverifikasi berikut akan dikirim secara anonim ke CrashPulse:"),
+            bg=theme["bg_card"],
+            fg=theme["fg_muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        txt_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        txt_frame.pack(fill="both", expand=True)
+        txt = tk.Text(
+            txt_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            font=("Consolas", 9),
+            relief="flat",
+            wrap="none",
+            padx=8,
+            pady=8,
+        )
+        scroll_y = ttk.Scrollbar(txt_frame, orient="vertical", command=txt.yview)
+        scroll_x = ttk.Scrollbar(txt_frame, orient="horizontal", command=txt.xview)
+        txt.configure(xscrollcommand=scroll_x.set, yscrollcommand=scroll_y.set)
+        scroll_y.pack(side="right", fill="y")
+        scroll_x.pack(side="bottom", fill="x")
+        txt.pack(side="left", fill="both", expand=True)
+
+        pretty_json = json.dumps(payload_dict, indent=2, ensure_ascii=False)
+        txt.insert("1.0", pretty_json)
+        txt.config(state="disabled")
+
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=16, pady=8)
+        footer.pack(fill="x")
+
+        self.close_btn = make_dialog_button(footer, "Close" if not is_id else "Tutup", is_primary=True,
+                                            command=self._close, theme=theme)
+        self.close_btn.pack(side="right")
+
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Return>", lambda _e: self._close())
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
+        self.update_idletasks()
+        w, h = 640, 480
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.close_btn.focus_set()
+        self.grab_set()
+
+    def handle_pad(self, action: str):
+        if action in ("a", "b", "escape", "start"):
+            self._close()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
+class ReportProblemDialog(tk.Toplevel):
+    """Themed modal dialog for submitting bug reports, feature requests, or general feedback."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.is_id = getattr(parent, "cfg", {}).get("language") == "id"
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+
+        title_txt = "Laporkan Masalah" if self.is_id else "Report a problem"
+        self.title(title_txt)
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+        self.resizable(False, False)
+
+        self.key, self.url = report_mod.load_crashpulse_config()
+        self.category_var = tk.StringVar(value="Bug Report")
+        self.attach_diag_var = tk.BooleanVar(value=True)
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        # Header
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="MASUKAN" if self.is_id else "FEEDBACK",
+            bg=theme["accent_secondary"],
+            fg=theme["bg_main"],
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text="Kirim Masukan Anonim" if self.is_id else "Send Anonymous Report",
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        # Body
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        # Warning banner if key is not configured in this build
+        if not self.key:
+            warn_box = tk.Frame(body, bg=theme["bg_control"], padx=10, pady=6,
+                                highlightthickness=1, highlightbackground=theme["accent_primary"])
+            warn_box.pack(fill="x", pady=(0, 10))
+            warn_msg = (
+                "⚠️ Pelaporan langsung belum dikonfigurasi pada build ini.\n"
+                "Anda tetap dapat membuat issue secara langsung di GitHub."
+                if self.is_id else
+                "⚠️ Direct reporting is unavailable in this build (no CrashPulse project key).\n"
+                "You can still submit an issue directly on GitHub."
+            )
+            tk.Label(warn_box, text=warn_msg, bg=theme["bg_control"], fg=theme["accent_primary"],
+                     font=("Segoe UI", 8), justify="left").pack(anchor="w")
+
+        # Category selection
+        cat_frame = tk.Frame(body, bg=theme["bg_card"])
+        cat_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(cat_frame, text="Kategori:" if self.is_id else "Category:",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(anchor="w", pady=(0, 4))
+
+        cat_btn_box = tk.Frame(cat_frame, bg=theme["bg_card"])
+        cat_btn_box.pack(fill="x")
+
+        self.cat_buttons = []
+        categories = [
+            ("Bug Report", "Laporan Bug" if self.is_id else "Bug report"),
+            ("Feature Request", "Permintaan Fitur" if self.is_id else "Feature request"),
+            ("Other", "Lainnya" if self.is_id else "Other"),
+        ]
+        for key_cat, label_cat in categories:
+            b = tk.Button(
+                cat_btn_box,
+                text=label_cat,
+                command=lambda k=key_cat: self._set_category(k),
+                font=("Segoe UI", 9),
+                padx=10,
+                pady=3,
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                takefocus=1,
+            )
+            b.pack(side="left", padx=(0, 6))
+            self.cat_buttons.append((key_cat, b))
+        self._update_cat_buttons_style()
+
+        # Description text
+        desc_hdr = tk.Frame(body, bg=theme["bg_card"])
+        desc_hdr.pack(fill="x", pady=(4, 2))
+        tk.Label(desc_hdr, text="Deskripsi (wajib, min 10 karakter):" if self.is_id else "Description (required, min 10 chars):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(side="left")
+        tk.Label(desc_hdr, text="(Mengetik memerlukan keyboard)" if self.is_id else "(Typing requires keyboard)",
+                 bg=theme["bg_card"], fg=theme["fg_muted"], font=("Segoe UI", 8, "italic")).pack(side="left", padx=(6, 0))
+
+        self.char_count_lbl = tk.Label(desc_hdr, text="0 / 4000", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                       font=("Segoe UI", 8))
+        self.char_count_lbl.pack(side="right")
+
+        txt_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        txt_frame.pack(fill="x", pady=(0, 8))
+        self.desc_text = tk.Text(
+            txt_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            height=5,
+            wrap="word",
+            relief="flat",
+            padx=6,
+            pady=6,
+            takefocus=1,
+        )
+        self.desc_text.pack(fill="x")
+        self.desc_text.bind("<KeyRelease>", lambda _e: self._on_text_change())
+
+        # Contact field
+        contact_frame = tk.Frame(body, bg=theme["bg_card"])
+        contact_frame.pack(fill="x", pady=(0, 8))
+        tk.Label(contact_frame, text="Kontak (opsional — email atau Discord):" if self.is_id else "Contact (optional — email or Discord):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI Semibold", 9)).pack(anchor="w", pady=(0, 2))
+
+        entry_frame = tk.Frame(contact_frame, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        entry_frame.pack(fill="x")
+        self.contact_entry = tk.Entry(
+            entry_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            relief="flat",
+            bd=0,
+            takefocus=1,
+        )
+        self.contact_entry.pack(fill="x", padx=6, pady=4)
+
+        # Toggle attach system info & log
+        toggle_frame = tk.Frame(body, bg=theme["bg_card"])
+        toggle_frame.pack(fill="x", pady=(0, 8))
+        self.attach_toggle = ToggleSwitch(toggle_frame, variable=self.attach_diag_var)
+        self.attach_toggle.pack(side="left")
+        self.attach_lbl = tk.Label(
+            toggle_frame,
+            text="Sertakan info sistem & log sesi terakhir" if self.is_id else "Attach system info and the last game log",
+            bg=theme["bg_card"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI", 9),
+            cursor="hand2",
+        )
+        self.attach_lbl.pack(side="left", padx=(8, 0))
+        self.attach_lbl.bind("<Button-1>", lambda _e: self.attach_toggle.invoke())
+
+        # Status / Feedback label
+        self.status_lbl = tk.Label(body, text="", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.status_lbl.pack(fill="x", pady=(0, 4))
+
+        # Bottom buttons: Preview, Send, Cancel
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        btn_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=8)
+        btn_bar.pack(fill="x")
+
+        self.preview_btn = make_dialog_button(btn_bar, "Pratinjau" if self.is_id else "Preview", is_primary=False,
+                                              command=self._preview, theme=theme)
+        self.preview_btn.pack(side="left")
+
+        self.cancel_btn = make_dialog_button(btn_bar, "Batal" if self.is_id else "Cancel", is_primary=False,
+                                             command=self._close, theme=theme)
+        self.cancel_btn.pack(side="right", padx=(8, 0))
+
+        send_txt = "Kirim" if self.is_id else "Send"
+        self.send_btn = make_dialog_button(btn_bar, send_txt, is_primary=True, command=self._send, theme=theme)
+        self.send_btn.pack(side="right")
+        if not self.key:
+            self.send_btn.config(state="disabled")
+
+        # GitHub issues link bar
+        link_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=4)
+        link_bar.pack(fill="x", pady=(0, 8))
+        gh_lbl_txt = "Lebih suka GitHub? Buka issue" if self.is_id else "Prefer GitHub? Open an issue"
+        self.github_link = tk.Label(
+            link_bar,
+            text=f"↗ {gh_lbl_txt}",
+            bg=theme["bg_card"],
+            fg=theme["accent_primary"],
+            font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+            takefocus=1,
+        )
+        self.github_link.pack(side="left")
+        self.github_link.bind("<Button-1>", lambda _e: self._open_github())
+        self.github_link.bind("<Return>", lambda _e: self._open_github())
+
+        # Footer hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=6)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        # Keyboard & Navigation bindings
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Key>", lambda _e: self._on_key())
+
+        # Nav focus list
+        self.interactive_items = [
+            self.cat_buttons[0][1],
+            self.desc_text,
+            self.contact_entry,
+            self.attach_toggle,
+            self.preview_btn,
+            self.send_btn,
+            self.cancel_btn,
+            self.github_link,
+        ]
+        self.focused_idx = 1
+
+        # Center dialog
+        self.update_idletasks()
+        w = max(540, self.winfo_reqwidth())
+        h = max(520, self.winfo_reqheight())
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.desc_text.focus_set()
+        self.grab_set()
+
+    def _set_category(self, cat):
+        self.category_var.set(cat)
+        if cat == "Bug Report":
+            self.attach_diag_var.set(True)
+        else:
+            self.attach_diag_var.set(False)
+        self._update_cat_buttons_style()
+
+    def _update_cat_buttons_style(self):
+        cur = self.category_var.get()
+        for k, btn in self.cat_buttons:
+            if k == cur:
+                btn.config(bg=self.theme["accent_primary"], fg=self.theme["bg_main"],
+                           font=("Segoe UI Semibold", 9))
+            else:
+                btn.config(bg=self.theme["bg_control"], fg=self.theme["fg_muted"],
+                           font=("Segoe UI", 9))
+
+    def _cycle_category(self, delta):
+        cur = self.category_var.get()
+        keys = [k for k, _ in self.cat_buttons]
+        idx = keys.index(cur) if cur in keys else 0
+        new_cat = keys[(idx + delta) % len(keys)]
+        self._set_category(new_cat)
+
+    def _on_text_change(self):
+        desc = self.desc_text.get("1.0", "end-1c")
+        n = len(desc)
+        self.char_count_lbl.config(
+            text=f"{n} / 4000",
+            fg=self.theme["play_bg"] if (n < 10 or n > 4000) else self.theme["fg_muted"],
+        )
+
+    def _build_payload(self):
+        desc = self.desc_text.get("1.0", "end-1c").strip()
+        contact = self.contact_entry.get().strip()
+        cat = self.category_var.get()
+        attach = self.attach_diag_var.get()
+
+        log_tail = ""
+        if attach:
+            log_tail = report_mod.get_sanitized_log_tail(LOG, max_lines=40)
+
+        gpu_name = ""
+        try:
+            if SYSTEM_GPUS:
+                gpu_name = SYSTEM_GPUS[0][1]
+        except Exception:
+            pass
+
+        settings = {
+            "display_mode": self.parent.cfg.get("display_mode", "borderless"),
+            "resolution": self.parent.cfg.get("resolution", "native"),
+            "dual_monitor_coop": self.parent.cfg.get("dual_monitor_coop", False),
+            "english_patch": self.parent.cfg.get("english_patch", False),
+            "upscaler": self.parent.cfg.get("upscale", "off"),
+            "fps_limit": self.parent.cfg.get("fps_limit", 60),
+        }
+
+        import platform
+        return report_mod.build_feedback_payload(
+            category=cat,
+            description=desc,
+            contact=contact,
+            app_version=VERSION,
+            os_info=f"{platform.system()} {platform.release()} (Build {platform.version()})",
+            attach_diagnostics=attach,
+            settings_summary=settings,
+            gpu_name=gpu_name,
+            log_tail=log_tail,
+        )
+
+    def _preview(self):
+        payload = self._build_payload()
+        ReportPreviewDialog(self, payload, is_id=self.is_id)
+
+    def _send(self):
+        if not self.key:
+            import webbrowser
+            webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+            return
+
+        desc = self.desc_text.get("1.0", "end-1c").strip()
+        if len(desc) < report_mod.MIN_DESCRIPTION_LENGTH:
+            msg = ("Deskripsi minimal 10 karakter." if self.is_id
+                   else "Please provide at least 10 characters in the description.")
+            self.status_lbl.config(text=f"⚠️ {msg}", fg=self.theme["accent_primary"])
+            self.desc_text.focus_set()
+            return
+        if len(desc) > report_mod.MAX_DESCRIPTION_LENGTH:
+            msg = ("Deskripsi melebihi batas 4000 karakter." if self.is_id
+                   else "Description exceeds maximum of 4000 characters.")
+            self.status_lbl.config(text=f"⚠️ {msg}", fg=self.theme["accent_primary"])
+            return
+
+        self.send_btn.config(state="disabled")
+        sending_txt = "Mengirim…" if self.is_id else "Sending…"
+        self.status_lbl.config(text=f"⏳ {sending_txt}", fg=self.theme["fg_muted"])
+        payload = self._build_payload()
+
+        def worker():
+            success, result_msg = report_mod.send_report(
+                payload, key=self.key, url=self.url, timeout=10.0
+            )
+            self.after(0, lambda: self._on_send_done(success, result_msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_send_done(self, success, result_msg):
+        if not self.winfo_exists():
+            return
+        if success:
+            ok_txt = "Laporan berhasil dikirim. Terima kasih!" if self.is_id else "Report sent successfully. Thank you!"
+            self.status_lbl.config(text=f"✓ {ok_txt}", fg=self.theme["ok"])
+            self.after(1600, self._close)
+        else:
+            self.send_btn.config(state="normal")
+            self.status_lbl.config(text=f"✕ {result_msg}", fg=self.theme["play_bg"])
+
+    def _open_github(self):
+        import webbrowser
+        webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        if dev == "pad":
+            hints = ("[A] Pilih/Beralih   [B] Batal   [Kiri/Kanan] Kategori   [Start] Kirim   (Ketik butuh keyboard)"
+                     if self.is_id else
+                     "[A] Select/Toggle   [B] Cancel   [Left/Right] Category   [Start] Send   (Typing needs keyboard)")
+        else:
+            hints = ("Tab/Panah Navigasi   Enter Pilih   Esc Tutup"
+                     if self.is_id else
+                     "Tab/Arrow Navigate   Enter Select   Esc Close")
+        self.hint_label.config(text=hints)
+
+    def _cycle_focus(self, delta):
+        self.focused_idx = (self.focused_idx + delta) % len(self.interactive_items)
+        target = self.interactive_items[self.focused_idx]
+        try:
+            target.focus_set()
+        except Exception:
+            pass
+
+    def _invoke_focused(self):
+        item = self.interactive_items[self.focused_idx]
+        if item == self.attach_toggle:
+            self.attach_toggle.invoke()
+        elif isinstance(item, tk.Button):
+            item.invoke()
+        elif item == self.github_link:
+            self._open_github()
+
+    def handle_pad(self, action: str):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("pad")
+        self._update_hint()
+        if action in ("b", "escape"):
+            self._close()
+        elif action == "up":
+            self._cycle_focus(-1)
+        elif action == "down":
+            self._cycle_focus(1)
+        elif action == "left":
+            if self.focused_idx == 0:
+                self._cycle_category(-1)
+            elif self.focused_idx in (4, 5, 6):
+                self._cycle_focus(-1)
+        elif action == "right":
+            if self.focused_idx == 0:
+                self._cycle_category(1)
+            elif self.focused_idx in (4, 5, 6):
+                self._cycle_focus(1)
+        elif action == "a":
+            self._invoke_focused()
+        elif action == "start":
+            self._send()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
+class CrashPromptDialog(tk.Toplevel):
+    """Themed modal prompt shown when the game crashes or writes a minidump."""
+
+    def __init__(self, parent, code=None, minidump_present=False):
+        super().__init__(parent)
+        self.parent = parent
+        self.code = code if code is not None else 0
+        self.minidump_present = minidump_present
+        self.is_id = getattr(parent, "cfg", {}).get("language") == "id"
+        theme = theme_mod.get_theme(getattr(parent, "cfg", {}).get("launcher_theme", "yoshiteru"))
+        self.theme = theme
+
+        title_txt = "Game Berhenti Mendadak" if self.is_id else "Game Closed Unexpectedly"
+        self.title(title_txt)
+        self.configure(bg=theme["bg_main"])
+        self.transient(parent)
+        self.resizable(False, False)
+
+        self.key, self.url = report_mod.load_crashpulse_config()
+        self.dont_ask_var = tk.BooleanVar(value=False)
+
+        # Extract failure summary from log
+        self.failure_summary = report_mod.extract_failure_summary(LOG)
+        exit_hex = f"{self.code & 0xFFFFFFFF:#x}" if isinstance(self.code, int) else "Unknown"
+
+        outer = tk.Frame(self, bg=theme["bg_card"], highlightbackground=theme["accent_primary"],
+                         highlightthickness=1, bd=0)
+        outer.pack(fill="both", expand=True)
+
+        # Header
+        header = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=10)
+        header.pack(fill="x")
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+
+        tk.Label(
+            header,
+            text="CRASH",
+            bg=theme["play_bg"],
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
+        ).pack(side="left", padx=(0, 10))
+
+        tk.Label(
+            header,
+            text=title_txt,
+            bg=theme["bg_dock"],
+            fg=theme["fg_primary"],
+            font=("Segoe UI Semibold", 11),
+        ).pack(side="left")
+
+        # Body
+        body = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        q_txt = (
+            "Game berhenti secara tidak terduga. Kirim laporan crash anonim ke CrashPulse?"
+            if self.is_id else
+            "The game closed unexpectedly. Send an anonymous crash report to CrashPulse?"
+        )
+        tk.Label(body, text=q_txt, bg=theme["bg_card"], fg=theme["fg_primary"],
+                 font=("Segoe UI Semibold", 9), wraplength=480, justify="left").pack(anchor="w", pady=(0, 6))
+
+        # Details summary card
+        details_box = tk.Frame(body, bg=theme["bg_control"], padx=10, pady=8,
+                               highlightthickness=1, highlightbackground=theme["border_card"])
+        details_box.pack(fill="x", pady=(0, 8))
+
+        tk.Label(details_box, text=f"Exit Code: {exit_hex}", bg=theme["bg_control"], fg=theme["accent_primary"],
+                 font=("Consolas", 9, "bold")).pack(anchor="w")
+        if self.failure_summary:
+            tk.Label(details_box, text=f"• {self.failure_summary}", bg=theme["bg_control"], fg=theme["fg_primary"],
+                     font=("Consolas", 8), wraplength=460, justify="left").pack(anchor="w", pady=(2, 0))
+        if self.minidump_present:
+            tk.Label(details_box,
+                     text="• Crash dump generated in user/crash (dump file will NOT be uploaded)",
+                     bg=theme["bg_control"], fg=theme["fg_muted"], font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(2, 0))
+
+        # Optional user comment
+        tk.Label(body, text="Komentar opsional (apa yang sedang Anda lakukan?):" if self.is_id
+                 else "Optional comment (what were you doing when it crashed?):",
+                 bg=theme["bg_card"], fg=theme["fg_primary"], font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 2))
+
+        entry_frame = tk.Frame(body, bg=theme["bg_control"], highlightthickness=1, highlightbackground=theme["border_card"])
+        entry_frame.pack(fill="x", pady=(0, 8))
+        self.comment_entry = tk.Entry(
+            entry_frame,
+            bg=theme["bg_control"],
+            fg=theme["fg_primary"],
+            insertbackground=theme["accent_primary"],
+            font=("Segoe UI", 9),
+            relief="flat",
+            bd=0,
+            takefocus=1,
+        )
+        self.comment_entry.pack(fill="x", padx=6, pady=4)
+
+        # "Don't ask again" toggle
+        toggle_frame = tk.Frame(body, bg=theme["bg_card"])
+        toggle_frame.pack(fill="x", pady=(0, 4))
+        self.dont_ask_toggle = ToggleSwitch(toggle_frame, variable=self.dont_ask_var,
+                                            command=self._on_dont_ask_toggled)
+        self.dont_ask_toggle.pack(side="left")
+        self.dont_ask_lbl = tk.Label(
+            toggle_frame,
+            text="Jangan tanya lagi" if self.is_id else "Don't ask again",
+            bg=theme["bg_card"],
+            fg=theme["fg_muted"],
+            font=("Segoe UI", 8),
+            cursor="hand2",
+        )
+        self.dont_ask_lbl.pack(side="left", padx=(8, 0))
+        self.dont_ask_lbl.bind("<Button-1>", lambda _e: self.dont_ask_toggle.invoke())
+
+        # Status label
+        self.status_lbl = tk.Label(body, text="", bg=theme["bg_card"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.status_lbl.pack(fill="x", pady=(2, 0))
+
+        # Bottom buttons
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        btn_bar = tk.Frame(outer, bg=theme["bg_card"], padx=18, pady=8)
+        btn_bar.pack(fill="x")
+
+        self.preview_btn = make_dialog_button(btn_bar, "Pratinjau" if self.is_id else "Preview", is_primary=False,
+                                              command=self._preview, theme=theme)
+        self.preview_btn.pack(side="left")
+
+        self.diag_btn = make_dialog_button(btn_bar, "Detail Log" if self.is_id else "View Log", is_primary=False,
+                                           command=self._open_diagnostic, theme=theme)
+        self.diag_btn.pack(side="left", padx=(6, 0))
+
+        dont_send_txt = "Jangan Kirim" if self.is_id else "Don't Send"
+        self.cancel_btn = make_dialog_button(btn_bar, dont_send_txt, is_primary=False, command=self._close, theme=theme)
+        self.cancel_btn.pack(side="right", padx=(8, 0))
+
+        send_txt = "Kirim Laporan" if self.is_id else "Send Report"
+        self.send_btn = make_dialog_button(btn_bar, send_txt, is_primary=True, command=self._send, theme=theme)
+        self.send_btn.pack(side="right")
+        if not self.key:
+            self.send_btn.config(state="disabled")
+
+        # Footer hint strip
+        tk.Frame(outer, bg=theme["border_card"], height=1).pack(fill="x")
+        footer = tk.Frame(outer, bg=theme["bg_dock"], padx=18, pady=6)
+        footer.pack(fill="x")
+        self.hint_label = tk.Label(footer, text="", bg=theme["bg_dock"], fg=theme["fg_muted"],
+                                   font=("Segoe UI", 8), anchor="w")
+        self.hint_label.pack(fill="x")
+        self._update_hint()
+
+        # Keyboard & Nav
+        self.bind("<Escape>", lambda _e: self._close())
+        self.bind("<Key>", lambda _e: self._on_key())
+
+        self.interactive_items = [
+            self.comment_entry,
+            self.dont_ask_toggle,
+            self.preview_btn,
+            self.diag_btn,
+            self.send_btn,
+            self.cancel_btn,
+        ]
+        self.focused_idx = 4  # Default focus on Send button
+
+        # Center dialog
+        self.update_idletasks()
+        w = max(520, self.winfo_reqwidth())
+        h = max(390, self.winfo_reqheight())
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        self._prev_active = getattr(parent, "_active_dialog", None)
+        parent._active_dialog = self
+        self.send_btn.focus_set()
+        self.grab_set()
+
+    def _on_dont_ask_toggled(self):
+        self.parent.cfg["crash_report_prompt"] = not self.dont_ask_var.get()
+        save_config(self.parent.cfg)
+
+    def _build_payload(self):
+        comment = self.comment_entry.get().strip()
+        log_tail = report_mod.get_sanitized_log_tail(LOG, max_lines=40)
+        gpu_name = ""
+        try:
+            if SYSTEM_GPUS:
+                gpu_name = SYSTEM_GPUS[0][1]
+        except Exception:
+            pass
+
+        settings = {
+            "display_mode": self.parent.cfg.get("display_mode", "borderless"),
+            "resolution": self.parent.cfg.get("resolution", "native"),
+            "dual_monitor_coop": self.parent.cfg.get("dual_monitor_coop", False),
+            "english_patch": self.parent.cfg.get("english_patch", False),
+            "upscaler": self.parent.cfg.get("upscale", "off"),
+            "fps_limit": self.parent.cfg.get("fps_limit", 60),
+        }
+
+        import platform
+        return report_mod.build_crash_payload(
+            exit_code=self.code,
+            failure_summary=self.failure_summary,
+            app_version=VERSION,
+            os_info=f"{platform.system()} {platform.release()} (Build {platform.version()})",
+            gpu_name=gpu_name,
+            settings_summary=settings,
+            minidump_present=self.minidump_present,
+            log_tail=log_tail,
+            user_comment=comment,
+        )
+
+    def _preview(self):
+        payload = self._build_payload()
+        ReportPreviewDialog(self, payload, is_id=self.is_id)
+
+    def _open_diagnostic(self):
+        self.parent._show_crash_dialog(self.code)
+
+    def _send(self):
+        if not self.key:
+            import webbrowser
+            webbrowser.open(report_mod.GITHUB_ISSUES_URL)
+            return
+
+        self.send_btn.config(state="disabled")
+        sending_txt = "Mengirim…" if self.is_id else "Sending…"
+        self.status_lbl.config(text=f"⏳ {sending_txt}", fg=self.theme["fg_muted"])
+        payload = self._build_payload()
+
+        def worker():
+            success, result_msg = report_mod.send_report(
+                payload, key=self.key, url=self.url, timeout=10.0
+            )
+            self.after(0, lambda: self._on_send_done(success, result_msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_send_done(self, success, result_msg):
+        if not self.winfo_exists():
+            return
+        if success:
+            ok_txt = "Laporan crash terkirim. Terima kasih!" if self.is_id else "Crash report sent. Thank you!"
+            self.status_lbl.config(text=f"✓ {ok_txt}", fg=self.theme["ok"])
+            self.after(1500, self._close)
+        else:
+            self.send_btn.config(state="normal")
+            self.status_lbl.config(text=f"✕ {result_msg}", fg=self.theme["play_bg"])
+
+    def _on_key(self):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("keyboard")
+        self._update_hint()
+
+    def _update_hint(self):
+        dev = getattr(self.parent, "_last_input_device", "keyboard")
+        if dev == "pad":
+            hints = ("[A] Konfirmasi   [B] Jangan Kirim   [Navigasi]"
+                     if self.is_id else
+                     "[A] Confirm   [B] Don't Send   [Navigate]")
+        else:
+            hints = ("Tab/Panah Navigasi   Enter Pilih   Esc Tutup"
+                     if self.is_id else
+                     "Tab/Arrow Navigate   Enter Select   Esc Close")
+        self.hint_label.config(text=hints)
+
+    def _cycle_focus(self, delta):
+        self.focused_idx = (self.focused_idx + delta) % len(self.interactive_items)
+        target = self.interactive_items[self.focused_idx]
+        try:
+            target.focus_set()
+        except Exception:
+            pass
+
+    def _invoke_focused(self):
+        item = self.interactive_items[self.focused_idx]
+        if item == self.dont_ask_toggle:
+            self.dont_ask_toggle.invoke()
+        elif isinstance(item, tk.Button):
+            item.invoke()
+
+    def handle_pad(self, action: str):
+        if hasattr(self.parent, "_set_last_input_device"):
+            self.parent._set_last_input_device("pad")
+        self._update_hint()
+        if action in ("b", "escape"):
+            self._close()
+        elif action == "up":
+            self._cycle_focus(-1)
+        elif action == "down":
+            self._cycle_focus(1)
+        elif action in ("left", "right"):
+            delta = -1 if action == "left" else 1
+            self._cycle_focus(delta)
+        elif action == "a":
+            self._invoke_focused()
+        elif action == "start":
+            self._send()
+
+    def _close(self):
+        self.parent._active_dialog = self._prev_active
+        self.destroy()
+
+
 class Launcher(tk.Tk):
     def __init__(self, play_now=False):
         super().__init__()
         self.cfg = load_config()
+        current_theme = self.cfg.get("launcher_theme", "yoshiteru")
+        theme_mod.REGISTRY.current_theme = current_theme
+        sync_color_constants(theme_mod.get_theme(current_theme))
         self.proc = None
         self.busy = False
         self.user_stopped = False
@@ -922,7 +2256,7 @@ class Launcher(tk.Tk):
         self.play_now = play_now
         self.title("Sengoku Basara 4 Sumeragi - Basara 4 PC")
         self.configure(bg=BG)
-        self.geometry("1000x620")
+        self.geometry("1000x650")
         self.resizable(False, False)
         icon = Path(__file__).resolve().parent / "basara4.ico"
         if icon.is_file():
@@ -948,55 +2282,30 @@ class Launcher(tk.Tk):
 
     # ---- look ----
     def _style(self):
-        s = ttk.Style(self)
-        s.theme_use("clam")
-        s.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, bordercolor=PANEL,
-                    lightcolor=PANEL, darkcolor=PANEL, font=FONT)
-        s.configure("TFrame", background=BG)
-        s.configure("Panel.TFrame", background=PANEL)
-        s.configure("TLabel", background=BG, foreground=FG)
-        s.configure("Panel.TLabel", background=PANEL, foreground=FG)
-        s.configure("Muted.TLabel", background=PANEL, foreground=MUTED, font=("Segoe UI", 9))
-        s.configure("Head.TLabel", background=PANEL, foreground=GOLD, font=("Segoe UI Semibold", 11))
-        s.configure("TRadiobutton", background=PANEL, foreground=FG)
-        s.configure("TCheckbutton", background=PANEL, foreground=FG, indicatorbackground=FIELD,
-                    indicatorforeground=GOLD, upperbordercolor=EDGE, lowerbordercolor=EDGE)
-        s.map("TRadiobutton", background=[("active", PANEL)], foreground=[("active", GOLD)])
-        s.map("TCheckbutton", background=[("active", PANEL)], foreground=[("active", GOLD)],
-              indicatorbackground=[("active", FIELD)])
-        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 2), borderwidth=1,
-                    bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622")
-        edge = [("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
-        s.map("TButton", background=[("active", "#3a342e"), ("disabled", "#1c1916")],
-              foreground=[("disabled", MUTED)], bordercolor=edge, lightcolor=edge, darkcolor=edge)
-        s.configure("Play.TButton", background=RED, foreground="#fff", font=("Segoe UI Semibold", 15),
-                    padding=(10, 12), bordercolor=RED, lightcolor=RED, darkcolor=RED)
-        play_edge = [("disabled", "#4a2522"), ("active", "#b8362d")]
-        s.map("Play.TButton", background=[("active", "#b8362d"), ("disabled", "#4a2522")],
-              bordercolor=play_edge, lightcolor=play_edge, darkcolor=play_edge)
-        s.configure("Seg.Toolbutton", background="#2a2622", foreground=FG, padding=(10, 6), borderwidth=0,
-                    anchor="center")
-        s.map("Seg.Toolbutton", background=[("selected", GOLD), ("active", "#3a342e")],
-              foreground=[("selected", BG)])
-        s.configure("TCombobox", arrowcolor=GOLD, bordercolor=EDGE, lightcolor=EDGE, darkcolor=EDGE,
-                    padding=(6, 4), selectbackground=FIELD, selectforeground=FG)
-        s.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", FG)],
-              selectbackground=[("readonly", FIELD)], selectforeground=[("readonly", FG)],
-              bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
-        s.configure("TEntry", fieldbackground=FIELD, foreground=FG, insertcolor=FG, bordercolor=EDGE,
-                    lightcolor=EDGE, darkcolor=EDGE, padding=(6, 4))
-        self.option_add("*TCombobox*Listbox.background", FIELD)
-        self.option_add("*TCombobox*Listbox.foreground", FG)
-        self.option_add("*TCombobox*Listbox.selectBackground", GOLD)
-        self.option_add("*TCombobox*Listbox.selectForeground", BG)
+        if not hasattr(self, "style"):
+            self.style = ttk.Style(self)
+        theme_name = self.cfg.get("launcher_theme", "yoshiteru")
+        theme_mod.apply_ttk_theme(self.style, theme_name, self)
 
     def _art(self):
         self.cover = None
-        if Image is None or not self.cfg["game"]:
+        if Image is None:
+            return
+        art_path = Path(__file__).resolve().parent / "assets" / "cover_art.jpg"
+        if not art_path.is_file():
+            game = self.cfg.get("game")
+            art_path = (Path(game) / "sce_sys" / "icon0.png") if game else None
+        if not art_path or not Path(art_path).is_file():
             return
         try:
-            self.cover = ImageTk.PhotoImage(
-                Image.open(Path(self.cfg["game"]) / "sce_sys" / "icon0.png").convert("RGB").resize((220, 220)))
+            im = Image.open(art_path).convert("RGB")
+            dock_w = 208
+            w, h = im.size
+            if w > 0:
+                new_h = int(round(h * (dock_w / w)))
+                resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", 1))
+                im = im.resize((dock_w, new_h), resample)
+                self.cover = ImageTk.PhotoImage(im, master=self)
         except OSError:
             pass
 
@@ -1008,10 +2317,12 @@ class Launcher(tk.Tk):
         self.dlc_var = tk.StringVar(value=self.cfg.get("dlc_folder", ""))
         self.update_view = None
         self.mode_var = tk.StringVar(value=self.cfg["display_mode"])
+        self.theme_var = tk.StringVar(value=self.cfg.get("launcher_theme", "yoshiteru"))
         self.gpu_var, self.fps_var, self.aniso_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         self.res_var, self.up_var = tk.StringVar(), tk.StringVar()
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
         self.rcas_var = tk.BooleanVar(value=self.cfg["rcas"])
+        self.dual_monitor_coop_var = tk.BooleanVar(value=self.cfg.get("dual_monitor_coop", False))
         self.audio_var = tk.BooleanVar(value=self.cfg.get("audio_log", False))
         self.wav_var = tk.BooleanVar(value=False)
         self.english_var = tk.BooleanVar(value=self.cfg.get("english_patch", False))
@@ -1033,16 +2344,31 @@ class Launcher(tk.Tk):
         self.cheat_checkboxes = {}
         self._current_page = None
         self._pad_poll_id = None
+        self.xi_manager = nav.XInputManager()
+        self.repeat_tracker = nav.KeyRepeatTracker()
+        self._last_input_device = "keyboard"
+        self._prev_pad_buttons = {}
+        self._active_dialog = None
+        self._nav_pad_poll_id = None
+        self.controls_canvas = None
 
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True, padx=14, pady=14)
+        theme_mod.REGISTRY.register(self, bg="bg_main")
+        theme_mod.REGISTRY.register(shell, bg="bg_main")
         left = tk.Frame(shell, bg=PANEL, width=240, padx=16, pady=16)
         left.pack(side="left", fill="y", padx=(0, 12))
         left.pack_propagate(False)
+        theme_mod.REGISTRY.register(left, bg="bg_card")
         self._build_left(left)
         right = tk.Frame(shell, bg=PANEL)
         right.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(right, bg="bg_card")
         self._build_right(right)
+        self._bind_nav_keys()
+        self._update_button_hints()
+        self.after(50, self._poll_gamepad_nav)
+        self.after(100, self._initial_nav_focus)
         game = self.cfg["game"]
         self.show_page("display" if game and (Path(game) / "eboot.bin").is_file() else "game")
 
@@ -1050,34 +2376,62 @@ class Launcher(tk.Tk):
         bottom = tk.Frame(left, bg=PANEL)  # packed first so a long status can never push it out
         bottom.pack(side="bottom", fill="x")
         self.mark_frame = bottom
+        theme_mod.REGISTRY.register(bottom, bg="bg_card")
         self.version_label = tk.Label(bottom, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=FONT_SMALL)
         self.version_label.pack(pady=(0, 6))
+        theme_mod.REGISTRY.register(self.version_label, bg="bg_card", fg="fg_muted")
         self.check_btn = ttk.Button(bottom, text="Check for updates", command=self.check_update_manual)
         self.check_btn.pack(fill="x")
+        is_id = self.cfg.get("language") == "id"
+        self.report_btn = ttk.Button(
+            bottom,
+            text="Laporkan Masalah" if is_id else "Report a problem",
+            command=self.open_report_ui,
+        )
+        self.report_btn.pack(fill="x", pady=(4, 0))
         credit = tk.Frame(bottom, bg=PANEL, cursor="hand2")  # clicking it opens the credits
         credit.pack(pady=(10, 0))
+        theme_mod.REGISTRY.register(credit, bg="bg_card")
         c_line1 = tk.Frame(credit, bg=PANEL)
         c_line1.pack()
-        tk.Label(c_line1, text=f"{BRAND} ", bg=PANEL, fg=FG, font=FONT_SMALL, bd=0).pack(side="left")
-        tk.Label(c_line1, text=f"({FORK} Fork)", bg=PANEL, fg=FORK_ACCENT, font=("Segoe UI", 8, "bold"), bd=0).pack(side="left")
+        theme_mod.REGISTRY.register(c_line1, bg="bg_card")
+        lbl_b = tk.Label(c_line1, text=f"{BRAND} ", bg=PANEL, fg=FG, font=FONT_SMALL, bd=0)
+        lbl_b.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_b, bg="bg_card", fg="fg_primary")
+        lbl_f = tk.Label(c_line1, text=f"({FORK} Fork)", bg=PANEL, fg=FORK_ACCENT, font=("Segoe UI", 8, "bold"), bd=0)
+        lbl_f.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_f, bg="bg_card")
         c_line2 = tk.Frame(credit, bg=PANEL)
         c_line2.pack(pady=(1, 0))
-        tk.Label(c_line2, text=f"\u00b7 Original port by {AUTHOR}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "italic"), bd=0).pack(side="left")
+        theme_mod.REGISTRY.register(c_line2, bg="bg_card")
+        lbl_o = tk.Label(c_line2, text=f"\u00b7 Original port by {AUTHOR}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "italic"), bd=0)
+        lbl_o.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_o, bg="bg_card", fg="fg_muted")
         for widget in [credit, c_line1, c_line2] + c_line1.winfo_children() + c_line2.winfo_children():
             widget.bind("<Button-1>", lambda _e: self.show_credits())
 
         if self.cover:
             frame = tk.Frame(left, bg=GOLD, padx=1, pady=1)
             frame.pack()
-            tk.Label(frame, image=self.cover, bd=0, bg=PANEL).pack()
-        tk.Label(left, text="戦国BASARA4 皇", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12)).pack(pady=(12, 0))
-        tk.Label(left, text="Sengoku Basara 4 Sumeragi", bg=PANEL, fg=FG, font=FONT).pack()
-        tk.Label(left, text="CUSA01159", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack()
+            theme_mod.REGISTRY.register(frame, bg="accent_primary")
+            c_lbl = tk.Label(frame, image=self.cover, bd=0, bg=PANEL)
+            c_lbl.pack()
+            theme_mod.REGISTRY.register(c_lbl, bg="bg_card")
+        lbl_jp = tk.Label(left, text="戦国BASARA4 皇", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12))
+        lbl_jp.pack(pady=(12, 0))
+        theme_mod.REGISTRY.register(lbl_jp, bg="bg_card", fg="accent_primary")
+        lbl_en = tk.Label(left, text="Sengoku Basara 4 Sumeragi", bg=PANEL, fg=FG, font=FONT)
+        lbl_en.pack()
+        theme_mod.REGISTRY.register(lbl_en, bg="bg_card", fg="fg_primary")
+        lbl_tid = tk.Label(left, text="CUSA01159", bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+        lbl_tid.pack()
+        theme_mod.REGISTRY.register(lbl_tid, bg="bg_card", fg="fg_muted")
         self.status = tk.Label(left, text="Ready", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=208)
         self.status.pack(pady=(14, 8))
+        theme_mod.REGISTRY.register(self.status, bg="bg_card", fg="fg_muted")
         self.play = ttk.Button(left, text="PLAY", style="Play.TButton", command=self.on_play)
         self.play.pack(fill="x", pady=(0, 6))
-        self.stop = ttk.Button(left, text="Stop game", command=self.on_stop, state="disabled")
+        self.stop = ttk.Button(left, text="Stop game", style="Stop.TButton", command=self.on_stop, state="disabled")
         self.stop.pack(fill="x")
 
     def _build_right(self, right):
@@ -1099,28 +2453,56 @@ class Launcher(tk.Tk):
                 widget.bind("<Button-1>", lambda _e, k=key: self.show_page(k))
             label.bind("<Return>", lambda _e, k=key: self.show_page(k))
             label.bind("<space>", lambda _e, k=key: self.show_page(k))
+            label.bind("<FocusIn>", lambda _e, k=key: self._on_nav_focus_in(k))
+            label.bind("<FocusOut>", lambda _e, k=key: self._on_nav_focus_out(k))
             self.nav[key] = (item, bar, label)
 
         content = tk.Frame(right, bg=PANEL)
         content.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(content, bg="bg_card")
+        hint_bar = tk.Frame(content, bg=PANEL, height=28)  # on-screen button hints strip
+        hint_bar.pack(side="bottom", fill="x")
+        hint_bar.pack_propagate(False)
+        theme_mod.REGISTRY.register(hint_bar, bg="bg_card")
+        hb_line = tk.Frame(hint_bar, bg=LINE, height=1)
+        hb_line.pack(fill="x")
+        theme_mod.REGISTRY.register(hb_line, bg="border_card")
+        self.button_hints_label = tk.Label(
+            hint_bar, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w", padx=20
+        )
+        self.button_hints_label.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(self.button_hints_label, bg="bg_card", fg="fg_muted")
+
         tip = tk.Frame(content, bg=PANEL, height=35)  # the docked hint bar
         tip.pack(side="bottom", fill="x")
         tip.pack_propagate(False)
-        tk.Frame(tip, bg=LINE, height=1).pack(fill="x")
-        tk.Label(tip, text="?", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9)).pack(side="left", padx=(20, 6))
+        theme_mod.REGISTRY.register(tip, bg="bg_card")
+        tip_line = tk.Frame(tip, bg=LINE, height=1)
+        tip_line.pack(fill="x")
+        theme_mod.REGISTRY.register(tip_line, bg="border_card")
+        q_lbl = tk.Label(tip, text="?", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9))
+        q_lbl.pack(side="left", padx=(20, 6))
+        theme_mod.REGISTRY.register(q_lbl, bg="bg_card", fg="accent_primary")
         self.hint = tk.Label(tip, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w")
         self.hint.pack(side="left", fill="x", expand=True)
+        theme_mod.REGISTRY.register(self.hint, bg="bg_card", fg="fg_muted")
         host = tk.Frame(content, bg=PANEL)
         host.pack(side="top", fill="both", expand=True, padx=20, pady=(16, 0))
+        theme_mod.REGISTRY.register(host, bg="bg_card")
         self.pages, self._lit_bar = {}, None
         for key, name in NAV:
             page = self.pages[key] = tk.Frame(host, bg=PANEL)
+            theme_mod.REGISTRY.register(page, bg="bg_card")
             title = tk.Frame(page, bg=PANEL)
             title.pack(fill="x", pady=(0, 8))
-            tk.Label(title, text=name, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 14)).pack(side="left")
+            theme_mod.REGISTRY.register(title, bg="bg_card")
+            t_lbl = tk.Label(title, text=name, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 14))
+            t_lbl.pack(side="left")
+            theme_mod.REGISTRY.register(t_lbl, bg="bg_card", fg="accent_primary")
             if key in PAGE_SUBTITLE:
-                tk.Label(title, text=PAGE_SUBTITLE[key], bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(
-                    side="left", padx=12, pady=(4, 0))
+                sub_lbl = tk.Label(title, text=PAGE_SUBTITLE[key], bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+                sub_lbl.pack(side="left", padx=12, pady=(4, 0))
+                theme_mod.REGISTRY.register(sub_lbl, bg="bg_card", fg="fg_muted")
         self._page_game(self.pages["game"])
         self._page_display(self.pages["display"])
         self._page_controls(self.pages["controls"])
@@ -1129,16 +2511,23 @@ class Launcher(tk.Tk):
 
     def show_page(self, key):
         self._current_page = key
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
         for name, page in self.pages.items():
             page.pack_forget()
             item, bar, label = self.nav[name]
             on = name == key
-            fill = HOVER if on else PANEL
+            fill = theme["bg_card"] if on else theme["bg_main"]
             item.config(bg=fill)
-            label.config(bg=fill, fg=GOLD if on else MUTED, highlightbackground=fill,
+            is_focused = (self.focus_get() == label)
+            hi_bg = theme["accent_primary"] if is_focused else fill
+            hi_th = 2 if is_focused else 1
+            label.config(bg=fill, fg=theme["accent_primary"] if on else theme["fg_muted"],
+                         highlightbackground=hi_bg,
+                         highlightthickness=hi_th,
                          font=("Segoe UI Semibold" if on else "Segoe UI", 11))
-            bar.config(bg=GOLD if on else PANEL)
+            bar.config(bg=theme["accent_primary"] if on else fill)
         self.pages[key].pack(fill="both", expand=True)
+        self._light(None)
         self._light(None)
         if key == "mods" and self._is_game_running():
             self.hint.config(text=self._running_cheat_hint())
@@ -1161,67 +2550,170 @@ class Launcher(tk.Tk):
             self._pad_poll_id = self.after(1500, self._schedule_pad_poll)
 
     # ---- settings rows ----
-    def _light(self, bar):
-        """The gold bar of the row being hovered or focused (None: no row)."""
-        if self._lit_bar is not None:
-            self._lit_bar.config(bg=PANEL)
+    def _light(self, bar, row=None):
+        """The accent bar and focus outline of the row being hovered or focused (None: no row)."""
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        if hasattr(self, "_lit_bar") and self._lit_bar is not None and self._lit_bar.winfo_exists():
+            try:
+                self._lit_bar.config(bg=self._lit_bar.master.cget("bg"))
+            except Exception:
+                pass
+        if hasattr(self, "_lit_row") and self._lit_row is not None and self._lit_row.winfo_exists():
+            try:
+                self._lit_row.config(highlightbackground=theme["border_card"])
+            except Exception:
+                pass
         self._lit_bar = bar
-        if bar is not None:
-            bar.config(bg=GOLD)
+        self._lit_row = row
+        if bar is not None and bar.winfo_exists():
+            try:
+                bar.config(bg=theme["accent_primary"])
+            except Exception:
+                pass
+        if row is not None and row.winfo_exists():
+            try:
+                row.config(highlightbackground=theme["accent_primary"])
+            except Exception:
+                pass
 
-    def _row(self, page, key, make, width=250, sub=False, stack=False, height=30):
-        """One ruled row: label left, the control `make(holder)` right. Hovering or focusing it shows its hint."""
+    def _row(self, page, key, make, width=250, sub=False, stack=False, height=30, badge=None):
+        """One card row: label left, control right. Card has border_card outline, hover bg_hover."""
         label, hint = ROW[key]
-        row = tk.Frame(page, bg=PANEL)
-        row.pack(fill="x")
+        theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        row = tk.Frame(page, bg=theme["bg_card"], highlightthickness=1,
+                       highlightbackground=theme["border_card"], padx=10, pady=4)
+        row.pack(fill="x", pady=2)
         row.columnconfigure(1, weight=1)
-        row.rowconfigure(0, minsize=40)
-        bar = tk.Frame(row, bg=PANEL, width=3)
-        bar.grid(row=0, column=0, sticky="ns")
-        tk.Label(row, text=label, bg=PANEL, fg=FG, font=FONT).grid(row=0, column=1, sticky="w",
-                                                                    padx=(10 + (23 if sub else 0), 0))
-        holder = tk.Frame(row, bg=PANEL)
+        row.rowconfigure(0, minsize=32)
+        theme_mod.REGISTRY.register(row, bg="bg_card")
+        bar = tk.Frame(row, bg=theme["bg_card"], width=4)
+        bar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
+        theme_mod.REGISTRY.register(bar, bg="bg_card")
+
+        lbl_box = tk.Frame(row, bg=theme["bg_card"])
+        lbl_box.grid(row=0, column=1, sticky="w", padx=(4 + (20 if sub else 0), 0))
+        theme_mod.REGISTRY.register(lbl_box, bg="bg_card")
+        lbl = tk.Label(lbl_box, text=label, bg=theme["bg_card"], fg=theme["fg_primary"], font=FONT)
+        lbl.pack(side="left")
+        theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_primary")
+
+        if badge:
+            badge_lbl = tk.Label(
+                lbl_box,
+                text=badge,
+                bg=theme["accent_secondary"],
+                fg=theme["bg_main"],
+                font=("Segoe UI", 7, "bold"),
+                padx=5,
+                pady=1,
+            )
+            badge_lbl.pack(side="left", padx=(8, 0))
+            theme_mod.REGISTRY.register(badge_lbl, bg="accent_secondary", fg="bg_main")
+
+        holder = tk.Frame(row, bg=theme["bg_card"])
+        theme_mod.REGISTRY.register(holder, bg="bg_card")
         if stack:  # a value too long for the right column gets the full width under its label
-            holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(13, 10), pady=(0, 8))
+            holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(10, 6), pady=(4, 6))
         else:
-            holder.grid(row=0, column=2, sticky="e", padx=(0, 10))
+            holder.grid(row=0, column=2, sticky="e", padx=(0, 6))
         if width and not stack:
             holder.config(width=width, height=height)
             holder.pack_propagate(False)
         make(holder)
-        tk.Frame(row, bg=RULE, height=1).grid(row=2, column=0, columnspan=3, sticky="ew")
 
-        def show(_event=None):
-            self._light(bar)
+        def set_card_hover(hovering):
+            cur_th = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+            col = cur_th["bg_hover"] if hovering else cur_th["bg_card"]
+            row.config(bg=col)
+            lbl_box.config(bg=col)
+            lbl.config(bg=col)
+            holder.config(bg=col)
+            if hasattr(self, "_lit_row") and self._lit_row == row:
+                bar.config(bg=cur_th["accent_primary"])
+            else:
+                bar.config(bg=col)
+            for child in holder.winfo_children():
+                if hasattr(child, "set_bg"):
+                    child.set_bg(col)
+                elif isinstance(child, (tk.Label, tk.Frame)):
+                    try:
+                        child.config(bg=col)
+                    except Exception:
+                        pass
+
+        def on_enter(_event=None):
+            set_card_hover(True)
+            self._light(bar, row)
+            self._scroll_into_view(row)
+            if key in CHEAT_KEYS and self._is_game_running():
+                self.hint.config(text=self._running_cheat_hint())
+            else:
+                self.hint.config(text=hint)
+
+        def on_leave(_event=None):
+            try:
+                x, y = row.winfo_pointerxy()
+                rx = row.winfo_rootx()
+                ry = row.winfo_rooty()
+                rw = row.winfo_width()
+                rh = row.winfo_height()
+                if not (rx <= x < rx + rw and ry <= y < ry + rh):
+                    set_card_hover(False)
+            except Exception:
+                set_card_hover(False)
+
+        def on_focus_in(_event=None):
+            self._light(bar, row)
+            self._scroll_into_view(row)
             if key in CHEAT_KEYS and self._is_game_running():
                 self.hint.config(text=self._running_cheat_hint())
             else:
                 self.hint.config(text=hint)
 
         def wire(widget):
-            widget.bind("<Enter>", show, add="+")
-            widget.bind("<FocusIn>", show, add="+")  # the same hint for keyboard and pad users
+            widget.bind("<Enter>", on_enter, add="+")
+            widget.bind("<Leave>", on_leave, add="+")
+            widget.bind("<FocusIn>", on_focus_in, add="+")
             for child in widget.winfo_children():
                 wire(child)
         wire(row)
         return row
 
     def _group(self, page, key):
-        tk.Label(page, text=GROUP[key].upper(), bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9),
-                 anchor="w").pack(fill="x", padx=13, pady=(14, 2))
+        motif = theme_mod.get_theme(self.cfg.get("launcher_theme", "yoshiteru")).get("motif", "")
+        txt = f"{motif} {GROUP[key].upper()}" if motif else GROUP[key].upper()
+        lbl = tk.Label(page, text=txt, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9),
+                       anchor="w")
+        lbl.pack(fill="x", padx=13, pady=(14, 2))
+        def update_grp(t):
+            m = t.get("motif", "")
+            lbl.config(text=f"{m} {GROUP[key].upper()}" if m else GROUP[key].upper(), bg=t["bg_card"], fg=t["accent_primary"])
+        theme_mod.REGISTRY.register_callback(update_grp)
 
     def _combo_row(self, page, key, var, values):
         need = max(self._font.measure(v) for v in values) + 48  # text + arrow + padding: nothing truncated
-        self._row(page, key, lambda h: ttk.Combobox(h, textvariable=var, state="readonly", values=values).pack(
-            fill="both", expand=True), width=max(250, need), stack=need > 330)
+        def make_cb(h):
+            cb = ttk.Combobox(h, textvariable=var, state="readonly", values=values)
+            cb.pack(fill="both", expand=True)
+            cb.bind("<Left>", lambda _e: (self._cycle_combobox(cb, -1), "break")[1])
+            cb.bind("<Right>", lambda _e: (self._cycle_combobox(cb, 1), "break")[1])
+            return cb
+        self._row(page, key, make_cb, width=max(250, need), stack=need > 330)
 
-    def _check_row(self, page, key, var, command=None, sub=False):
+    def _check_row(self, page, key, var, command=None, sub=False, badge=None):
         btn = None
         def make(h):
             nonlocal btn
-            btn = ttk.Checkbutton(h, text="On", variable=var, command=command)
+            btn = ToggleSwitch(h, variable=var, command=command)
             btn.pack(side="left")
-        self._row(page, key, make, sub=sub)
+            lbl = tk.Label(h, text="On" if var.get() else "Off", bg=PANEL, fg=MUTED, font=FONT_SMALL, width=3, anchor="w", cursor="hand2")
+            lbl.pack(side="left", padx=(8, 0))
+            lbl.bind("<Button-1>", lambda _e: btn.invoke())
+            def update_lbl(*_):
+                lbl.config(text="On" if var.get() else "Off")
+            var.trace_add("write", update_lbl)
+            theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_muted")
+        self._row(page, key, make, sub=sub, badge=badge)
         return btn
 
     def _slider_row(self, page, key, var, from_, to):
@@ -1287,11 +2779,53 @@ class Launcher(tk.Tk):
         self._combo_row(page, "aniso", self.aniso_var, [n for n, _ in ANISO])
         self._check_row(page, "vsync", self.vsync_var)
         self._check_row(page, "rcas", self.rcas_var)
+        self._check_row(page, "dual_monitor_coop", self.dual_monitor_coop_var,
+                        command=self._on_dual_monitor_coop_toggled, badge="EXPERIMENTAL")
+
+    def _on_dual_monitor_coop_toggled(self):
+        if not self.dual_monitor_coop_var.get():
+            return
+        is_id = self.cfg.get("language") == "id"
+        title = "Co-op dual monitor (eksperimental)" if is_id else "Dual-monitor co-op (experimental)"
+        msg = (
+            "Co-op dual monitor adalah fitur eksperimental.\n\n"
+            "Masalah yang diketahui:\n"
+            "• Menu dan cutscene terlihat pipih/tertekan (tekan F8 untuk beralih mirror/split).\n"
+            "• Banner layar penuh terpotong di batas pertemuan monitor.\n"
+            "• Roda roulette terdistorsi.\n"
+            "• Minimap terbelah dan tanda petunjuk hilang di layar kedua.\n"
+            "• Beban GPU tinggi: merender pada 1920x2160 (2x piksel; disarankan VRAM 6 GB+).\n\n"
+            "Membutuhkan dua monitor 1920x1080 berdampingan dalam mode jendela borderless 3840x1080.\n"
+            "Laporkan masalah melalui tombol \"Laporkan masalah\" di menu Alat.\n\n"
+            "Aktifkan co-op dual monitor dan atur ukuran jendela ke 3840x1080 borderless?"
+            if is_id else
+            "Dual-monitor co-op is an experimental feature.\n\n"
+            "Known issues:\n"
+            "• Menus and cutscenes look squashed (press F8 to toggle mirror/split).\n"
+            "• Fullscreen banners are cut at the monitor seam.\n"
+            "• Roulette wheel is distorted.\n"
+            "• Minimap split and objective markers missing on second screen.\n"
+            "• High GPU cost: renders at 1920x2160 (2x pixels; 6 GB+ VRAM recommended).\n\n"
+            "Requires two side-by-side 1920x1080 monitors configured as a 3840x1080 borderless window.\n"
+            "Report issues via \"Report a problem\" in Tools.\n\n"
+            "Enable dual-monitor co-op and switch window to 3840x1080 borderless?"
+        )
+        if self.ask_yes_no(title, msg):
+            self.mode_var.set("borderless")
+            self.res_var.set(next((n for n, v in RESOLUTIONS if v == "3840x1080"), "3840 x 1080  (Dual 1080p)"))
+            self.cfg["display_mode"] = "borderless"
+            self.cfg["resolution"] = "3840x1080"
+        else:
+            self.dual_monitor_coop_var.set(False)
 
     def _page_controls(self, page):
-        canvas = tk.Canvas(page, bg=PANEL, highlightthickness=0, bd=0)
+        cur_th = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+        canvas = tk.Canvas(page, bg=cur_th["bg_main"], highlightthickness=0, bd=0)
+        theme_mod.REGISTRY.register(canvas, bg="bg_main")
+        self.controls_canvas = canvas
         scrollbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
-        content = tk.Frame(canvas, bg=PANEL)
+        content = tk.Frame(canvas, bg=cur_th["bg_main"])
+        theme_mod.REGISTRY.register(content, bg="bg_main")
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         cwin = canvas.create_window((0, 0), window=content, anchor="nw")
 
@@ -1489,8 +3023,34 @@ class Launcher(tk.Tk):
         self._button_row(page, "open_log", "Open", self.open_log)
         self._button_row(page, "open_audio_log", "Open", self.open_audio_log)
         self._button_row(page, "open_saves", "Open", self.open_saves)
+        self._button_row(page, "report_problem", "Report…", self.open_report_ui)
         self._check_row(page, "audio_log", self.audio_var, self._audio_toggled)
         self._check_row(page, "audio_wav", self.wav_var, self._wav_toggled, sub=True)
+        self._group(page, "appearance")
+        def themes(holder):
+            for label, key in THEME_OPTIONS:
+                ttk.Radiobutton(holder, text=label, value=key,
+                                variable=self.theme_var, style="Seg.Toolbutton",
+                                command=self._on_theme_changed).pack(
+                    side="left", fill="both", expand=True, padx=1)
+        self._row(page, "launcher_theme", themes, width=340)
+
+    def _on_theme_changed(self):
+        new_theme = self.theme_var.get()
+        if new_theme not in ("yoshiteru", "hisahide"):
+            return
+        self.apply_theme(new_theme)
+
+    def apply_theme(self, theme_name):
+        if theme_name not in ("yoshiteru", "hisahide"):
+            theme_name = "yoshiteru"
+        self.cfg["launcher_theme"] = theme_name
+        save_config(self.cfg)
+        if hasattr(self, "theme_var") and self.theme_var.get() != theme_name:
+            self.theme_var.set(theme_name)
+        theme_mod.REGISTRY.apply_theme(theme_name, root=self, style=getattr(self, "style", None))
+        self.show_page(self._current_page or "tools")
+        self._update_button_hints()
 
     # ---- helpers ----
     def _browse(self):
@@ -1671,9 +3231,9 @@ class Launcher(tk.Tk):
         files, total = wav_captures()
         if not files or total < 50 * 2**20:
             return
-        if messagebox.askyesno("Audio captures", f"user\\audio_wav holds {format_size(total)} of audio captures "
-                               f"({len(files)} files) from an earlier session.\n\nDelete them to free the space?",
-                               default="no", parent=self):
+        if self.ask_yes_no("Audio captures", f"user\\audio_wav holds {format_size(total)} of audio captures "
+                           f"({len(files)} files) from an earlier session.\n\nDelete them to free the space?",
+                           default=False):
             for f in files:
                 try:
                     f.unlink()
@@ -1714,13 +3274,21 @@ class Launcher(tk.Tk):
         p1_val = P1_CONTROL_MAP.get(p1_str, "pad1")
         p2_val = P2_CONTROL_MAP.get(p2_str, "none")
         prompt_val = PROMPT_LAYOUT_MAP.get(prompt_str, "auto")
+        coop_enabled = self.dual_monitor_coop_var.get()
+        if coop_enabled:
+            # Force 3840x1080 borderless window for dual-monitor co-op
+            self.mode_var.set("borderless")
+            self.res_var.set(next((n for n, v in RESOLUTIONS if v == "3840x1080"), "3840 x 1080  (Dual 1080p)"))
         self.cfg.update(
             game=self.game_var.get().strip(),
             game_update=self.game_update_var.get().strip() if hasattr(self, "game_update_var") else "",
             dlc_folder=self.dlc_var.get().strip() if hasattr(self, "dlc_var") else "",
-            display_mode=self.mode_var.get(), vsync=self.vsync_var.get(),
-            rcas=self.rcas_var.get(), fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
-            resolution=dict(RESOLUTIONS)[self.res_var.get()],
+            display_mode="borderless" if coop_enabled else self.mode_var.get(),
+            vsync=self.vsync_var.get(),
+            rcas=self.rcas_var.get(),
+            dual_monitor_coop=coop_enabled,
+            fps_limit=dict(FPS_LIMITS)[self.fps_var.get()],
+            resolution="3840x1080" if coop_enabled else dict(RESOLUTIONS)[self.res_var.get()],
             upscale=dict(UPSCALERS).get(self.up_var.get(), "off"),
             anisotropy=dict(ANISO)[self.aniso_var.get()], audio_log=self.audio_var.get(),
             audio_wav=self.audio_var.get() and self.wav_var.get(),
@@ -1770,11 +3338,17 @@ class Launcher(tk.Tk):
                 env["SPARTAN_GPU_ID"] = str(disc_idx)
             else:
                 env.pop("SPARTAN_GPU_ID", None)
-        avail_mb = check_commit_limit_mb()
-        if avail_mb is not None and avail_mb < 3200:
-            env["SPARTAN_DMEM_MB"] = "2048"
-        elif avail_mb is not None and avail_mb < 4608:
-            env["SPARTAN_DMEM_MB"] = "2560"
+        if self.cfg.get("dual_monitor_coop", False):
+            env["SPARTAN_INTERNAL_HEIGHT"] = "2160"
+            env["SPARTAN_INTERNAL_WIDTH"] = "1920"
+            # 1920x2160 doubles render targets; provide 6 GiB direct memory pool (no low-memory cap)
+            env["SPARTAN_DMEM_MB"] = "6144"
+        else:
+            avail_mb = check_commit_limit_mb()
+            if avail_mb is not None and avail_mb < 3200:
+                env["SPARTAN_DMEM_MB"] = "2048"
+            elif avail_mb is not None and avail_mb < 4608:
+                env["SPARTAN_DMEM_MB"] = "2560"
         if WINDOW_ICON.exists():
             env["SPARTAN_WINDOW_ICON"] = str(WINDOW_ICON)
         if MAPPING.exists():
@@ -1835,7 +3409,7 @@ class Launcher(tk.Tk):
             return
         avail_mb = check_commit_limit_mb()
         if avail_mb is not None and avail_mb < 2560:
-            if not messagebox.askyesno(
+            if not self.ask_yes_no(
                 "Virtual Memory Sangat Rendah",
                 f"Sisa alokasi memori virtual Windows Anda hanya ~{avail_mb} MB.\n"
                 "Game membutuhkan setidaknya ~3584 MB (3.5 GB) virtual memory.\n\n"
@@ -2082,16 +3656,23 @@ class Launcher(tk.Tk):
         if not image_ready(effective_game):
             error = prepare_image(effective_game, self._progress)
         patch_args, notice = [], ""
-        if not error and self.cfg.get("fps_limit", 60) != 60:
+        fps_unlimited = self.cfg.get("fps_limit", 60) != 60
+        dual_monitor = self.cfg.get("dual_monitor_coop", False)
+        if not error and (fps_unlimited or dual_monitor):
             try:
-                writes, _ = basara4_patches.build(OUT / "eboot.elf", OUT / "patches.bin", True)
+                writes, notes = basara4_patches.build(
+                    OUT / "eboot.elf", OUT / "patches.bin", fps_unlimited, tall_canvas_coop=dual_monitor
+                )
             except OSError:
                 writes = []
+                notes = []
             if writes:
                 patch_args = ["--patches", str(OUT / "patches.bin")]
-            else:
+            if fps_unlimited and any(n.startswith("unlimited fps skipped") for n in notes):
                 self.cfg["fps_limit"] = 60
                 notice = "Frame limiter not found in this eboot.bin: staying at 60.  "
+            if dual_monitor and any(n.startswith("tall canvas co-op skipped") for n in notes):
+                notice += "Tall canvas co-op patch not found in this eboot.bin: skipped.  "
 
         app0 = effective_game
         active_patches: list[Path] = []
@@ -2225,6 +3806,12 @@ class Launcher(tk.Tk):
         if isa_table.is_file():
             extra_args = ["--isa-rewrite", str(isa_table)]
 
+        crash_dir = USER / "crash"
+        try:
+            self._pre_launch_dumps = set(crash_dir.iterdir()) if crash_dir.is_dir() else set()
+        except Exception:
+            self._pre_launch_dumps = set()
+
         log = open(LOG, "wb")
         self.proc = subprocess.Popen(
             [str(exe), str(OUT / "boot-linked.bin"), "--content-profile", str(OUT / "content.bin"),
@@ -2311,12 +3898,15 @@ class Launcher(tk.Tk):
 
         threading.Thread(target=run, daemon=True).start()
 
+    def open_report_ui(self):
+        ReportProblemDialog(self)
+
     def prompt_update(self):
         if not self.update_info:
             return
         tag = self.update_info["tag"]
         size_mb = self.update_info["size"] / (1024 * 1024)
-        if messagebox.askyesno(
+        if self.ask_yes_no(
             "Update Tersedia",
             f"Versi baru {tag} tersedia di GitHub!\nUkuran unduhan: ~{size_mb:.1f} MB.\n\n"
             "Launcher akan mengunduh dan menerapkan update secara otomatis.\n"
@@ -2549,6 +4139,7 @@ class Launcher(tk.Tk):
             import webbrowser
             webbrowser.open(f"https://github.com/{GITHUB_REPO}/issues")
 
+        ttk.Button(btn_bar, text="⚡ Laporkan ke CrashPulse", command=lambda: CrashPromptDialog(self, code=code)).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="📋 Copy Error ke Clipboard", command=copy_details).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="📁 Buka File Log", command=self.open_log).pack(side="left", padx=4)
         ttk.Button(btn_bar, text="Report on GitHub", command=open_issues).pack(side="left", padx=4)
@@ -2759,8 +4350,11 @@ class Launcher(tk.Tk):
     def _check_exit_error(self, code):
         if code in (0, None) or not LOG.is_file():
             return None
-        self._show_crash_dialog(code)
-        return f"Game crash (exit code {code & 0xFFFFFFFF:#x}). Silakan cek jendela diagnostik."
+        if self.cfg.get("crash_report_prompt", True):
+            CrashPromptDialog(self, code=code, minidump_present=False)
+        else:
+            self._show_crash_dialog(code)
+        return f"Game crash (exit code {code & 0xFFFFFFFF:#x})."
 
     def _poll(self):
         if self.proc and self.proc.poll() is not None:
@@ -2768,14 +4362,27 @@ class Launcher(tk.Tk):
             self.proc = None
             self.play.config(state="normal")
             self.stop.config(state="disabled")
-            if code not in (0, None) and not self.user_stopped:
+
+            crash_dir = USER / "crash"
+            try:
+                post_dumps = set(crash_dir.iterdir()) if crash_dir.is_dir() else set()
+            except Exception:
+                post_dumps = set()
+            new_dump = bool(post_dumps - getattr(self, "_pre_launch_dumps", set()))
+
+            has_crashed = (code not in (0, None) or new_dump) and not self.user_stopped
+            if has_crashed:
                 self._deiconify()
-                self._show_crash_dialog(code)
+                if self.cfg.get("crash_report_prompt", True):
+                    CrashPromptDialog(self, code=code, minidump_present=new_dump)
+                else:
+                    self._show_crash_dialog(code)
+
             if self.play_now:
-                if code in (0, None) or self.user_stopped:
+                if not has_crashed:
                     self.destroy()
                 return
-            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if (code not in (0, None) and not self.user_stopped) else None
+            err_msg = f"Game exited with code {code & 0xFFFFFFFF:#x}. See the log." if has_crashed else None
             self.status.config(text=err_msg if err_msg else "Game closed.")
             self._update_cheats_state(running=False)
             self._load_ini_into_ui()
@@ -2795,7 +4402,7 @@ class Launcher(tk.Tk):
         self.after(4000, self._pad_text)
 
     def reset_map(self):
-        if MAPPING.exists() and messagebox.askyesno("Reset mapping", "Delete the saved controller mapping?"):
+        if MAPPING.exists() and self.ask_yes_no("Reset mapping", "Delete the saved controller mapping?"):
             os.replace(MAPPING, str(MAPPING) + ".bak")
             self._pad_text()
 
@@ -2803,23 +4410,573 @@ class Launcher(tk.Tk):
         if LOG.exists():
             os.startfile(LOG)
         else:
-            messagebox.showinfo("Log", "No log yet. Start the game first.")
+            self.show_info("Log", "No log yet. Start the game first.")
 
     def open_audio_log(self):
         if AUDIO_LOG.exists():
             os.startfile(AUDIO_LOG)
         else:
-            messagebox.showinfo("Audio log", "No audio log yet. Tick \"Audio debug log\", then start the game.")
+            self.show_info("Audio log", "No audio log yet. Tick \"Audio debug log\", then start the game.")
 
     def open_saves(self):
         path = USER / "savedata"
         path.mkdir(parents=True, exist_ok=True)
         os.startfile(path)
 
+    # ---- Gamepad & Keyboard Navigation ----
+    def _initial_nav_focus(self):
+        try:
+            if hasattr(self, "nav") and self._current_page in self.nav:
+                self.nav[self._current_page][2].focus_set()
+        except Exception:
+            pass
+
+    def _on_nav_focus_in(self, key):
+        if hasattr(self, "nav") and key in self.nav:
+            theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+            _item, _bar, label = self.nav[key]
+            label.config(highlightbackground=theme["accent_primary"], highlightcolor=theme["accent_primary"], highlightthickness=2)
+            self._light(None)
+            self.hint.config(text=PAGE_HINT.get(key, ""))
+
+    def _on_nav_focus_out(self, key):
+        if hasattr(self, "nav") and key in self.nav:
+            theme = theme_mod.get_theme(theme_mod.REGISTRY.current_theme)
+            _item, _bar, label = self.nav[key]
+            fill = theme["bg_card"] if key == self._current_page else theme["bg_main"]
+            label.config(highlightbackground=fill, highlightcolor=fill, highlightthickness=1)
+
+    def _update_button_hints(self):
+        if not hasattr(self, "button_hints_label"):
+            return
+        lang = self.cfg.get("language", "en")
+        dev = getattr(self, "_last_input_device", "keyboard")
+        self.button_hints_label.config(text=nav.get_button_hints(device=dev, lang=lang))
+
+    def _set_last_input_device(self, device: str):
+        if getattr(self, "_last_input_device", None) != device:
+            self._last_input_device = device
+            self._update_button_hints()
+            if getattr(self, "_active_dialog", None):
+                self._active_dialog._update_hint()
+
+    def _bind_nav_keys(self):
+        self.bind("<Up>", lambda _e: self._nav_up("keyboard"))
+        self.bind("<Down>", lambda _e: self._nav_down("keyboard"))
+        self.bind("<Left>", lambda _e: self._nav_left("keyboard"))
+        self.bind("<Right>", lambda _e: self._nav_right("keyboard"))
+        self.bind("<Return>", lambda _e: self._nav_activate("keyboard"))
+        self.bind("<space>", lambda _e: self._nav_activate("keyboard"))
+        self.bind("<Escape>", lambda _e: self._nav_back("keyboard"))
+        self.bind("<Prior>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Next>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<Key-q>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Key-Q>", lambda _e: self._nav_prev_page("keyboard"))
+        self.bind("<Key-e>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<Key-E>", lambda _e: self._nav_next_page("keyboard"))
+        self.bind("<F5>", lambda _e: self._nav_play("keyboard"))
+        self.bind("<Key>", lambda _e: self._set_last_input_device("keyboard"))
+
+    def _scroll_into_view(self, widget):
+        if not hasattr(self, "controls_canvas") or not self.controls_canvas:
+            return
+        canvas = self.controls_canvas
+        if getattr(self, "_current_page", None) != "controls":
+            return
+        try:
+            self.update_idletasks()
+            c_h = canvas.winfo_height()
+            bbox = canvas.bbox("all")
+            if not bbox:
+                return
+            tot_h = bbox[3] - bbox[1]
+            if tot_h <= c_h:
+                return
+            wy = widget.winfo_rooty() - canvas.winfo_rooty()
+            top_y = canvas.canvasy(0)
+            widget_canvas_y = canvas.canvasy(wy)
+            wh = widget.winfo_height()
+
+            margin = 35
+            if widget_canvas_y < top_y + margin:
+                target = max(0, widget_canvas_y - margin)
+                canvas.yview_moveto(target / tot_h)
+            elif widget_canvas_y + wh > top_y + c_h - margin:
+                target = max(0, widget_canvas_y + wh + margin - c_h)
+                canvas.yview_moveto(target / tot_h)
+        except Exception:
+            pass
+
+    def _cycle_combobox(self, cb, delta: int):
+        values = list(cb["values"])
+        if not values:
+            return
+        cur = cb.get()
+        try:
+            idx = values.index(cur)
+        except ValueError:
+            idx = 0
+        new_idx = max(0, min(len(values) - 1, idx + delta))
+        if new_idx != idx:
+            cb.current(new_idx)
+            cb.event_generate("<<ComboboxSelected>>")
+
+    def _is_combobox_open(self, cb):
+        try:
+            p = cb.tk.eval(f"ttk::combobox::PopdownWindow {cb}")
+            return cb.tk.eval(f"winfo ismapped {p}") == "1"
+        except Exception:
+            return False
+
+    def _open_combobox(self, cb):
+        try:
+            cb.tk.eval(f"ttk::combobox::Post {cb}")
+        except Exception:
+            pass
+
+    def _close_combobox(self, cb):
+        try:
+            cb.tk.eval(f"ttk::combobox::Unpost {cb}")
+        except Exception:
+            pass
+
+    def _send_combobox_listbox_key(self, cb, keysym: str):
+        try:
+            p = cb.tk.eval(f"ttk::combobox::PopdownWindow {cb}")
+            lb = p + ".f.l"
+            self.tk.eval(f"event generate {lb} <{keysym}>")
+        except Exception:
+            pass
+
+    def _get_left_buttons(self):
+        btns = []
+        for b in (self.play, self.stop, self.check_btn, getattr(self, "report_btn", None)):
+            if b and b.winfo_exists():
+                try:
+                    if str(b.cget("state")) != "disabled":
+                        btns.append(b)
+                except Exception:
+                    pass
+        return btns
+
+    def _get_nav_labels(self):
+        return [self.nav[k][2] for k, _ in NAV if k in self.nav]
+
+    def _get_page_control_rows(self, page_key: str):
+        page = self.pages.get(page_key)
+        if not page:
+            return []
+        interactive = []
+
+        def collect(w):
+            cls = w.winfo_class()
+            if cls in (
+                "TButton", "Button", "TCheckbutton", "Checkbutton",
+                "TRadiobutton", "Radiobutton", "TCombobox", "TEntry", "Entry",
+                "TScale", "Scale"
+            ) or isinstance(w, ToggleSwitch) or getattr(w, "_is_toggle", False):
+                try:
+                    state = str(w.cget("state"))
+                    if state != "disabled":
+                        interactive.append(w)
+                except Exception:
+                    pass
+            for child in w.winfo_children():
+                collect(child)
+
+        collect(page)
+        if not interactive:
+            return []
+
+        rows = []
+        for w in sorted(interactive, key=lambda w: w.winfo_rooty()):
+            if not rows:
+                rows.append([w])
+            elif abs(w.winfo_rooty() - rows[-1][0].winfo_rooty()) <= 15:
+                rows[-1].append(w)
+            else:
+                rows.append([w])
+
+        for r in rows:
+            r.sort(key=lambda w: w.winfo_rootx())
+
+        return rows
+
+    def _get_current_zone(self):
+        focused = self.focus_get()
+        if focused is None:
+            return "nav", None, 0, 0
+        left_btns = self._get_left_buttons()
+        if focused in left_btns:
+            return "left", focused, left_btns.index(focused), 0
+        nav_labels = self._get_nav_labels()
+        if focused in nav_labels:
+            return "nav", focused, nav_labels.index(focused), 0
+        rows = self._get_page_control_rows(self._current_page)
+        for r_idx, r in enumerate(rows):
+            if focused in r:
+                return "page", focused, r_idx, r.index(focused)
+        for r_idx, r in enumerate(rows):
+            for c_idx, ctrl in enumerate(r):
+                if focused == ctrl or str(focused).startswith(str(ctrl)):
+                    return "page", ctrl, r_idx, c_idx
+        cur_page_widget = self.pages.get(self._current_page)
+        if cur_page_widget and str(focused).startswith(str(cur_page_widget)):
+            return "page", focused, 0, 0
+        return "nav", self.nav[self._current_page][2], 0, 0
+
+    def _nav_up(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("up")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._send_combobox_listbox_key(focused, "Up")
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            nav_labels = self._get_nav_labels()
+            new_idx = max(0, r - 1)
+            key = NAV[new_idx][0]
+            self.show_page(key)
+            nav_labels[new_idx].focus_set()
+        elif zone == "left":
+            btns = self._get_left_buttons()
+            new_idx = max(0, r - 1)
+            btns[new_idx].focus_set()
+        elif zone == "page":
+            rows = self._get_page_control_rows(self._current_page)
+            if not rows:
+                return
+            if r > 0:
+                target_row = rows[r - 1]
+                target_col = nav.find_closest_column(len(target_row), c)
+                target = target_row[target_col]
+                target.focus_set()
+                self._scroll_into_view(target)
+
+    def _nav_down(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("down")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._send_combobox_listbox_key(focused, "Down")
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            nav_labels = self._get_nav_labels()
+            new_idx = min(len(nav_labels) - 1, r + 1)
+            key = NAV[new_idx][0]
+            self.show_page(key)
+            nav_labels[new_idx].focus_set()
+        elif zone == "left":
+            btns = self._get_left_buttons()
+            new_idx = min(len(btns) - 1, r + 1)
+            btns[new_idx].focus_set()
+        elif zone == "page":
+            rows = self._get_page_control_rows(self._current_page)
+            if not rows:
+                return
+            if r < len(rows) - 1:
+                target_row = rows[r + 1]
+                target_col = nav.find_closest_column(len(target_row), c)
+                target = target_row[target_col]
+                target.focus_set()
+                self._scroll_into_view(target)
+
+    def _nav_left(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("left")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            btns = self._get_left_buttons()
+            if btns:
+                btns[0].focus_set()
+        elif zone == "left":
+            pass
+        elif zone == "page":
+            if isinstance(widget, ttk.Combobox):
+                self._cycle_combobox(widget, -1)
+            elif isinstance(widget, (ttk.Radiobutton, tk.Radiobutton)):
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows):
+                    if c > 0:
+                        prev_btn = rows[r][c - 1]
+                        prev_btn.focus_set()
+                        prev_btn.invoke()
+                    else:
+                        self.nav[self._current_page][2].focus_set()
+            elif isinstance(widget, (ttk.Scale, tk.Scale)):
+                try:
+                    from_ = float(widget.cget("from"))
+                    val = float(widget.get())
+                    widget.set(max(from_, val - 5))
+                except Exception:
+                    pass
+            elif isinstance(widget, (ttk.Entry, tk.Entry)) and device == "keyboard":
+                return
+            else:
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows):
+                    if c > 0:
+                        target = rows[r][c - 1]
+                        target.focus_set()
+                        self._scroll_into_view(target)
+                    else:
+                        self.nav[self._current_page][2].focus_set()
+
+    def _nav_right(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("right")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "left":
+            self.nav[self._current_page][2].focus_set()
+        elif zone == "nav":
+            rows = self._get_page_control_rows(self._current_page)
+            if rows and rows[0]:
+                target = rows[0][0]
+                target.focus_set()
+                self._scroll_into_view(target)
+        elif zone == "page":
+            if isinstance(widget, ttk.Combobox):
+                self._cycle_combobox(widget, 1)
+            elif isinstance(widget, (ttk.Radiobutton, tk.Radiobutton)):
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows) and c < len(rows[r]) - 1:
+                    next_btn = rows[r][c + 1]
+                    next_btn.focus_set()
+                    next_btn.invoke()
+            elif isinstance(widget, (ttk.Scale, tk.Scale)):
+                try:
+                    to_ = float(widget.cget("to"))
+                    val = float(widget.get())
+                    widget.set(min(to_, val + 5))
+                except Exception:
+                    pass
+            elif isinstance(widget, (ttk.Entry, tk.Entry)) and device == "keyboard":
+                return
+            else:
+                rows = self._get_page_control_rows(self._current_page)
+                if rows and 0 <= r < len(rows) and c < len(rows[r]) - 1:
+                    target = rows[r][c + 1]
+                    target.focus_set()
+                    self._scroll_into_view(target)
+
+    def _nav_activate(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("a")
+            else:
+                self._active_dialog._invoke_focused()
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox):
+            if self._is_combobox_open(focused):
+                self._send_combobox_listbox_key(focused, "Return")
+            else:
+                self._open_combobox(focused)
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone == "nav":
+            rows = self._get_page_control_rows(self._current_page)
+            if rows and rows[0]:
+                target = rows[0][0]
+                target.focus_set()
+                self._scroll_into_view(target)
+        elif zone in ("left", "page"):
+            if hasattr(widget, "invoke"):
+                try:
+                    widget.invoke()
+                except Exception:
+                    pass
+
+    def _nav_back(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            if device == "pad":
+                self._active_dialog.handle_pad("b")
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+            return
+
+        zone, widget, r, c = self._get_current_zone()
+        if zone in ("page", "left"):
+            self.nav[self._current_page][2].focus_set()
+
+    def _nav_prev_page(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        focused = self.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry)) and device == "keyboard":
+            return
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+
+        keys = [k for k, _ in NAV]
+        cur_idx = keys.index(self._current_page) if self._current_page in keys else 0
+        new_idx = (cur_idx - 1) % len(keys)
+        self.show_page(keys[new_idx])
+        self.nav[keys[new_idx]][2].focus_set()
+
+    def _nav_next_page(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        focused = self.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry)) and device == "keyboard":
+            return
+        if isinstance(focused, ttk.Combobox) and self._is_combobox_open(focused):
+            self._close_combobox(focused)
+
+        keys = [k for k, _ in NAV]
+        cur_idx = keys.index(self._current_page) if self._current_page in keys else 0
+        new_idx = (cur_idx + 1) % len(keys)
+        self.show_page(keys[new_idx])
+        self.nav[keys[new_idx]][2].focus_set()
+
+    def _nav_play(self, device="keyboard"):
+        self._set_last_input_device(device)
+        if getattr(self, "_active_dialog", None):
+            return
+        self.on_play()
+
+    def _poll_gamepad_nav(self):
+        self._nav_pad_poll_id = self.after(25, self._poll_gamepad_nav)
+
+        try:
+            if self.focus_displayof() is None:
+                return
+            if self.state() == "iconic":
+                return
+        except Exception:
+            return
+
+        if self._is_game_running():
+            try:
+                fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
+                root_hwnd = self.winfo_id()
+                dialog_hwnd = self._active_dialog.winfo_id() if self._active_dialog else 0
+                if fg_hwnd not in (root_hwnd, dialog_hwnd):
+                    return
+            except Exception:
+                return
+
+        if not self.xi_manager.is_available:
+            return
+
+        now = time.monotonic()
+        for slot in range(4):
+            res = self.xi_manager.poll_slot(slot)
+            if res is None:
+                continue
+            buttons, lx, ly = res
+            up, down, left, right = nav.stick_to_directions(lx, ly)
+            is_up = buttons["up"] or up
+            is_down = buttons["down"] or down
+            is_left = buttons["left"] or left
+            is_right = buttons["right"] or right
+
+            has_any = (
+                is_up or is_down or is_left or is_right
+                or buttons["a"] or buttons["b"] or buttons["x"] or buttons["y"]
+                or buttons["lb"] or buttons["rb"] or buttons["start"] or buttons["back"]
+            )
+            if has_any:
+                self._set_last_input_device("pad")
+
+            if self.repeat_tracker.update("up", is_up, now):
+                self._nav_up(device="pad")
+            if self.repeat_tracker.update("down", is_down, now):
+                self._nav_down(device="pad")
+            if self.repeat_tracker.update("left", is_left, now):
+                self._nav_left(device="pad")
+            if self.repeat_tracker.update("right", is_right, now):
+                self._nav_right(device="pad")
+
+            prev = self._prev_pad_buttons.get(slot, {})
+            if buttons["a"] and not prev.get("a"):
+                self._nav_activate(device="pad")
+            if buttons["b"] and not prev.get("b"):
+                self._nav_back(device="pad")
+            if buttons["lb"] and not prev.get("lb"):
+                self._nav_prev_page(device="pad")
+            if buttons["rb"] and not prev.get("rb"):
+                self._nav_next_page(device="pad")
+            if buttons["start"] and not prev.get("start"):
+                self._nav_play(device="pad")
+            if buttons["y"] and not prev.get("y"):
+                self.check_update_manual()
+
+            self._prev_pad_buttons[slot] = buttons
+            if has_any:
+                break
+
+    def ask_yes_no(self, title, msg, icon="question", default=True):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="yesno", default_yes=default, is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.askyesno(title, msg, parent=self)
+
+    def show_info(self, title, msg):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="info", is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.showinfo(title, msg, parent=self)
+
+    def show_error(self, title, msg):
+        try:
+            is_id = self.cfg.get("language") == "id"
+            dlg = LauncherDialog(self, title, msg, kind="error", is_id=is_id)
+            return dlg.show()
+        except Exception:
+            return messagebox.showerror(title, msg, parent=self)
+
     def _close(self):
+        if hasattr(self, "_nav_pad_poll_id") and self._nav_pad_poll_id:
+            try:
+                self.after_cancel(self._nav_pad_poll_id)
+            except Exception:
+                pass
+            self._nav_pad_poll_id = None
         self._cleanup_update_view()
         if self.proc and self.proc.poll() is None:
-            if not messagebox.askyesno("Game running", "Stop the game and close the launcher?"):
+            if not self.ask_yes_no("Game running", "Stop the game and close the launcher?"):
                 return
             self.proc.kill()
         try:

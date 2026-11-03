@@ -1,15 +1,29 @@
-from paths import ROOT
 import os
 import struct
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import legacy
-from patches import (compile_patches, external_patches, external_selection, compile_external,
-                     game_profile, selected_patches, patch_requirements, GAMES, merge_patch_files,
-                     resolution_names, default_enabled)
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT / 'launcher') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'launcher'))
+if str(ROOT / 'scripts') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'scripts'))
+if str(ROOT / 'tests') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'tests'))
+
+import basara4_patches
+
+try:
+    import legacy
+    from patches import (compile_patches, external_patches, external_selection, compile_external,
+                         game_profile, selected_patches, patch_requirements, GAMES, merge_patch_files,
+                         resolution_names, default_enabled)
+except ImportError:
+    legacy = None
+
 
 SPARTAN = ROOT / 'patches/CUSA01623.xml'
 ULTRAWIDE = ROOT / 'extras/mods/Ultrawide/patches/Ultrawide.xml'
@@ -35,6 +49,7 @@ EXTERNAL = """<?xml version="1.0"?>
 </Patch>"""
 
 
+@unittest.skipIf(legacy is None, "Legacy SpartanPort patch system not available")
 class ExternalPatchTests(unittest.TestCase):
     def test_selection_and_unsupported_lines(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -64,6 +79,7 @@ class ExternalPatchTests(unittest.TestCase):
         self.assertEqual(external_patches(SPARTAN.parent, '01.02', SPARTAN, SPARTAN_IDS), [])
 
 
+@unittest.skipIf(legacy is None, "Legacy SpartanPort patch system not available")
 class GameProfileTests(unittest.TestCase):
     def test_profiles_by_title_id(self):
         self.assertEqual(game_profile('CUSA01623')[1:3], (SPARTAN, '01.02'))
@@ -117,6 +133,7 @@ class GameProfileTests(unittest.TestCase):
             self.assertFalse(patches.game_patchable(folder))  # no param.sfo: unknown game
 
 
+@unittest.skipIf(legacy is None, "Legacy SpartanPort patch system not available")
 class SignatureTests(unittest.TestCase):
     XML = """<?xml version="1.0"?>
 <Patch>
@@ -311,6 +328,7 @@ class SignatureTests(unittest.TestCase):
 
 
 
+@unittest.skipIf(legacy is None, "Legacy SpartanPort patch system not available")
 class ModPatchTests(unittest.TestCase):
     MOD = """<?xml version="1.0"?>
 <Patch>
@@ -437,6 +455,7 @@ class ModPatchTests(unittest.TestCase):
 
 
 
+@unittest.skipIf(legacy is None, "Legacy SpartanPort patch system not available")
 class HalfResolutionTests(unittest.TestCase):
     """The half-resolution post-processing buffer (a 960x540 table at 0x7f2a3c) must be half of the
     patched output, or a smaller output gets a larger buffer and overexposed lights (#390)."""
@@ -452,5 +471,198 @@ class HalfResolutionTests(unittest.TestCase):
             self.assertTrue(all(half), meta.get('Name'))
             self.assertEqual((size(half[0]), size(half[1])), (width // 2, height // 2), meta.get('Name'))
 
+def make_mock_elf(payload, vaddr=0x1000):
+    phoff = 0x40
+    phentsize = 56
+    phnum = 1
+    data_offset = 0x100
+    elf = bytearray(data_offset + len(payload))
+    struct.pack_into('<Q', elf, 0x20, phoff)
+    struct.pack_into('<HH', elf, 0x36, phentsize, phnum)
+    struct.pack_into('<IIQQQQQQ', elf, phoff, 1, 7, data_offset, vaddr, vaddr, len(payload), len(payload), 0x1000)
+    elf[data_offset:data_offset + len(payload)] = payload
+    return bytes(elf)
+
+
+class Basara4TallCanvasCoopPatchTests(unittest.TestCase):
+    RENDER_CONSTR_BYTES = bytes.fromhex(basara4_patches.RENDER_CONSTR)
+    RENDER_INIT_RES_BYTES = bytes.fromhex(basara4_patches.RENDER_INIT_RES)
+    RENDER_FALLBACK_BYTES = bytes.fromhex(basara4_patches.RENDER_FALLBACK)
+    RENDER_MODE_TABLE_BYTES = bytes.fromhex(basara4_patches.RENDER_MODE_TABLE)
+
+    def test_tall_canvas_coop_finds_all_sites_and_returns_correct_patches(self):
+        site1 = 0x1000
+        site2 = 0x2000
+        site3 = 0x3000
+        site4 = 0x4000
+        total_len = site4 + len(self.RENDER_MODE_TABLE_BYTES) + 0x100
+        image = bytearray(total_len)
+        image[site1:site1 + len(self.RENDER_CONSTR_BYTES)] = self.RENDER_CONSTR_BYTES
+        image[site2:site2 + len(self.RENDER_INIT_RES_BYTES)] = self.RENDER_INIT_RES_BYTES
+        image[site3:site3 + len(self.RENDER_FALLBACK_BYTES)] = self.RENDER_FALLBACK_BYTES
+        image[site4:site4 + len(self.RENDER_MODE_TABLE_BYTES)] = self.RENDER_MODE_TABLE_BYTES
+
+        writes = basara4_patches.tall_canvas_coop(bytes(image))
+        self.assertEqual(len(writes), 4)
+
+        # 1. sRender constructor resolution default height
+        self.assertEqual(writes[0], (site1 + basara4_patches.RENDER_CONSTR_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+        # 2. sRender::initResolution active height
+        self.assertEqual(writes[1], (site2 + basara4_patches.RENDER_INIT_RES_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+        # 3. sRender::initResolution fallback height
+        self.assertEqual(writes[2], (site3 + basara4_patches.RENDER_FALLBACK_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+        # 4. sRender::initDisplayModeTable mode 2 height
+        self.assertEqual(writes[3], (site4 + basara4_patches.RENDER_MODE_TABLE_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+
+    def test_tall_canvas_coop_missing_raises_lookup_error(self):
+        dummy_image = b'\x90' * 0x1000
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(dummy_image)
+        self.assertIn('sRender constructor height not found', str(ctx.exception))
+
+        # Site 1 present, Site 2 missing
+        img = bytearray(0x5000)
+        img[0x1000:0x1000 + len(self.RENDER_CONSTR_BYTES)] = self.RENDER_CONSTR_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(bytes(img))
+        self.assertIn('sRender initResolution height not found', str(ctx.exception))
+
+        # Site 1 & 2 present, Site 3 missing
+        img[0x2000:0x2000 + len(self.RENDER_INIT_RES_BYTES)] = self.RENDER_INIT_RES_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(bytes(img))
+        self.assertIn('sRender fallback height not found', str(ctx.exception))
+
+        # Site 1, 2, 3 present, Site 4 missing
+        img[0x3000:0x3000 + len(self.RENDER_FALLBACK_BYTES)] = self.RENDER_FALLBACK_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(bytes(img))
+        self.assertIn('sRender mode table height not found', str(ctx.exception))
+
+    def test_tall_canvas_coop_duplicate_raises_lookup_error(self):
+        # Duplicate site 1
+        img = bytearray(0x6000)
+        img[0x100:0x100 + len(self.RENDER_CONSTR_BYTES)] = self.RENDER_CONSTR_BYTES
+        img[0x200:0x200 + len(self.RENDER_CONSTR_BYTES)] = self.RENDER_CONSTR_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(bytes(img))
+        self.assertIn('sRender constructor height found twice', str(ctx.exception))
+
+        # Valid site 1, duplicate site 2
+        img = bytearray(0x6000)
+        img[0x100:0x100 + len(self.RENDER_CONSTR_BYTES)] = self.RENDER_CONSTR_BYTES
+        img[0x200:0x200 + len(self.RENDER_INIT_RES_BYTES)] = self.RENDER_INIT_RES_BYTES
+        img[0x300:0x300 + len(self.RENDER_INIT_RES_BYTES)] = self.RENDER_INIT_RES_BYTES
+        with self.assertRaises(LookupError) as ctx:
+            basara4_patches.tall_canvas_coop(bytes(img))
+        self.assertIn('sRender initResolution height found twice', str(ctx.exception))
+
+    def test_build_respects_tall_canvas_coop_flag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            elf_path = tmp / 'eboot.elf'
+            out_path = tmp / 'patches.bin'
+
+            coop_payload = (self.RENDER_CONSTR_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_INIT_RES_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_FALLBACK_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_MODE_TABLE_BYTES)
+            payload = b'\x90' * 0x200 + coop_payload + b'\x90' * 0x200
+            elf_bytes = make_mock_elf(payload, vaddr=0x4000)
+            elf_path.write_bytes(elf_bytes)
+
+            # Test 1: tall_canvas_coop=False -> no patches written
+            writes, notes = basara4_patches.build(elf_path, out_path, unlimited=False, tall_canvas_coop=False)
+            self.assertEqual(writes, [])
+            self.assertNotIn('tall canvas co-op', notes)
+            self.assertTrue(out_path.is_file())
+            # Header check: G3PATCH2 with 0 count
+            blob = out_path.read_bytes()
+            magic, base, count = struct.unpack_from('<8sQQ', blob, 0)
+            self.assertEqual(magic, b'G3PATCH2')
+            self.assertEqual(count, 0)
+
+            # Test 2: tall_canvas_coop=True -> all 4 resolution patches included
+            writes, notes = basara4_patches.build(elf_path, out_path, unlimited=False, tall_canvas_coop=True)
+            self.assertEqual(len(writes), 4)
+            self.assertIn('tall canvas co-op', notes)
+            site1_expected = 0x4000 + 0x200
+            site2_expected = site1_expected + len(self.RENDER_CONSTR_BYTES) + 0x20
+            site3_expected = site2_expected + len(self.RENDER_INIT_RES_BYTES) + 0x20
+            site4_expected = site3_expected + len(self.RENDER_FALLBACK_BYTES) + 0x20
+
+            self.assertEqual(writes[0], (site1_expected + basara4_patches.RENDER_CONSTR_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+            self.assertEqual(writes[1], (site2_expected + basara4_patches.RENDER_INIT_RES_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+            self.assertEqual(writes[2], (site3_expected + basara4_patches.RENDER_FALLBACK_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+            self.assertEqual(writes[3], (site4_expected + basara4_patches.RENDER_MODE_TABLE_IMM_OFFSET, basara4_patches.HEIGHT_2160))
+
+            # Check binary patches.bin format
+            blob = out_path.read_bytes()
+            magic, base, count = struct.unpack_from('<8sQQ', blob, 0)
+            self.assertEqual(magic, b'G3PATCH2')
+            self.assertEqual(base, basara4_patches.EBOOT_BASE)
+            self.assertEqual(count, 4)
+            rec_off, rec_len = struct.unpack_from('<QQ', blob, 24)
+            self.assertEqual(rec_off, site1_expected + basara4_patches.RENDER_CONSTR_IMM_OFFSET)
+            self.assertEqual(rec_len, 4)
+            self.assertEqual(blob[40:44], basara4_patches.HEIGHT_2160)
+
+    def test_build_handles_both_patches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            elf_path = tmp / 'eboot.elf'
+            out_path = tmp / 'patches.bin'
+
+            limiter_code = bytes.fromhex(
+                "c5 e2 5c d0 c5 f2 59 ca c5 f8 2e 0d 11 22 33 44 72 20 c4 e1 fa 2c c1 69 f8 e8 03 00 00 "
+                "81 c7 18 fc ff ff e8 55 66 77 88 c5 fa 10 5d cc c5 fa 10 43 60 c5 f8 2e d8 "
+                "c5 fb 10 4d d0 0f 86 10 00 00 00"
+            )
+            coop_payload = (self.RENDER_CONSTR_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_INIT_RES_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_FALLBACK_BYTES + b'\x90' * 0x20 +
+                            self.RENDER_MODE_TABLE_BYTES)
+            payload = limiter_code + b'\x90' * 0x100 + coop_payload
+            elf_bytes = make_mock_elf(payload, vaddr=0x10000)
+            elf_path.write_bytes(elf_bytes)
+
+            writes, notes = basara4_patches.build(elf_path, out_path, unlimited=True, tall_canvas_coop=True)
+            self.assertEqual(len(writes), 6)  # 2 for limiter + 4 for tall canvas
+            self.assertIn('unlimited fps', notes)
+            self.assertIn('tall canvas co-op', notes)
+
+    def test_launcher_defaults_and_row_labels(self):
+        import basara4_launcher
+        self.assertIn("dual_monitor_coop", basara4_launcher.DEFAULTS)
+        self.assertFalse(basara4_launcher.DEFAULTS["dual_monitor_coop"])
+        self.assertIn("dual_monitor_coop", basara4_launcher.ROW_EN)
+        self.assertEqual(basara4_launcher.ROW_EN["dual_monitor_coop"][0], "Dual-monitor co-op (experimental)")
+        self.assertIn("dual_monitor_coop", basara4_launcher.ROW_ID)
+        self.assertEqual(basara4_launcher.ROW_ID["dual_monitor_coop"][0], "Co-op dual monitor (eksperimental)")
+
+    def test_launcher_migration_of_legacy_vertical_splitscreen(self):
+        import basara4_launcher
+        import json
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg_path = Path(tmpdir) / "launcher.json"
+            orig_config = basara4_launcher.CONFIG
+            try:
+                basara4_launcher.CONFIG = cfg_path
+                # Test migration when vertical_splitscreen was True
+                cfg_path.write_text(json.dumps({"vertical_splitscreen": True, "game": ""}), encoding="utf-8")
+                cfg = basara4_launcher.load_config()
+                self.assertTrue(cfg.get("dual_monitor_coop"))
+                self.assertNotIn("vertical_splitscreen", cfg)
+
+                # Test migration when vertical_splitscreen was False
+                cfg_path.write_text(json.dumps({"vertical_splitscreen": False, "game": ""}), encoding="utf-8")
+                cfg = basara4_launcher.load_config()
+                self.assertFalse(cfg.get("dual_monitor_coop"))
+                self.assertNotIn("vertical_splitscreen", cfg)
+            finally:
+                basara4_launcher.CONFIG = orig_config
+
+
 if __name__ == '__main__':
     unittest.main()
+

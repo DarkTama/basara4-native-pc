@@ -29,6 +29,7 @@ perf.data
 /docs/savedata_route/
 /docs/route*.txt
 /docs/route_run.log
+launcher/crashpulse.json
 mods.json
 patches.json
 !launcher/spartanport.png

@@ -70,6 +70,22 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 ## Cheat
 Lima cheat gameplay (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
 
+## Co-op dual monitor (eksperimental)
+> **Peringatan Fitur Eksperimental**: Fitur co-op dual monitor saat ini berstatus eksperimental (pengembangan dijeda untuk rilis v1.2.0). Split-screen pertempuran berjalan dengan baik, namun terdapat sejumlah glitch visual dan antarmuka akibat asumsi kanvas tunggal pada engine game.
+
+Fitur co-op lokal 2 pemain di dua monitor berdampingan menggunakan kanvas tinggi 1920x2160 native, menampilkan viewport masing-masing pemain secara 1:1 di layarnya sendiri.
+
+- **Yang berfungsi**: Tampilan split-screen pertempuran 2 pemain dengan rasio 16:9 (1080p) tanpa distorsi/peregangan dan HUD terpisah untuk masing-masing pemain. Tekan **F8** untuk beralih ke mode cermin (mirroring).
+- **Masalah umum (known issues)**:
+  - **Menu & cutscene gepeng vertikal**: Menu, persiapan pertempuran, layar hasil, dan cutscene dibuat untuk layar 16:9 tunggal sehingga terlihat gepeng/melebar secara vertikal (karakter tampak "gemuk"), termasuk saat F8 mirror aktif.
+  - **Banner layar penuh terbelah**: Saat mode mirror tidak aktif, popup tutorial dan pengumuman (misalnya pengumuman festival) terpotong di batas tengah monitor (setengah atas di monitor kiri, setengah bawah di monitor kanan).
+  - **Distorsi efek 2D layar penuh**: Roda roulette dan efek 2D minigame layar penuh lainnya terdistorsi pada kanvas tinggi.
+  - **Minimap terpotong & marker hilang**: Minimap terbelah di garis batas antarmonitor, dan marker/ikon penunjuk pada minimap hilang akibat kalkulasi skala koordinat GUI engine.
+  - **Beban hardware tinggi**: Merender pada resolusi 1920x2160 (~4,15 juta piksel, 2x piksel 1080p biasa, pool memori 6 GB); framerate (FPS) dalam pertempuran dapat turun drastis pada adegan ramai.
+  - **Konfigurasi display kaku**: Membutuhkan dua monitor 1920x1080 berdampingan secara horizontal dalam jendela borderless 3840x1080.
+- **Pelacakan isu & laporan**: Dilacak pada issue [#1](https://github.com/DarkTama/basara4-native-pc/issues/1). Laporan bug, tangkapan layar, dan log diagnostik (`user/last_run.log`) sangat diterima melalui GitHub issue atau fitur **"Laporkan masalah" / "Report a problem"** pada launcher.
+- Dokumentasi teknis lengkap: lihat [docs/dual_monitor_coop.md](docs/dual_monitor_coop.md).
+
 ## Kontrol
 - **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).
 - **F12**: Mengambil screenshot ke folder `user\`.

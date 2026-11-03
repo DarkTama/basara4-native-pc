@@ -96,6 +96,24 @@ bool CanBlitToSwapchain(const vk::PhysicalDevice physical_device, vk::Format for
     };
 }
 
+[[nodiscard]] vk::ImageBlit MakeImageBlitRegion(s32 src_x, s32 src_y, s32 src_width, s32 src_height,
+                                                s32 dst_x, s32 dst_y, s32 dst_width, s32 dst_height) {
+    return vk::ImageBlit{
+        .srcSubresource = MakeImageSubresourceLayers(),
+        .srcOffsets =
+            std::array{
+                vk::Offset3D{.x = src_x, .y = src_y, .z = 0},
+                vk::Offset3D{.x = src_x + src_width, .y = src_y + src_height, .z = 1},
+            },
+        .dstSubresource = MakeImageSubresourceLayers(),
+        .dstOffsets =
+            std::array{
+                vk::Offset3D{.x = dst_x, .y = dst_y, .z = 0},
+                vk::Offset3D{.x = dst_x + dst_width, .y = dst_y + dst_height, .z = 1},
+            },
+    };
+}
+
 [[nodiscard]] vk::ImageBlit MakeImageBlitStretch(s32 frame_width, s32 frame_height,
                                                  s32 swapchain_width, s32 swapchain_height) {
     return MakeImageBlit(frame_width, frame_height, swapchain_width, swapchain_height, 0, 0);
@@ -320,6 +338,13 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
     fsr_pass.Create(device, instance.GetAllocator(), num_images);
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
     SpartanOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images);
+
+    const u32 internal_h = EmulatorSettings.GetInternalScreenHeight();
+    const u32 internal_w = EmulatorSettings.GetInternalScreenWidth();
+    if (internal_h >= 2160) {
+        expected_frame_width = internal_w;
+        expected_frame_height = internal_h;
+    }
 
     const bool binary_cache = EmulatorSettingsImpl::Flag("SPARTAN_PIPELINE_BINARIES", true) &&
                               EmulatorSettings.IsPipelineCacheEnabled();
@@ -570,6 +595,13 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
         image_id = texture_cache.FindImage(desc);
         texture_cache.UpdateImage(image_id);
+    }
+
+    const u32 target_w = attribute.attrib.width ? attribute.attrib.width : EmulatorSettings.GetInternalScreenWidth();
+    const u32 target_h = attribute.attrib.height ? attribute.attrib.height : EmulatorSettings.GetInternalScreenHeight();
+    if (target_h >= 2160 && (expected_frame_height < target_h || expected_frame_width != target_w)) {
+        expected_frame_width = target_w;
+        expected_frame_height = target_h;
     }
 
     Frame* frame = GetRenderFrame();
@@ -947,10 +979,91 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         };
         cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer,
                                vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
-        cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                         vk::ImageLayout::eTransferDstOptimal,
-                         MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
-                         vk::Filter::eLinear);
+        const bool is_dual = extent.width >= 3840 && extent.height <= 1440;
+        const bool is_tall = frame->height >= 2 * extent.height;
+        const bool is_mirror = SpartanSettings::Get().dual_monitor_mirror.load();
+
+        enum class DualBranch {
+            None,
+            SingleMonitorFit,
+            DualMonitorNonTallMirror,
+            DualMonitorTallSplit,
+            DualMonitorTallMirror,
+        };
+
+        const DualBranch current_branch = !is_dual ? DualBranch::SingleMonitorFit
+            : (is_tall ? (is_mirror ? DualBranch::DualMonitorTallMirror : DualBranch::DualMonitorTallSplit)
+                       : DualBranch::DualMonitorNonTallMirror);
+
+        static DualBranch logged_branch = DualBranch::None;
+        if (current_branch != logged_branch) {
+            const char* branch_str = "single-monitor fit";
+            switch (current_branch) {
+            case DualBranch::DualMonitorTallSplit:
+                branch_str = "dual-monitor tall split";
+                break;
+            case DualBranch::DualMonitorTallMirror:
+                branch_str = "dual-monitor tall mirror";
+                break;
+            case DualBranch::DualMonitorNonTallMirror:
+                branch_str = "dual-monitor non-tall mirror";
+                break;
+            default:
+                break;
+            }
+            std::printf("Presenter: internal=%ux%u, frame=%ux%u, swapchain=%ux%u, branch=%s\n",
+                        EmulatorSettings.GetInternalScreenWidth(),
+                        EmulatorSettings.GetInternalScreenHeight(),
+                        frame->width, frame->height,
+                        extent.width, extent.height,
+                        branch_str);
+            logged_branch = current_branch;
+        }
+
+        if (is_dual) {
+            const s32 half_dst_w = static_cast<s32>(extent.width / 2);
+            const s32 dst_h = static_cast<s32>(extent.height);
+
+            if (is_tall) {
+                const s32 half_src_h = static_cast<s32>(frame->height / 2);
+                if (is_mirror) {
+                    // Tall Canvas Mirror mode (F8): blit full 1920x2160 canvas to both monitors
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, frame->height, 0, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, frame->height, half_dst_w, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                } else {
+                    // Tall Canvas Battle Split mode: top half (Player 1) -> Left monitor, bottom half (Player 2) -> Right monitor
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, half_src_h, 0, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, half_src_h, frame->width, half_src_h, half_dst_w, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                }
+            } else {
+                // Non-tall frame (e.g. 1080p frame): mirror full frame to both monitors
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(0, 0, frame->width, frame->height, 0, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                 vk::ImageLayout::eTransferDstOptimal,
+                                 MakeImageBlitRegion(0, 0, frame->width, frame->height, half_dst_w, 0, half_dst_w, dst_h),
+                                 vk::Filter::eLinear);
+            }
+        } else {
+            cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                             vk::ImageLayout::eTransferDstOptimal,
+                             MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
+                             vk::Filter::eLinear);
+        }
         if (VideoCore::ConsumeGameOnlyScreenshotRequests() != 0) {
             CaptureScreenshot(instance, scheduler, cmdbuf, *frame);
         }
@@ -1071,6 +1184,13 @@ Frame* Presenter::GetRenderFrame() {
 void Presenter::SetExpectedGameSize(s32 width, s32 height) {
     if (width <= 0 || height <= 0) {
         return; // no surface (minimized window): keep the last frame size
+    }
+    const u32 internal_h = EmulatorSettings.GetInternalScreenHeight();
+    const u32 internal_w = EmulatorSettings.GetInternalScreenWidth();
+    if (width >= 3840 && height <= 1440 && internal_h >= 2 * u32(height)) {
+        expected_frame_width = internal_w;
+        expected_frame_height = internal_h;
+        return;
     }
     const float ratio = (float)width / (float)height;
 

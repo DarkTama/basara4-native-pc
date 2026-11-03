@@ -23,6 +23,28 @@ LIMITER = ("c5 e2 5c d0 c5 f2 59 ca c5 f8 2e 0d ?? ?? ?? ?? 72 20 c4 e1 fa 2c c1
            "c5 fb 10 4d d0 0f 86 ?? ?? ?? ??")
 SLEEP_JB, SPIN_JBE = 16, 59
 
+# Site 1: sRender constructor resolution default (VA 0xdbd28e, file 0xdc128e)
+# mov dword ptr [rbx + 0xb8], 0x780; mov dword ptr [rbx + 0xbc], 0x438
+RENDER_CONSTR = "c7 83 b8 00 00 00 80 07 00 00 c7 83 bc 00 00 00 38 04 00 00"
+RENDER_CONSTR_IMM_OFFSET = 16
+
+# Site 2: sRender::initResolution active height (VA 0xdbc326, file 0xdc0326)
+# mov dword ptr [r13 + 0xb8], 0x780; mov dword ptr [r13 + 0xbc], 0x438
+RENDER_INIT_RES = "41 c7 85 b8 00 00 00 80 07 00 00 41 c7 85 bc 00 00 00 38 04 00 00"
+RENDER_INIT_RES_IMM_OFFSET = 18
+
+# Site 3: sRender::initResolution fallback height (VA 0xdbc360, file 0xdc0360)
+# movabs rax, 0x43800000780; mov qword ptr [r13 + 0xb8], rax
+RENDER_FALLBACK = "48 b8 80 07 00 00 38 04 00 00 49 89 85 b8 00 00 00"
+RENDER_FALLBACK_IMM_OFFSET = 6
+
+# Site 4: sRender::initDisplayModeTable mode 2 height (VA 0xdbcbe9, file 0xdc0be9)
+# movabs rax, 0x43800000780; mov qword ptr [rbx + r13 + 0x107ab80], rax
+RENDER_MODE_TABLE = "48 b8 80 07 00 00 38 04 00 00 4a 89 84 2b 80 ab 07 01"
+RENDER_MODE_TABLE_IMM_OFFSET = 6
+
+HEIGHT_2160 = struct.pack('<I', 2160)  # b'\x70\x08\x00\x00'
+
 
 def eboot_image(elf):
     """The PT_LOAD bytes of eboot.elf at their virtual addresses."""
@@ -74,6 +96,32 @@ def unlimited_fps(image):
             (jbe, b'\xe9' + struct.pack('<i', disp + 1) + b'\x90')]
 
 
+def tall_canvas_coop(image):
+    """[(image offset, bytes)] that increases sRender height from 1080 to 2160 across all 4 sites."""
+    sites1 = find(image, RENDER_CONSTR)
+    if len(sites1) != 1:
+        raise LookupError('sRender constructor height not found' if not sites1 else 'sRender constructor height found twice')
+
+    sites2 = find(image, RENDER_INIT_RES)
+    if len(sites2) != 1:
+        raise LookupError('sRender initResolution height not found' if not sites2 else 'sRender initResolution height found twice')
+
+    sites3 = find(image, RENDER_FALLBACK)
+    if len(sites3) != 1:
+        raise LookupError('sRender fallback height not found' if not sites3 else 'sRender fallback height found twice')
+
+    sites4 = find(image, RENDER_MODE_TABLE)
+    if len(sites4) != 1:
+        raise LookupError('sRender mode table height not found' if not sites4 else 'sRender mode table height found twice')
+
+    return [
+        (sites1[0] + RENDER_CONSTR_IMM_OFFSET, HEIGHT_2160),
+        (sites2[0] + RENDER_INIT_RES_IMM_OFFSET, HEIGHT_2160),
+        (sites3[0] + RENDER_FALLBACK_IMM_OFFSET, HEIGHT_2160),
+        (sites4[0] + RENDER_MODE_TABLE_IMM_OFFSET, HEIGHT_2160),
+    ]
+
+
 def write_patches(path, writes):
     blob = struct.pack('<8sQQ', b'G3PATCH2', EBOOT_BASE, len(writes))
     for offset, data in writes:
@@ -81,7 +129,7 @@ def write_patches(path, writes):
     Path(path).write_bytes(blob)
 
 
-def build(elf_path, out_path, unlimited):
+def build(elf_path, out_path, unlimited, tall_canvas_coop=False):
     writes = []
     notes = []
     image = eboot_image(Path(elf_path).read_bytes())
@@ -91,6 +139,12 @@ def build(elf_path, out_path, unlimited):
             notes.append('unlimited fps')
         except LookupError as error:
             notes.append(f'unlimited fps skipped: {error}')
+    if tall_canvas_coop:
+        try:
+            writes += globals()['tall_canvas_coop'](image)
+            notes.append('tall canvas co-op')
+        except LookupError as error:
+            notes.append(f'tall canvas co-op skipped: {error}')
     write_patches(out_path, writes)
     return writes, notes
 
@@ -100,8 +154,9 @@ if __name__ == '__main__':
     ap.add_argument('elf')
     ap.add_argument('out')
     ap.add_argument('--unlimited-fps', action='store_true')
+    ap.add_argument('--tall-canvas-coop', action='store_true')
     a = ap.parse_args()
-    writes, notes = build(a.elf, a.out, a.unlimited_fps)
+    writes, notes = build(a.elf, a.out, a.unlimited_fps, tall_canvas_coop=a.tall_canvas_coop)
     for offset, data in writes:
         print(f'  {offset + EBOOT_BASE:#x}: {data.hex()}')
     print('Patches:', ', '.join(notes) or 'none', f'({len(writes)} writes)')
