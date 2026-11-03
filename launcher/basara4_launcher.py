@@ -1365,11 +1365,23 @@ class Launcher(tk.Tk):
 
     def _art(self):
         self.cover = None
-        if Image is None or not self.cfg["game"]:
+        if Image is None:
+            return
+        art_path = Path(__file__).resolve().parent / "assets" / "cover_art.jpg"
+        if not art_path.is_file():
+            game = self.cfg.get("game")
+            art_path = (Path(game) / "sce_sys" / "icon0.png") if game else None
+        if not art_path or not Path(art_path).is_file():
             return
         try:
-            self.cover = ImageTk.PhotoImage(
-                Image.open(Path(self.cfg["game"]) / "sce_sys" / "icon0.png").convert("RGB").resize((220, 220)))
+            im = Image.open(art_path).convert("RGB")
+            dock_w = 208
+            w, h = im.size
+            if w > 0:
+                new_h = int(round(h * (dock_w / w)))
+                resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", 1))
+                im = im.resize((dock_w, new_h), resample)
+                self.cover = ImageTk.PhotoImage(im)
         except OSError:
             pass
 
