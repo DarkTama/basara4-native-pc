@@ -1349,7 +1349,7 @@ class Launcher(tk.Tk):
         self.play_now = play_now
         self.title("Sengoku Basara 4 Sumeragi - Basara 4 PC")
         self.configure(bg=BG)
-        self.geometry("1000x620")
+        self.geometry("1000x650")
         self.resizable(False, False)
         icon = Path(__file__).resolve().parent / "basara4.ico"
         if icon.is_file():
