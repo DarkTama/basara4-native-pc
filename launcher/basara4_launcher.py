@@ -809,9 +809,13 @@ ROW = ROW_EN
 NAV = NAV_EN
 PAGE_HINT = PAGE_HINT_EN
 PAGE_SUBTITLE = PAGE_SUBTITLE_EN
-GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls"}
-GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse"}
+GROUP_EN = {"translation": "Translation", "cheats": "Cheats", "controller": "Controller Management", "kbm": "Keyboard & Mouse Controls", "appearance": "Appearance"}
+GROUP_ID = {"translation": "Terjemahan", "cheats": "Cheat", "controller": "Manajemen Controller", "kbm": "Kontrol Keyboard & Mouse", "appearance": "Tampilan"}
 GROUP = GROUP_EN
+THEME_OPTIONS = [
+    ("Ashikaga Yoshiteru", "yoshiteru"),
+    ("Matsunaga Hisahide", "hisahide"),
+]
 CHEAT_HINT = CHEAT_HINT_EN
 
 ENGLISH_PATCH_DISCLAIMER = (
@@ -1335,6 +1339,9 @@ class Launcher(tk.Tk):
     def __init__(self, play_now=False):
         super().__init__()
         self.cfg = load_config()
+        current_theme = self.cfg.get("launcher_theme", "yoshiteru")
+        theme_mod.REGISTRY.current_theme = current_theme
+        sync_color_constants(theme_mod.get_theme(current_theme))
         self.proc = None
         self.busy = False
         self.user_stopped = False
@@ -1368,49 +1375,10 @@ class Launcher(tk.Tk):
 
     # ---- look ----
     def _style(self):
-        s = ttk.Style(self)
-        s.theme_use("clam")
-        s.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, bordercolor=PANEL,
-                    lightcolor=PANEL, darkcolor=PANEL, font=FONT)
-        s.configure("TFrame", background=BG)
-        s.configure("Panel.TFrame", background=PANEL)
-        s.configure("TLabel", background=BG, foreground=FG)
-        s.configure("Panel.TLabel", background=PANEL, foreground=FG)
-        s.configure("Muted.TLabel", background=PANEL, foreground=MUTED, font=("Segoe UI", 9))
-        s.configure("Head.TLabel", background=PANEL, foreground=GOLD, font=("Segoe UI Semibold", 11))
-        s.configure("TRadiobutton", background=PANEL, foreground=FG)
-        s.configure("TCheckbutton", background=PANEL, foreground=FG, indicatorbackground=FIELD,
-                    indicatorforeground=GOLD, upperbordercolor=EDGE, lowerbordercolor=EDGE)
-        s.map("TRadiobutton", background=[("active", PANEL)], foreground=[("active", GOLD)])
-        s.map("TCheckbutton", background=[("active", PANEL)], foreground=[("active", GOLD)],
-              indicatorbackground=[("active", FIELD)])
-        s.configure("TButton", background="#2a2622", foreground=FG, padding=(12, 2), borderwidth=1,
-                    bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622")
-        edge = [("focus", GOLD), ("disabled", LINE), ("active", "#3a342e")]  # a disabled button keeps a visible outline
-        s.map("TButton", background=[("active", "#3a342e"), ("disabled", "#1c1916")],
-              foreground=[("disabled", MUTED)], bordercolor=edge, lightcolor=edge, darkcolor=edge)
-        s.configure("Play.TButton", background=RED, foreground="#fff", font=("Segoe UI Semibold", 15),
-                    padding=(10, 12), bordercolor=RED, lightcolor=RED, darkcolor=RED)
-        play_edge = [("focus", GOLD), ("disabled", "#4a2522"), ("active", "#b8362d")]
-        s.map("Play.TButton", background=[("active", "#b8362d"), ("disabled", "#4a2522")],
-              bordercolor=play_edge, lightcolor=play_edge, darkcolor=play_edge)
-        s.configure("Seg.Toolbutton", background="#2a2622", foreground=FG, padding=(10, 6), borderwidth=1,
-                    bordercolor="#2a2622", lightcolor="#2a2622", darkcolor="#2a2622", anchor="center")
-        seg_edge = [("focus", GOLD), ("active", "#3a342e")]
-        s.map("Seg.Toolbutton", background=[("selected", GOLD), ("active", "#3a342e")],
-              foreground=[("selected", BG)], bordercolor=seg_edge, lightcolor=seg_edge, darkcolor=seg_edge)
-        s.configure("TCombobox", arrowcolor=GOLD, bordercolor=EDGE, lightcolor=EDGE, darkcolor=EDGE,
-                    padding=(6, 4), selectbackground=FIELD, selectforeground=FG)
-        s.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", FG)],
-              selectbackground=[("readonly", FIELD)], selectforeground=[("readonly", FG)],
-              bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
-        s.configure("TEntry", fieldbackground=FIELD, foreground=FG, insertcolor=FG, bordercolor=EDGE,
-                    lightcolor=EDGE, darkcolor=EDGE, padding=(6, 4))
-        s.map("TEntry", bordercolor=[("focus", GOLD)], lightcolor=[("focus", GOLD)], darkcolor=[("focus", GOLD)])
-        self.option_add("*TCombobox*Listbox.background", FIELD)
-        self.option_add("*TCombobox*Listbox.foreground", FG)
-        self.option_add("*TCombobox*Listbox.selectBackground", GOLD)
-        self.option_add("*TCombobox*Listbox.selectForeground", BG)
+        if not hasattr(self, "style"):
+            self.style = ttk.Style(self)
+        theme_name = self.cfg.get("launcher_theme", "yoshiteru")
+        theme_mod.apply_ttk_theme(self.style, theme_name, self)
 
     def _art(self):
         self.cover = None
@@ -1442,6 +1410,7 @@ class Launcher(tk.Tk):
         self.dlc_var = tk.StringVar(value=self.cfg.get("dlc_folder", ""))
         self.update_view = None
         self.mode_var = tk.StringVar(value=self.cfg["display_mode"])
+        self.theme_var = tk.StringVar(value=self.cfg.get("launcher_theme", "yoshiteru"))
         self.gpu_var, self.fps_var, self.aniso_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         self.res_var, self.up_var = tk.StringVar(), tk.StringVar()
         self.vsync_var = tk.BooleanVar(value=self.cfg["vsync"])
@@ -1478,12 +1447,16 @@ class Launcher(tk.Tk):
 
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True, padx=14, pady=14)
+        theme_mod.REGISTRY.register(self, bg="bg_main")
+        theme_mod.REGISTRY.register(shell, bg="bg_main")
         left = tk.Frame(shell, bg=PANEL, width=240, padx=16, pady=16)
         left.pack(side="left", fill="y", padx=(0, 12))
         left.pack_propagate(False)
+        theme_mod.REGISTRY.register(left, bg="bg_card")
         self._build_left(left)
         right = tk.Frame(shell, bg=PANEL)
         right.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(right, bg="bg_card")
         self._build_right(right)
         self._bind_nav_keys()
         self._update_button_hints()
@@ -1496,34 +1469,55 @@ class Launcher(tk.Tk):
         bottom = tk.Frame(left, bg=PANEL)  # packed first so a long status can never push it out
         bottom.pack(side="bottom", fill="x")
         self.mark_frame = bottom
+        theme_mod.REGISTRY.register(bottom, bg="bg_card")
         self.version_label = tk.Label(bottom, text=f"v{VERSION}", bg=PANEL, fg=MUTED, font=FONT_SMALL)
         self.version_label.pack(pady=(0, 6))
+        theme_mod.REGISTRY.register(self.version_label, bg="bg_card", fg="fg_muted")
         self.check_btn = ttk.Button(bottom, text="Check for updates", command=self.check_update_manual)
         self.check_btn.pack(fill="x")
         credit = tk.Frame(bottom, bg=PANEL, cursor="hand2")  # clicking it opens the credits
         credit.pack(pady=(10, 0))
+        theme_mod.REGISTRY.register(credit, bg="bg_card")
         c_line1 = tk.Frame(credit, bg=PANEL)
         c_line1.pack()
-        tk.Label(c_line1, text=f"{BRAND} ", bg=PANEL, fg=FG, font=FONT_SMALL, bd=0).pack(side="left")
-        tk.Label(c_line1, text=f"({FORK} Fork)", bg=PANEL, fg=FORK_ACCENT, font=("Segoe UI", 8, "bold"), bd=0).pack(side="left")
+        theme_mod.REGISTRY.register(c_line1, bg="bg_card")
+        lbl_b = tk.Label(c_line1, text=f"{BRAND} ", bg=PANEL, fg=FG, font=FONT_SMALL, bd=0)
+        lbl_b.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_b, bg="bg_card", fg="fg_primary")
+        lbl_f = tk.Label(c_line1, text=f"({FORK} Fork)", bg=PANEL, fg=FORK_ACCENT, font=("Segoe UI", 8, "bold"), bd=0)
+        lbl_f.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_f, bg="bg_card")
         c_line2 = tk.Frame(credit, bg=PANEL)
         c_line2.pack(pady=(1, 0))
-        tk.Label(c_line2, text=f"\u00b7 Original port by {AUTHOR}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "italic"), bd=0).pack(side="left")
+        theme_mod.REGISTRY.register(c_line2, bg="bg_card")
+        lbl_o = tk.Label(c_line2, text=f"\u00b7 Original port by {AUTHOR}", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "italic"), bd=0)
+        lbl_o.pack(side="left")
+        theme_mod.REGISTRY.register(lbl_o, bg="bg_card", fg="fg_muted")
         for widget in [credit, c_line1, c_line2] + c_line1.winfo_children() + c_line2.winfo_children():
             widget.bind("<Button-1>", lambda _e: self.show_credits())
 
         if self.cover:
             frame = tk.Frame(left, bg=GOLD, padx=1, pady=1)
             frame.pack()
-            tk.Label(frame, image=self.cover, bd=0, bg=PANEL).pack()
-        tk.Label(left, text="戦国BASARA4 皇", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12)).pack(pady=(12, 0))
-        tk.Label(left, text="Sengoku Basara 4 Sumeragi", bg=PANEL, fg=FG, font=FONT).pack()
-        tk.Label(left, text="CUSA01159", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack()
+            theme_mod.REGISTRY.register(frame, bg="accent_primary")
+            c_lbl = tk.Label(frame, image=self.cover, bd=0, bg=PANEL)
+            c_lbl.pack()
+            theme_mod.REGISTRY.register(c_lbl, bg="bg_card")
+        lbl_jp = tk.Label(left, text="戦国BASARA4 皇", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 12))
+        lbl_jp.pack(pady=(12, 0))
+        theme_mod.REGISTRY.register(lbl_jp, bg="bg_card", fg="accent_primary")
+        lbl_en = tk.Label(left, text="Sengoku Basara 4 Sumeragi", bg=PANEL, fg=FG, font=FONT)
+        lbl_en.pack()
+        theme_mod.REGISTRY.register(lbl_en, bg="bg_card", fg="fg_primary")
+        lbl_tid = tk.Label(left, text="CUSA01159", bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+        lbl_tid.pack()
+        theme_mod.REGISTRY.register(lbl_tid, bg="bg_card", fg="fg_muted")
         self.status = tk.Label(left, text="Ready", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), wraplength=208)
         self.status.pack(pady=(14, 8))
+        theme_mod.REGISTRY.register(self.status, bg="bg_card", fg="fg_muted")
         self.play = ttk.Button(left, text="PLAY", style="Play.TButton", command=self.on_play)
         self.play.pack(fill="x", pady=(0, 6))
-        self.stop = ttk.Button(left, text="Stop game", command=self.on_stop, state="disabled")
+        self.stop = ttk.Button(left, text="Stop game", style="Stop.TButton", command=self.on_stop, state="disabled")
         self.stop.pack(fill="x")
 
     def _build_right(self, right):
@@ -1551,33 +1545,50 @@ class Launcher(tk.Tk):
 
         content = tk.Frame(right, bg=PANEL)
         content.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(content, bg="bg_card")
         hint_bar = tk.Frame(content, bg=PANEL, height=28)  # on-screen button hints strip
         hint_bar.pack(side="bottom", fill="x")
         hint_bar.pack_propagate(False)
-        tk.Frame(hint_bar, bg=LINE, height=1).pack(fill="x")
+        theme_mod.REGISTRY.register(hint_bar, bg="bg_card")
+        hb_line = tk.Frame(hint_bar, bg=LINE, height=1)
+        hb_line.pack(fill="x")
+        theme_mod.REGISTRY.register(hb_line, bg="border_card")
         self.button_hints_label = tk.Label(
             hint_bar, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w", padx=20
         )
         self.button_hints_label.pack(side="left", fill="both", expand=True)
+        theme_mod.REGISTRY.register(self.button_hints_label, bg="bg_card", fg="fg_muted")
 
         tip = tk.Frame(content, bg=PANEL, height=35)  # the docked hint bar
         tip.pack(side="bottom", fill="x")
         tip.pack_propagate(False)
-        tk.Frame(tip, bg=LINE, height=1).pack(fill="x")
-        tk.Label(tip, text="?", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9)).pack(side="left", padx=(20, 6))
+        theme_mod.REGISTRY.register(tip, bg="bg_card")
+        tip_line = tk.Frame(tip, bg=LINE, height=1)
+        tip_line.pack(fill="x")
+        theme_mod.REGISTRY.register(tip_line, bg="border_card")
+        q_lbl = tk.Label(tip, text="?", bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9))
+        q_lbl.pack(side="left", padx=(20, 6))
+        theme_mod.REGISTRY.register(q_lbl, bg="bg_card", fg="accent_primary")
         self.hint = tk.Label(tip, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w")
         self.hint.pack(side="left", fill="x", expand=True)
+        theme_mod.REGISTRY.register(self.hint, bg="bg_card", fg="fg_muted")
         host = tk.Frame(content, bg=PANEL)
         host.pack(side="top", fill="both", expand=True, padx=20, pady=(16, 0))
+        theme_mod.REGISTRY.register(host, bg="bg_card")
         self.pages, self._lit_bar = {}, None
         for key, name in NAV:
             page = self.pages[key] = tk.Frame(host, bg=PANEL)
+            theme_mod.REGISTRY.register(page, bg="bg_card")
             title = tk.Frame(page, bg=PANEL)
             title.pack(fill="x", pady=(0, 8))
-            tk.Label(title, text=name, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 14)).pack(side="left")
+            theme_mod.REGISTRY.register(title, bg="bg_card")
+            t_lbl = tk.Label(title, text=name, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 14))
+            t_lbl.pack(side="left")
+            theme_mod.REGISTRY.register(t_lbl, bg="bg_card", fg="accent_primary")
             if key in PAGE_SUBTITLE:
-                tk.Label(title, text=PAGE_SUBTITLE[key], bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(
-                    side="left", padx=12, pady=(4, 0))
+                sub_lbl = tk.Label(title, text=PAGE_SUBTITLE[key], bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+                sub_lbl.pack(side="left", padx=12, pady=(4, 0))
+                theme_mod.REGISTRY.register(sub_lbl, bg="bg_card", fg="fg_muted")
         self._page_game(self.pages["game"])
         self._page_display(self.pages["display"])
         self._page_controls(self.pages["controls"])
@@ -1637,11 +1648,15 @@ class Launcher(tk.Tk):
         row.pack(fill="x")
         row.columnconfigure(1, weight=1)
         row.rowconfigure(0, minsize=40)
+        theme_mod.REGISTRY.register(row, bg="bg_card")
         bar = tk.Frame(row, bg=PANEL, width=3)
         bar.grid(row=0, column=0, sticky="ns")
-        tk.Label(row, text=label, bg=PANEL, fg=FG, font=FONT).grid(row=0, column=1, sticky="w",
-                                                                    padx=(10 + (23 if sub else 0), 0))
+        theme_mod.REGISTRY.register(bar, bg="bg_card")
+        lbl = tk.Label(row, text=label, bg=PANEL, fg=FG, font=FONT)
+        lbl.grid(row=0, column=1, sticky="w", padx=(10 + (23 if sub else 0), 0))
+        theme_mod.REGISTRY.register(lbl, bg="bg_card", fg="fg_primary")
         holder = tk.Frame(row, bg=PANEL)
+        theme_mod.REGISTRY.register(holder, bg="bg_card")
         if stack:  # a value too long for the right column gets the full width under its label
             holder.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(13, 10), pady=(0, 8))
         else:
@@ -1650,7 +1665,9 @@ class Launcher(tk.Tk):
             holder.config(width=width, height=height)
             holder.pack_propagate(False)
         make(holder)
-        tk.Frame(row, bg=RULE, height=1).grid(row=2, column=0, columnspan=3, sticky="ew")
+        rule = tk.Frame(row, bg=RULE, height=1)
+        rule.grid(row=2, column=0, columnspan=3, sticky="ew")
+        theme_mod.REGISTRY.register(rule, bg="border_card")
 
         def show(_event=None):
             self._light(bar)
@@ -1669,8 +1686,15 @@ class Launcher(tk.Tk):
         return row
 
     def _group(self, page, key):
-        tk.Label(page, text=GROUP[key].upper(), bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9),
-                 anchor="w").pack(fill="x", padx=13, pady=(14, 2))
+        motif = theme_mod.get_theme(self.cfg.get("launcher_theme", "yoshiteru")).get("motif", "")
+        txt = f"{motif} {GROUP[key].upper()}" if motif else GROUP[key].upper()
+        lbl = tk.Label(page, text=txt, bg=PANEL, fg=GOLD, font=("Segoe UI Semibold", 9),
+                       anchor="w")
+        lbl.pack(fill="x", padx=13, pady=(14, 2))
+        def update_grp(t):
+            m = t.get("motif", "")
+            lbl.config(text=f"{m} {GROUP[key].upper()}" if m else GROUP[key].upper(), bg=t["bg_card"], fg=t["accent_primary"])
+        theme_mod.REGISTRY.register_callback(update_grp)
 
     def _combo_row(self, page, key, var, values):
         need = max(self._font.measure(v) for v in values) + 48  # text + arrow + padding: nothing truncated
@@ -2000,6 +2024,31 @@ class Launcher(tk.Tk):
         self._button_row(page, "open_saves", "Open", self.open_saves)
         self._check_row(page, "audio_log", self.audio_var, self._audio_toggled)
         self._check_row(page, "audio_wav", self.wav_var, self._wav_toggled, sub=True)
+        self._group(page, "appearance")
+        def themes(holder):
+            for label, key in THEME_OPTIONS:
+                ttk.Radiobutton(holder, text=label, value=key,
+                                variable=self.theme_var, style="Seg.Toolbutton",
+                                command=self._on_theme_changed).pack(
+                    side="left", fill="both", expand=True, padx=1)
+        self._row(page, "launcher_theme", themes, width=340)
+
+    def _on_theme_changed(self):
+        new_theme = self.theme_var.get()
+        if new_theme not in ("yoshiteru", "hisahide"):
+            return
+        self.apply_theme(new_theme)
+
+    def apply_theme(self, theme_name):
+        if theme_name not in ("yoshiteru", "hisahide"):
+            theme_name = "yoshiteru"
+        self.cfg["launcher_theme"] = theme_name
+        save_config(self.cfg)
+        if hasattr(self, "theme_var") and self.theme_var.get() != theme_name:
+            self.theme_var.set(theme_name)
+        theme_mod.REGISTRY.apply_theme(theme_name, root=self, style=getattr(self, "style", None))
+        self.show_page(self._current_page or "tools")
+        self._update_button_hints()
 
     # ---- helpers ----
     def _browse(self):

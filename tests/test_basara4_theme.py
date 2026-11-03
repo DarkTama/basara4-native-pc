@@ -151,6 +151,23 @@ class TestBasara4Theme(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_launcher_live_theme_switching(self):
+        """Verifies Launcher instance live theme switching both ways."""
+        app = launcher.Launcher(play_now=False)
+        try:
+            app.show_page("tools")
+            app.theme_var.set("hisahide")
+            app._on_theme_changed()
+            self.assertEqual(app.cfg.get("launcher_theme"), "hisahide")
+            self.assertEqual(theme_mod.REGISTRY.current_theme, "hisahide")
+
+            app.theme_var.set("yoshiteru")
+            app._on_theme_changed()
+            self.assertEqual(app.cfg.get("launcher_theme"), "yoshiteru")
+            self.assertEqual(theme_mod.REGISTRY.current_theme, "yoshiteru")
+        finally:
+            app.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
