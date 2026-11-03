@@ -70,6 +70,15 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 ## Cheats
 Five gameplay cheats (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) are available from the launcher's **Mods & Cheats** page or in game via the overlay (**Insert** / **R3 + L2**). Cheats are off by default. They are authored for game version 01.02 and located by signature pattern on other versions.
 
+## Dual-monitor co-op (experimental)
+Local 2-player cooperative play across two side-by-side monitors using a native 1920x2160 tall canvas, presenting each player with a full 1920x1080 16:9 viewport on their own screen.
+
+- **Requirements**: Two side-by-side 1920x1080 monitors arranged horizontally in Windows display settings, spanning a 3840x1080 borderless window.
+- **Hardware Demands**: Renders at 1920x2160 (2x pixels / ~4.15 million pixels), requiring noticeably more GPU power, VRAM (6 GB+ recommended), and system RAM.
+- **Menu Mirroring & Hotkey**: Menus, cutscenes, and stage preparation screens are authored for single-screen 16:9; press **F8** during gameplay to toggle between battle split and menu mirroring.
+- **Known Limitations**: The in-game minimap only displays on Monitor 1 (game engine limitation). Minor visual glitches may occur.
+- Full technical documentation: see [docs/dual_monitor_coop.md](docs/dual_monitor_coop.md).
+
 ## Controls
 - **Insert** (Keyboard) or **R3 + L2** (Gamepad): Opens the in-game overlay menu (FSR settings, anisotropic filtering, controller status, cheats).
 - **F12**: Captures a screenshot to `user\`.

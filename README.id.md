@@ -70,6 +70,15 @@ python launcher/basara4_repatch.py "mods/ps3 english patch" --game game/CUSA0115
 ## Cheat
 Lima cheat gameplay (**Gold won't decrease**, **Special Coins: max (999,999)**, **Growth points won't decrease**, **Weapon points won't decrease**, **Weapon rank points won't decrease**) dapat diaktifkan dari tab **Mods & Cheats** di launcher atau di dalam game lewat menu overlay (**Insert** / **R3 + L2**). Cheat dimatikan secara default. Dibuat untuk game versi 01.02 dan dicari berdasarkan signature pada versi lainnya.
 
+## Co-op dual monitor (eksperimental)
+Fitur co-op lokal 2 pemain di dua monitor berdampingan menggunakan kanvas tinggi 1920x2160, memberikan tampilan 16:9 (1920x1080) native bagi masing-masing pemain di layarnya sendiri.
+
+- **Kebutuhan**: Dua monitor 1920x1080 berdampingan secara horizontal di pengaturan Windows, dalam jendela borderless 3840x1080.
+- **Kebutuhan Hardware**: Merender 1920x2160 (2x piksel / ~4,15 juta piksel), membutuhkan daya GPU lebih tinggi, VRAM lebih besar (minimal 6 GB disarankan), dan RAM sistem lebih besar.
+- **Menu Mirroring & Tombol Pintas**: Menu, cutscene, dan persiapan pertempuran dirancang untuk 16:9 layar tunggal; tekan **F8** saat bermain untuk beralih antara battle split dan menu mirroring.
+- **Batasan**: Minimap in-game hanya tampil di Monitor 1 (keterbatasan engine MT Framework). Kemungkinan terdapat glitch visual minor.
+- Dokumentasi teknis lengkap: lihat [docs/dual_monitor_coop.md](docs/dual_monitor_coop.md).
+
 ## Kontrol
 - **Insert** (Keyboard) atau **R3 + L2** (Gamepad): Membuka menu overlay dalam game (pengaturan FSR, anisotropic filtering, status controller, cheat).
 - **F12**: Mengambil screenshot ke folder `user\`.
