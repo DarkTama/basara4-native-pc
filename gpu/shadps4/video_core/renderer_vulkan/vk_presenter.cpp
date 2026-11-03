@@ -968,8 +968,33 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         if (extent.width >= 3840 && extent.height <= 1440) {
             const s32 half_dst_w = static_cast<s32>(extent.width / 2);
             const s32 dst_h = static_cast<s32>(extent.height);
-            if (SpartanSettings::Get().dual_monitor_mirror.load()) {
-                // Menu Mirroring mode: copy full 16:9 frame to both monitors
+            const bool is_tall = frame->height >= 2 * extent.height;
+
+            if (is_tall) {
+                const s32 half_src_h = static_cast<s32>(frame->height / 2);
+                if (SpartanSettings::Get().dual_monitor_mirror.load()) {
+                    // Tall Canvas Mirror mode (F8): blit top half (0..h/2) to both monitors
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, half_src_h, 0, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, half_src_h, half_dst_w, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                } else {
+                    // Tall Canvas Battle Split mode: top half (Player 1) -> Left monitor, bottom half (Player 2) -> Right monitor
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, 0, frame->width, half_src_h, 0, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                    cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
+                                     vk::ImageLayout::eTransferDstOptimal,
+                                     MakeImageBlitRegion(0, half_src_h, frame->width, half_src_h, half_dst_w, 0, half_dst_w, dst_h),
+                                     vk::Filter::eLinear);
+                }
+            } else {
+                // Non-tall frame (e.g. 1080p frame): mirror full frame to both monitors
                 cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
                                  vk::ImageLayout::eTransferDstOptimal,
                                  MakeImageBlitRegion(0, 0, frame->width, frame->height, 0, 0, half_dst_w, dst_h),
@@ -977,17 +1002,6 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                 cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
                                  vk::ImageLayout::eTransferDstOptimal,
                                  MakeImageBlitRegion(0, 0, frame->width, frame->height, half_dst_w, 0, half_dst_w, dst_h),
-                                 vk::Filter::eLinear);
-            } else {
-                // Battle Split mode: left half (Player 1) to Monitor 1, right half (Player 2) to Monitor 2
-                const s32 half_src_w = frame->width / 2;
-                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                                 vk::ImageLayout::eTransferDstOptimal,
-                                 MakeImageBlitRegion(0, 0, half_src_w, frame->height, 0, 0, half_dst_w, dst_h),
-                                 vk::Filter::eLinear);
-                cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                                 vk::ImageLayout::eTransferDstOptimal,
-                                 MakeImageBlitRegion(half_src_w, 0, half_src_w, frame->height, half_dst_w, 0, half_dst_w, dst_h),
                                  vk::Filter::eLinear);
             }
         } else {
