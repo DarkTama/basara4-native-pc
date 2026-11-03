@@ -23,11 +23,27 @@ LIMITER = ("c5 e2 5c d0 c5 f2 59 ca c5 f8 2e 0d ?? ?? ?? ?? 72 20 c4 e1 fa 2c c1
            "c5 fb 10 4d d0 0f 86 ?? ?? ?? ??")
 SLEEP_JB, SPIN_JBE = 16, 59
 
-SPLIT_TABLE = ("fa fe ff ff fd ff ff ff 00 ff ff ff 0a ff ff ff 14 ff ff ff "
-               "32 ff ff ff 50 ff ff ff 6f ff ff ff 8e ff ff ff c6 ff ff ff")
-ASPECT_SITE = "c5 ea 5e c9 c5 fa 59 c1 c3"
-HUD_P2_SITE = ("c5 f8 57 c0 c4 c1 7a 58 4f 50 c4 c1 7a 10 57 54 c5 ea 58 15 ?? ?? ?? ?? "
-               "c4 c1 7a 58 47 58 c5 fa 11 48 50")
+# Site 1: sRender constructor resolution default (VA 0xdbd28e, file 0xdc128e)
+# mov dword ptr [rbx + 0xb8], 0x780; mov dword ptr [rbx + 0xbc], 0x438
+RENDER_CONSTR = "c7 83 b8 00 00 00 80 07 00 00 c7 83 bc 00 00 00 38 04 00 00"
+RENDER_CONSTR_IMM_OFFSET = 16
+
+# Site 2: sRender::initResolution active height (VA 0xdbc326, file 0xdc0326)
+# mov dword ptr [r13 + 0xb8], 0x780; mov dword ptr [r13 + 0xbc], 0x438
+RENDER_INIT_RES = "41 c7 85 b8 00 00 00 80 07 00 00 41 c7 85 bc 00 00 00 38 04 00 00"
+RENDER_INIT_RES_IMM_OFFSET = 18
+
+# Site 3: sRender::initResolution fallback height (VA 0xdbc360, file 0xdc0360)
+# movabs rax, 0x43800000780; mov qword ptr [r13 + 0xb8], rax
+RENDER_FALLBACK = "48 b8 80 07 00 00 38 04 00 00 49 89 85 b8 00 00 00"
+RENDER_FALLBACK_IMM_OFFSET = 6
+
+# Site 4: sRender::initDisplayModeTable mode 2 height (VA 0xdbcbe9, file 0xdc0be9)
+# movabs rax, 0x43800000780; mov qword ptr [rbx + r13 + 0x107ab80], rax
+RENDER_MODE_TABLE = "48 b8 80 07 00 00 38 04 00 00 4a 89 84 2b 80 ab 07 01"
+RENDER_MODE_TABLE_IMM_OFFSET = 6
+
+HEIGHT_2160 = struct.pack('<I', 2160)  # b'\x70\x08\x00\x00'
 
 
 def eboot_image(elf):
@@ -80,28 +96,29 @@ def unlimited_fps(image):
             (jbe, b'\xe9' + struct.pack('<i', disp + 1) + b'\x90')]
 
 
-def vertical_splitscreen(image):
-    """[(image offset, bytes)] that changes splitscreen viewport mode from horizontal to vertical,
-    fixes 3D camera aspect ratio (un-stretch), and moves Player 2 HUD to Monitor 2."""
-    sites = find(image, SPLIT_TABLE)
-    if len(sites) != 1:
-        raise LookupError('split table not found' if not sites else 'split table found twice')
-    table_site = sites[0]
+def tall_canvas_coop(image):
+    """[(image offset, bytes)] that increases sRender height from 1080 to 2160 across all 4 sites."""
+    sites1 = find(image, RENDER_CONSTR)
+    if len(sites1) != 1:
+        raise LookupError('sRender constructor height not found' if not sites1 else 'sRender constructor height found twice')
 
-    aspect_sites = find(image, ASPECT_SITE)
-    if len(aspect_sites) != 1:
-        raise LookupError('aspect site not found' if not aspect_sites else 'aspect site found twice')
-    aspect_site = aspect_sites[0] + 8
+    sites2 = find(image, RENDER_INIT_RES)
+    if len(sites2) != 1:
+        raise LookupError('sRender initResolution height not found' if not sites2 else 'sRender initResolution height found twice')
 
-    hud_sites = find(image, HUD_P2_SITE)
-    if len(hud_sites) != 1:
-        raise LookupError('hud site not found' if not hud_sites else 'hud site found twice')
-    hud_site = hud_sites[0] + 16
+    sites3 = find(image, RENDER_FALLBACK)
+    if len(sites3) != 1:
+        raise LookupError('sRender fallback height not found' if not sites3 else 'sRender fallback height found twice')
+
+    sites4 = find(image, RENDER_MODE_TABLE)
+    if len(sites4) != 1:
+        raise LookupError('sRender mode table height not found' if not sites4 else 'sRender mode table height found twice')
 
     return [
-        (table_site + 8, b'\x14\xff\xff\xff\x32\xff\xff\xff'),
-        (aspect_site, b'\xc5\xf8\x2e\xd0\x76\x04\xc5\xfa\x58\xc0\xc3'),
-        (hud_site, b'\xc5\xf2\x58\x0d\xa1\x07\x0a\x01'),
+        (sites1[0] + RENDER_CONSTR_IMM_OFFSET, HEIGHT_2160),
+        (sites2[0] + RENDER_INIT_RES_IMM_OFFSET, HEIGHT_2160),
+        (sites3[0] + RENDER_FALLBACK_IMM_OFFSET, HEIGHT_2160),
+        (sites4[0] + RENDER_MODE_TABLE_IMM_OFFSET, HEIGHT_2160),
     ]
 
 
@@ -112,7 +129,7 @@ def write_patches(path, writes):
     Path(path).write_bytes(blob)
 
 
-def build(elf_path, out_path, unlimited, vertical_split=False):
+def build(elf_path, out_path, unlimited, tall_canvas_coop=False):
     writes = []
     notes = []
     image = eboot_image(Path(elf_path).read_bytes())
@@ -122,12 +139,12 @@ def build(elf_path, out_path, unlimited, vertical_split=False):
             notes.append('unlimited fps')
         except LookupError as error:
             notes.append(f'unlimited fps skipped: {error}')
-    if vertical_split:
+    if tall_canvas_coop:
         try:
-            writes += vertical_splitscreen(image)
-            notes.append('vertical split')
+            writes += globals()['tall_canvas_coop'](image)
+            notes.append('tall canvas co-op')
         except LookupError as error:
-            notes.append(f'vertical split skipped: {error}')
+            notes.append(f'tall canvas co-op skipped: {error}')
     write_patches(out_path, writes)
     return writes, notes
 
@@ -137,9 +154,9 @@ if __name__ == '__main__':
     ap.add_argument('elf')
     ap.add_argument('out')
     ap.add_argument('--unlimited-fps', action='store_true')
-    ap.add_argument('--vertical-split', action='store_true')
+    ap.add_argument('--tall-canvas-coop', action='store_true')
     a = ap.parse_args()
-    writes, notes = build(a.elf, a.out, a.unlimited_fps, vertical_split=a.vertical_split)
+    writes, notes = build(a.elf, a.out, a.unlimited_fps, tall_canvas_coop=a.tall_canvas_coop)
     for offset, data in writes:
         print(f'  {offset + EBOOT_BASE:#x}: {data.hex()}')
     print('Patches:', ', '.join(notes) or 'none', f'({len(writes)} writes)')
