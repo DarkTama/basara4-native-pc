@@ -1,12 +1,20 @@
 """Tests for launcher theme system (basara4_theme.py)."""
 
 import json
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+tcl_dir = Path(sys.prefix) / "tcl" / "tcl8.6"
+if tcl_dir.is_dir() and "TCL_LIBRARY" not in os.environ:
+    os.environ["TCL_LIBRARY"] = str(tcl_dir)
+tk_dir = Path(sys.prefix) / "tcl" / "tk8.6"
+if tk_dir.is_dir() and "TK_LIBRARY" not in os.environ:
+    os.environ["TK_LIBRARY"] = str(tk_dir)
+
 REPO = Path(__file__).resolve().parent.parent
-import sys
 sys.path.insert(0, str(REPO / "launcher"))
 
 import basara4_theme as theme_mod  # noqa: E402
