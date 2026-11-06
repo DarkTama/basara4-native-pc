@@ -35,7 +35,7 @@ VK_F9 = 0x78
 
 GPU_KEEP = re.compile(r"DEVICE LOST|checkpoint|stage |  #\d|image view range|depth/stencil|resolved to the depth|FindImage:|  cached|"
                       r"cannot serve|GetBarriers|Assertion|Unreachable|STOP:|Fault|AddSource|Image overlap|Unresolvable|Error|Critical|"
-                      r"Frame capture", re.I)
+                      r"Frame capture|narrow request|extent mismatch|Image overlap resolve", re.I)
 GPU_DROP = re.compile(r"open\(.*not found|GetAudioData|Pipeline binary cache|HLE thread|Extension VK_|is not fully supported|semaphore id=")
 AUDIO_KEEP = re.compile(r"ngs2\.parse_file path=.*(event|bgm)|ngs2\.end .*stream_complete|ngs2\.start .*channels=6|ngs2\.event1|"
                         r"ngs2\.at9_decode_failed|AvPlayer|Fault|Assertion")

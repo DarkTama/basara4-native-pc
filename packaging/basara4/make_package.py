@@ -176,8 +176,11 @@ def main():
     # documents
     for doc in ("NOTICE.md", "LICENSE"):
         shutil.copy2(REPO / doc, target / doc)
-    for doc in ("README.txt", "README.id.txt", "Play Sengoku Basara 4.cmd"):
+    for doc in ("README.txt", "README.id.txt", "Play Sengoku Basara 4.cmd", "Debug run.cmd"):
         shutil.copy2(HERE / doc, target / doc)
+    # opt-in debug recorder started by "Debug run.cmd"
+    (target / "tools").mkdir(exist_ok=True)
+    shutil.copy2(REPO / "tools" / "debug_watch.py", target / "tools" / "debug_watch.py")
 
     if not args.update:
         for folder in ("game", "user", "out"):

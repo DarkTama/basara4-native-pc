@@ -792,6 +792,47 @@ std::tuple<ImageId, int, int> TextureCache::ResolveOverlap(const ImageInfo& imag
             }
             return {cache_image_id, -1, -1};
         }
+        // Basara 4 PC: a narrower request at the address of a wider image (the cutscene bloom/DOF chain: a
+        // 960x540 target in memory the 1920x1080 scene target used before). The generic "size is smaller, use a
+        // view" rule further down handed out the wide image itself, so the pass drew its half-size picture
+        // into the top-left corner of it (the ghost); a different pitch also means a different memory layout.
+        // The guest reuses the memory for another surface (pool allocation), so the request gets its own
+        // image, as in the block-size case below.
+        // SPARTAN_HALF_TARGET_FIX: 0 = old behaviour, log only (default until confirmed in game), 1 = render/depth
+        // targets, 2 = textures and storage images too ("Debug run.cmd" sets 1). Toggle bit NarrowRequestOwnImage switches it off live.
+        {
+            static const int fix_mode = [] {
+                const char* value = std::getenv("SPARTAN_HALF_TARGET_FIX");
+                return value && value[0] >= '0' && value[0] <= '2' ? value[0] - '0' : 0;
+            }();
+            if (a.size.width < b.size.width && a.size.height <= b.size.height && a.type == b.type &&
+                a.num_samples == b.num_samples && a.size.depth == b.size.depth &&
+                a.BlockDim() == b.BlockDim() && lhs_block_size == rhs_block_size) {
+                const bool is_target =
+                    binding == BindingType::RenderTarget || binding == BindingType::DepthTarget;
+                const bool applied = (fix_mode >= 2 || (fix_mode == 1 && is_target)) &&
+                                     !SpartanToggle::Disabled(SpartanToggle::NarrowRequestOwnImage);
+                static u32 logged = 0;
+                if (logged++ < 48) {
+                    LOG_WARNING(Render_Vulkan,
+                                "[{}] narrow request at a wider image's address {:#x}: wanted {} {}x{} pitch {} levels {} "
+                                "binding {}; cached {} {}x{} pitch {} levels {} (idle {} ticks, bound {}, target {}); {}",
+                                Vulkan::GpuCheckpoint::WallClock(), a.guest_address, vk::to_string(a.pixel_format),
+                                a.size.width, a.size.height, a.pitch, a.resources.levels, static_cast<int>(binding),
+                                vk::to_string(b.pixel_format), b.size.width, b.size.height, b.pitch, b.resources.levels,
+                                scheduler.CurrentTick() - cache_image.tick_accessed_last,
+                                cache_image.binding.is_bound ? 1 : 0, cache_image.binding.is_target ? 1 : 0,
+                                applied ? (safe_to_delete ? "own image, cached one freed" : "own image")
+                                        : "view of the wider image (fix off)");
+                }
+                if (applied) {
+                    if (safe_to_delete) {
+                        FreeImage(cache_image_id);
+                    }
+                    return {merged_image_id, -1, -1};
+                }
+            }
+        }
         if (image_info.BlockDim() != cache_image.info.BlockDim() ||
             lhs_block_size != rhs_block_size) {
             // Very likely this kind of overlap is caused by allocation from a pool.
@@ -1207,6 +1248,28 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
                             True(c.flags & ImageFlagBits::Registered) ? 1 : 0,
                             scheduler.CurrentTick() - c.tick_accessed_last, cache_id == image_id ? " (chosen)" : "");
             }
+        }
+    }
+
+    // Basara 4 PC: a request of one extent answered with an image of another at the same address
+    // (the half-size ghost: a 960x540 pass drawing into a 1920x1080 image). Once per distinct case, 64 at most.
+    if (image.info.guest_address == info.guest_address && view_mip <= 0 &&
+        (image.info.size.width != info.size.width || image.info.size.height != info.size.height)) {
+        static u32 logged = 0;
+        static std::array<u64, 64> seen{};
+        const u64 sig = info.guest_address ^ u64(info.size.width) << 40 ^ u64(info.size.height) << 52 ^
+                        u64(image.info.size.width) << 20 ^ u64(image.info.size.height) << 8 ^ u64(desc.type);
+        if (logged < seen.size() && std::ranges::find(seen, sig) == seen.end()) {
+            seen[logged++] = sig;
+            LOG_WARNING(Render_Vulkan,
+                        "[{}] FindImage extent mismatch at {:#x}: wanted {} {}x{} pitch {} levels {} layers {} binding {} "
+                        "native {} exact {}; got {} {}x{} pitch {} levels {} layers {} (view mip {} slice {}, {} cached here)",
+                        Vulkan::GpuCheckpoint::WallClock(), info.guest_address, vk::to_string(info.pixel_format),
+                        info.size.width, info.size.height, info.pitch, info.resources.levels, info.resources.layers,
+                        static_cast<int>(desc.type), desc.needs_native, exact_fmt,
+                        vk::to_string(image.info.pixel_format), image.info.size.width, image.info.size.height,
+                        image.info.pitch, image.info.resources.levels, image.info.resources.layers, view_mip,
+                        view_slice, image_ids.size());
         }
     }
 
